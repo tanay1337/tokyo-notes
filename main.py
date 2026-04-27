@@ -106,6 +106,10 @@ class TokyoNotes(Adw.Application):
         dialog.show()
 
     def do_activate(self):
+        # Force dark mode to ensure Tokyo Night theme remains consistent
+        style_manager = Adw.StyleManager.get_default()
+        style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+
         # Apply Tokyo Night CSS
         style_provider = Gtk.CssProvider()
         style_provider.load_from_path('style.css')
