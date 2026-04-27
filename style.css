@@ -1,0 +1,189 @@
+/* Tokyo Night Theme for GTK4 (Apple Notes Style) */
+
+@define-color bg_color #1a1b26;
+@define-color sidebar_bg #16161e;
+@define-color fg_color #a9b1d6;
+@define-color accent_color #7aa2f7;
+@define-color selection_color #33467c;
+@define-color header_bg #1f2335;
+@define-color border_color #292e42;
+@define-color deadline_color #ff9e64;
+
+window {
+    background-color: @bg_color;
+    color: @fg_color;
+    font-family: "SF Pro Text", "SF Pro Display", "SF Pro", "Inter", "Segoe UI", "Roboto", "Sans-Serif";
+}
+
+headerbar {
+    background-color: @bg_color;
+    color: @fg_color;
+    border-bottom: 1px solid @border_color;
+}
+
+.sidebar {
+    background-color: @sidebar_bg;
+    border-right: 1px solid @border_color;
+}
+
+.sidebar-label {
+    font-size: 11pt;
+    font-weight: 500;
+}
+
+list {
+    background-color: transparent;
+}
+
+row {
+    padding: 10px 15px;
+    margin: 2px 8px;
+    border-radius: 6px;
+    border: none;
+}
+
+.dashboard-row {
+    padding: 5px 10px;
+    margin: 1px 8px;
+    border-radius: 4px;
+}
+
+row:selected {
+    background-color: @selection_color;
+    color: white;
+}
+
+textview text {
+    background-color: @bg_color;
+    color: @fg_color;
+    font-size: 12pt;
+    line-height: 2.1;
+}
+
+.toolbar button.active {
+    background-color: #3584e4;
+    color: white;
+}
+
+.toolbar {
+    background-color: @bg_color;
+    border-bottom: 1px solid @border_color;
+    padding: 5px;
+}
+
+.toolbar-btn {
+    font-size: 10pt;
+    font-weight: 400;
+    padding: 2px 6px;
+    min-height: 24px;
+}
+
+button:hover {
+    background-color: @selection_color;
+}
+
+entry {
+    background-color: @bg_color;
+    color: @fg_color;
+    border: 1px solid @border_color;
+    border-radius: 6px;
+    padding: 6px;
+    margin: 10px;
+}
+
+textview {
+    background-color: @bg_color;
+}
+
+text {
+    background-color: @bg_color;
+}
+
+.code-block-container {
+    background-color: #1a1b26;
+    border-radius: 8px;
+    border: 1px solid #292e42;
+    padding: 12px;
+    margin: 8px 0;
+}
+
+.dashboard-header {
+    font-weight: bold;
+    font-size: 13pt;
+    color: #7aa2f7;
+    padding: 5px 5px 5px 5px;
+}
+
+.dashboard-footer-btn {
+    margin: 10px;
+    padding: 12px;
+    border-radius: 8px;
+    background-color: #292e42;
+    color: #a9b1d6;
+    font-weight: 500;
+}
+
+.dashboard-footer-btn:hover {
+    background-color: #414868;
+}
+
+.dashboard-view {
+    background-color: @bg_color;
+}
+
+.dashboard-title {
+    font-weight: bold;
+    font-size: 14pt;
+    color: @fg_color;
+}
+
+.calendar-row {
+    padding: 8px 12px;
+    margin: 4px 8px;
+    border-radius: 8px;
+    background-color: #1f2335;
+    border-left: 4px solid @accent_color;
+}
+
+.time-column {
+    font-size: 9pt;
+    color: #7aa2f7;
+    font-weight: 600;
+    min-width: 65px;
+}
+
+.day-header {
+    font-weight: bold;
+    font-size: 11pt;
+    color: #ff9e64;
+    padding: 15px 10px 5px 10px;
+}
+
+.note-chip {
+    background-color: #33467c;
+    color: #a9b1d6;
+    padding: 1px 8px;
+    border-radius: 12px;
+    font-size: 8pt;
+    font-weight: 500;
+}
+
+.deadline-chip {
+    background-color: @selection_color;
+    color: @accent_color;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 8pt;
+    font-weight: 500;
+}
+
+.status-bar {
+    background-color: @sidebar_bg;
+    padding: 4px 15px;
+    border-top: 1px solid @border_color;
+}
+
+.stats-label {
+    font-size: 9pt;
+    color: #565f89;
+}
