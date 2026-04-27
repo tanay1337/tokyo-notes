@@ -45,15 +45,72 @@ class TokyoNotes(Adw.Application):
         self.rename_timeout_id = 0
         self.changed_handler_id = 0
         self.is_updating_images = False
+        self.link_anchors = {}
+        self.image_anchors = []
         
         # Actions
+        self.pinned_path = self.config_dir / "pinned.json"
+        self.pinned_notes = self.load_pinned()
         self.setup_actions()
 
+    def load_config(self):
+        default_config = {
+            'notes_folder': str(Path.home() / "Documents" / "TokyoNotes" if (Path.home() / "Documents").exists() else "notes"),
+            'show_sidebar': True,
+            'show_toolbar': True,
+            'show_stats': False
+        }
+        if self.config_path.exists():
+            try:
+                return {**default_config, **json.loads(self.config_path.read_text())}
+            except:
+                pass
+        return default_config
+
+    def save_config(self):
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.config_path.write_text(json.dumps(self.config))
+        except:
+            pass
+
+    def load_pinned(self):
+        if self.pinned_path.exists():
+            try:
+                return json.loads(self.pinned_path.read_text())
+            except:
+                pass
+        return []
+
+    def save_pinned(self):
+        self.pinned_path.write_text(json.dumps(self.pinned_notes))
+
+    def on_pin_note(self, action, parameter):
+        note_name = parameter.get_string()
+        if note_name not in self.pinned_notes:
+            self.pinned_notes.append(note_name)
+            self.save_pinned()
+            self.refresh_list(self.sidebar.search_entry.get_text())
+
+    def on_unpin_note(self, action, parameter):
+        note_name = parameter.get_string()
+        if note_name in self.pinned_notes:
+            self.pinned_notes.remove(note_name)
+            self.save_pinned()
+            self.refresh_list(self.sidebar.search_entry.get_text())
+
     def setup_actions(self):
-        # Delete action
         delete_action = Gio.SimpleAction.new("delete", GLib.VariantType.new("s"))
         delete_action.connect("activate", self.on_delete_action)
         self.add_action(delete_action)
+        
+        pin_action = Gio.SimpleAction.new("pin", GLib.VariantType.new("s"))
+        pin_action.connect("activate", self.on_pin_note)
+        self.add_action(pin_action)
+        
+        unpin_action = Gio.SimpleAction.new("unpin", GLib.VariantType.new("s"))
+        unpin_action.connect("activate", self.on_unpin_note)
+        self.add_action(unpin_action)
 
     def load_config(self):
         default_config = {
@@ -315,39 +372,63 @@ class TokyoNotes(Adw.Application):
         self.text_view.grab_focus()
 
     def refresh_list(self, filter_text=""):
-        while (child := self.note_list.get_first_child()):
-            self.note_list.remove(child)
-        notes = self.notes_manager.get_notes(filter_text)
+        while (child := self.sidebar.note_list.get_first_child()):
+            self.sidebar.note_list.remove(child)
+        all_notes = self.notes_manager.get_notes(filter_text)
         
-        if not notes and filter_text:
+        pinned = [n for n in all_notes if n in self.pinned_notes]
+        others = [n for n in all_notes if n not in self.pinned_notes]
+        
+        if not all_notes and filter_text:
             row = Gtk.ListBoxRow()
             label = Gtk.Label(label="No notes found", xalign=0.5)
             label.add_css_class("dim-label")
             row.set_child(label)
             row.set_selectable(False)
-            self.note_list.append(row)
+            self.sidebar.note_list.append(row)
         else:
-            for note in notes:
-                self.add_note_row(note)
+            if pinned:
+                for note in pinned:
+                    self.add_note_row(note, is_pinned=True)
+            
+            for note in others:
+                self.add_note_row(note, is_pinned=False)
 
-    def add_note_row(self, note):
+    def add_note_row(self, note, is_pinned=False):
         row = Gtk.ListBoxRow()
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        
         label = Gtk.Label(label=note, xalign=0)
         label.add_css_class("sidebar-label")
-        row.set_child(label)
+        label.set_hexpand(True)
+        box.append(label)
+        
+        if is_pinned:
+            pin_icon = Gtk.Image.new_from_icon_name("pin-symbolic")
+            box.append(pin_icon)
+        
+        row.set_child(box)
         row.note_name = note
         
         # Right Click Menu
         gesture = Gtk.GestureClick(button=3)
         gesture.connect("pressed", self.on_row_right_click, row)
         row.add_controller(gesture)
-        
-        self.note_list.append(row)
+
+        self.sidebar.note_list.append(row)
 
     def on_row_right_click(self, gesture, n_press, x, y, row):
+        note_name = getattr(row, 'note_name', None)
+        if not note_name:
+            return
+
         menu = Gio.Menu()
-        menu.append("Delete", f"app.delete::{row.note_name}")
-        
+        menu.append("Delete", f"app.delete::{note_name}")
+        if note_name in self.pinned_notes:
+            menu.append("Unpin", f"app.unpin::{note_name}")
+        else:
+            menu.append("Pin", f"app.pin::{note_name}")
+            
         popover = Gtk.PopoverMenu.new_from_model(menu)
         popover.set_parent(row)
         popover.set_pointing_to(Gdk.Rectangle(x=x, y=y, width=1, height=1))
@@ -402,12 +483,16 @@ class TokyoNotes(Adw.Application):
         if not row or self.is_loading:
             return
         
+        note_name = getattr(row, 'note_name', None)
+        if not note_name:
+            return
+
         # Switch to editor view if in dashboard
         self.content_box.set_visible(True)
         self.dashboard_view.set_visible(False)
         
         self.is_loading = True
-        self.current_note = row.note_name
+        self.current_note = note_name
         self.content_title.set_label(self.current_note)
         content = self.notes_manager.read_note(self.current_note)
         self.buffer.handler_block(self.changed_handler_id)
@@ -903,23 +988,14 @@ class TokyoNotes(Adw.Application):
         if match:
             new_title = "".join([c for c in match.group(1).strip() if c.isalnum() or c in (' ', '-', '_')]).strip()
             if new_title and new_title != self.current_note:
-                # Collision check: Don't rename if the new title already exists as a different file
+                # Collision check
                 if not (Path(self.notes_manager.notes_dir) / f"{new_title}.md").exists():
                     if self.notes_manager.rename_note(self.current_note, new_title):
-                        old_note = self.current_note
                         self.current_note = new_title
-                        # Update sidebar
-                        row = self.note_list.get_first_child()
-                        while row:
-                            if hasattr(row, 'note_name') and row.note_name == old_note:
-                                row.note_name = new_title
-                                row.get_child().set_label(new_title)
-                                break
-                            row = row.get_next_sibling()
                         self.content_title.set_label(self.current_note)
+                        self.refresh_list() # Force immediate UI update
         
         self.notes_manager.save_note(self.current_note, content)
-        self.refresh_list()
         return False
 
     def on_text_changed(self, buffer):
