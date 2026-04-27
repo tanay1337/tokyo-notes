@@ -25,6 +25,7 @@ from core.utils import escape_xml, format_markdown_inline
 from ui.sidebar import Sidebar
 from ui.editor import Editor
 from ui.dashboard import Dashboard
+from ui.deadline_picker import DeadlinePicker
 
 class TokyoNotes(Adw.Application):
     def __init__(self, **kwargs):
@@ -440,16 +441,42 @@ class TokyoNotes(Adw.Application):
         self.content_title.set_label("Dashboard")
 
     def on_dashboard_header_clicked(self, gesture, n_press, x, y, note_name):
-        self.content_box.set_visible(True)
+        self.ui.content_box.set_visible(True)
         self.dashboard_view.set_visible(False)
-        self.content_title.set_label(note_name)
+        self.ui.content_title.set_label(note_name)
         
-        row = self.note_list.get_first_child()
+        row = self.ui.sidebar.note_list.get_first_child()
         while row:
             if hasattr(row, 'note_name') and row.note_name.lower() == note_name.lower():
-                self.note_list.select_row(row)
+                self.ui.sidebar.note_list.select_row(row)
                 break
             row = row.get_next_sibling()
+
+    def handle_deadline_click(self, x, y, note_name=None, line_num=None, widget=None):
+        """Helper to launch DeadlinePicker."""
+        def on_date_selected(deadline):
+            if note_name and line_num:
+                self.notes_manager.update_deadline(note_name, line_num, deadline)
+                self.refresh_dashboard()
+                self.refresh_list(self.sidebar.search_entry.get_text())
+                if self.current_note == note_name:
+                    content = self.notes_manager.read_note(note_name)
+                    self.buffer.set_text(content)
+            else:
+                self.buffer.insert_at_cursor(f"@{deadline}")
+
+        picker = DeadlinePicker(on_date_selected)
+
+        # Position the picker precisely at the click coordinates
+        rect = Gdk.Rectangle()
+        rect.x = int(x)
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
+
+        picker.set_parent(self.text_view)
+        picker.set_pointing_to(rect)
+        picker.popup()
 
     def refresh_dashboard(self, filter_type="today"):
         while (child := self.dashboard_list.get_first_child()):
@@ -491,6 +518,11 @@ class TokyoNotes(Adw.Application):
             time_str = get_time_label(cb.get('deadline'))
             time_label = Gtk.Label(label=time_str)
             time_label.add_css_class("time-column")
+            
+            # Deadline Edit Handler for the time label
+            gesture = Gtk.GestureClick.new()
+            gesture.connect("pressed", lambda g, n, x, y: self.handle_deadline_click(x, y, cb['note'], cb['line'], time_label))
+            time_label.add_controller(gesture)
             box.append(time_label)
             
             # Checkbox
@@ -616,6 +648,8 @@ class TokyoNotes(Adw.Application):
     def scroll_to_line(self, line_num):
         # Adjust for 0-based indexing
         it = self.buffer.get_iter_at_line(line_num - 1)
+        if not isinstance(it, Gtk.TextIter):
+            it = it[1]
         mark = self.buffer.create_mark(None, it, True)
         self.text_view.scroll_to_mark(mark, 0.0, True, 0.5, 0.1)
         self.buffer.delete_mark(mark)
@@ -647,9 +681,6 @@ class TokyoNotes(Adw.Application):
 # ... (removed action methods) ...
 
     def on_click_pressed(self, gesture, n_press, x, y):
-# Removed debug print
-        pass
-        # Allow single or double clicks to trigger link handling
         self.handle_link_click(x, y)
 
     def handle_link_click(self, x, y):
@@ -700,6 +731,12 @@ class TokyoNotes(Adw.Application):
                 tag = match.group(0)
                 self.sidebar.search_entry.set_text(tag)
                 self.on_search_changed(self.sidebar.search_entry)
+                return
+
+        # Regex to match Deadlines
+        for match in re.finditer(r'@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)', text):
+            if match.start() <= cursor_offset <= match.end():
+                self.handle_deadline_click(x, y, self.current_note, cursor_iter.get_line() + 1)
                 return
 
         return found_link

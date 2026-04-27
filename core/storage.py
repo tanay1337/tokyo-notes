@@ -84,7 +84,7 @@ class NotesManager:
             content = self.read_note(note_name)
             lines = content.split('\n')
             for line_num, line in enumerate(lines, 1):
-                match = re.match(r'^(\s*)-\s*\[([ x])\]\s*(.+?)(?:\s+@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?))?$', line)
+                match = re.match(r'^(\s*)-\s*\[([ x])\]\s*(.+?)(?:\s+@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?))?\s*$', line)
                 if match:
                     checked = match.group(2) == 'x'
                     text = match.group(3).strip()
@@ -108,4 +108,20 @@ class NotesManager:
                 lines[line_num - 1] = f"{match.group(1)}{'x' if checked else ' '}{match.group(3)}"
                 self.save_note(note_name, '\n'.join(lines))
                 return True
+        return False
+
+    def update_deadline(self, note_name, line_num, new_deadline):
+        """Updates a checkbox deadline in a note, replacing any existing deadline."""
+        content = self.read_note(note_name)
+        lines = content.split('\n')
+        if 0 < line_num <= len(lines):
+            line = lines[line_num - 1]
+            # Match existing checkbox line and remove any existing deadline.
+            # We look for the @ symbol and everything following it to strip it out,
+            # allowing for any amount of preceding whitespace.
+            prefix = re.sub(r'\s*@\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?.*$', '', line)
+            new_line = f"{prefix.rstrip()} @{new_deadline}" if new_deadline else prefix.rstrip()
+            lines[line_num - 1] = new_line
+            self.save_note(note_name, '\n'.join(lines))
+            return True
         return False
