@@ -2,6 +2,8 @@
 
 A minimal GTK4 Markdown note-taking app.
 
+<img src="https://imglink.cc/cdn/qAXyRK27M4.png" width="450" /> <img src="https://imglink.cc/cdn/EOOk-V8NYw.png" width="450" />
+
 ## Features
 - **Markdown Editor**: Live highlighting, code blocks, and task lists with checkboxes.
 - **Image Support**: Inline display for local images and remote URLs (HTTPS).
