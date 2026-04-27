@@ -26,14 +26,21 @@ A minimal GTK4 Markdown note-taking app.
 Add deadlines to checkboxes using: `[ ] Task name @YYYY-MM-DD` or `[ ] Task name @YYYY-MM-DD HH:MM`.
 
 ## Installation
-Requires Python 3, GTK4, and Libadwaita.
+Requires Python 3, PyGObject, GTK4, Libadwaita, and Libadwaita Icons.
 
 ```bash
 # Arch Linux
 yay -S tokyo-notes-git
 
+# macOS (using Homebrew to install dependencies)
+brew install gtk4 libadwaita pygobject3 adwaita-icon-theme
+git clone https://github.com/tanay1337/tokyo-notes.git
+cd tokyo-notes
+python3 main.py
+
 # Others (after installing dependencies)
 git clone https://github.com/tanay1337/tokyo-notes.git
+cd tokyo-notes
 python3 main.py
 ```
 
