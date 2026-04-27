@@ -105,8 +105,11 @@ class MarkdownHighlighter:
             # Setext headings (underline below text)
             if i > 0:
                 prev_line = lines[i-1]
-                setext_underline = re.match(r'^(\s*)(=+|-+)\s*$', line)
-                if setext_underline and prev_line.strip() and not prev_line.strip().startswith('#'):
+                # Require 3+ dashes or equals for Setext headings and exclude list bullets
+                setext_underline = re.match(r'^(\s*)(={3,}|-{3,})\s*$', line)
+                is_list_bullet = re.match(r'^(\s*)([-*+])\s+', prev_line)
+                
+                if setext_underline and prev_line.strip() and not prev_line.strip().startswith('#') and not is_list_bullet:
                     # This is a setext heading underline
                     self.apply_tag("setext_underline", line_start_offset, line_start_offset + len(line))
                     # Also style the previous line as a heading

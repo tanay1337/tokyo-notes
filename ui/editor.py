@@ -1,7 +1,8 @@
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, Pango, GLib
+from gi.repository import Gtk, Adw, Pango, GLib, Gdk
+import re
 from ui.deadline_picker import DeadlinePicker
 
 class Editor(Gtk.Box):
@@ -28,9 +29,10 @@ class Editor(Gtk.Box):
         self.text_view.connect("paste-clipboard", on_paste_clipboard)
         
         # Key handling
-        controller = Gtk.EventControllerKey()
-        controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        self.text_view.add_controller(controller)
+        self.controller = Gtk.EventControllerKey()
+        self.controller.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
+        self.controller.connect("key-pressed", self.on_key_pressed)
+        self.text_view.add_controller(self.controller)
         
         self.buffer = self.text_view.get_buffer()
         # Connect key handler directly to buffer if possible or keep on TextView
@@ -51,6 +53,60 @@ class Editor(Gtk.Box):
         self.status_bar.append(self.stats_label)
         
         self.append(self.status_bar)
+
+    def on_key_pressed(self, controller, keyval, keycode, state):
+        if keyval in [Gdk.KEY_Return, Gdk.KEY_KP_Enter]:
+            buffer = self.text_view.get_buffer()
+            insert_mark = buffer.get_insert()
+            iter = buffer.get_iter_at_mark(insert_mark)
+            
+            # Get current line text up to cursor
+            line_start = iter.copy()
+            line_start.set_line(iter.get_line())
+            line_end = line_start.copy()
+            line_end.forward_to_line_end()
+            line_text = buffer.get_text(line_start, iter, False)
+
+            # Check for patterns (Pattern, Type)
+            patterns = [
+                (r'^(\s*-\s*\[[ xX]\])(.*)$', "task"),
+                (r'^(\s*[-*+])\s+', "list"),
+                (r'^(\s*\d+\.)\s+', "ordered")
+            ]
+            
+            for pattern, p_type in patterns:
+                match = re.match(pattern, line_text)
+                if match:
+                    # Capture the full prefix including spaces and marker
+                    prefix_match = re.match(r'^(\s*-\s*\[[ xX]\])', line_text)
+                    if prefix_match:
+                        marker_only = prefix_match.group(1)
+                    else:
+                        marker_only = match.group(1)
+
+                    # If line is empty (contains only the marker), break the list
+                    if len(line_text.strip()) == len(marker_only.strip()):
+                        buffer.delete(line_start, line_end)
+                        return False 
+
+                    # Otherwise, continue the list
+                    if p_type == "task":
+                        # Always use a clean unchecked marker
+                        new_prefix = re.sub(r'\[[xX ]\]', '[ ]', marker_only) + " "
+                    elif p_type == "ordered":
+                        # Increment the number
+                        num_match = re.search(r'(\d+)', marker_only)
+                        if num_match:
+                            num = int(num_match.group(1))
+                            new_prefix = marker_only.replace(str(num), str(num + 1), 1) + " "
+                        else:
+                            new_prefix = marker_only.rstrip() + " "
+                    else:
+                        new_prefix = marker_only.rstrip() + " "
+                    
+                    GLib.idle_add(lambda p=new_prefix: buffer.insert_at_cursor("\n" + p))
+                    return True # Prevent default to avoid extra newline
+        return False
 
     def on_insert_text(self, buffer, location, text, len):
         if text == '@':
