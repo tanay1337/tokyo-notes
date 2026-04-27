@@ -27,6 +27,8 @@ class MarkdownHighlighter:
             table.add(Gtk.TextTag(name="checkbox_empty", foreground="#f7768e", weight=Pango.Weight.BOLD))
             table.add(Gtk.TextTag(name="checkbox_checked", foreground="#9ece6a", weight=Pango.Weight.BOLD))
             
+            table.add(Gtk.TextTag(name="bold", weight=Pango.Weight.BOLD))
+            table.add(Gtk.TextTag(name="italic", style=Pango.Style.ITALIC))
             table.add(Gtk.TextTag(name="link", foreground="#7aa2f7", weight=Pango.Weight.BOLD))
             table.add(Gtk.TextTag(name="image", foreground="#2ac3de", style=Pango.Style.ITALIC))
             
