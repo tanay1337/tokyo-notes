@@ -30,7 +30,9 @@ Requires Python 3, GTK4, and Libadwaita.
 
 ```bash
 # Arch Linux
-sudo pacman -S python-gobject gtk4 libadwaita
+yay -S tokyo-notes-git
+
+# Others (after installing dependencies)
 git clone https://github.com/tanay1337/tokyo-notes.git
 python3 main.py
 ```
