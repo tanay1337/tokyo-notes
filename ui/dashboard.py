@@ -9,12 +9,6 @@ class Dashboard(Gtk.Box):
         self.add_css_class("dashboard-view")
         self.refresh_callback = refresh_callback
         
-        dashboard_header = Adw.HeaderBar()
-        dashboard_title = Gtk.Label(label="Dashboard")
-        dashboard_title.add_css_class("dashboard-title")
-        dashboard_header.set_title_widget(dashboard_title)
-        self.append(dashboard_header)
-        
         # Filter Bar
         self.filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         self.filter_box.add_css_class("toolbar")
