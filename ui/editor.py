@@ -4,10 +4,12 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Pango, GLib, Gdk
 import re
 from ui.deadline_picker import DeadlinePicker
+from ui.link_picker import LinkPicker
 
 class Editor(Gtk.Box):
-    def __init__(self, on_text_changed, on_cursor_moved, on_paste_clipboard, create_toolbar):
+    def __init__(self, on_text_changed, on_cursor_moved, on_paste_clipboard, create_toolbar, get_notes_callback):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self.get_notes_callback = get_notes_callback
         
         # Toolbar
         self.toolbar = create_toolbar()
@@ -111,6 +113,25 @@ class Editor(Gtk.Box):
     def on_insert_text(self, buffer, location, text, len):
         if text == '@':
             GLib.idle_add(self.show_deadline_picker)
+        elif text == '[':
+            # Check for '[['
+            iter = buffer.get_iter_at_offset(location.get_offset() - 1)
+            if iter.get_char() == '[':
+                GLib.idle_add(self.show_link_picker)
+
+    def show_link_picker(self):
+        def on_selected(note_name):
+            self.buffer.insert_at_cursor(f"{note_name}]]")
+            
+        notes = self.get_notes_callback()
+        picker = LinkPicker(notes, on_selected)
+        picker.set_parent(self.text_view)
+        
+        # Position
+        iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+        rect = self.text_view.get_iter_location(iter)
+        picker.set_pointing_to(rect)
+        picker.popup()
 
     def show_deadline_picker(self):
         picker = DeadlinePicker(self.on_deadline_selected)

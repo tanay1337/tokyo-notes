@@ -187,3 +187,9 @@ text {
     font-size: 9pt;
     color: #565f89;
 }
+
+/* Style for Markdown links */
+.external-link {
+    color: @accent_color;
+    font-weight: bold;
+}

@@ -29,7 +29,8 @@ class MarkdownHighlighter:
             
             table.add(Gtk.TextTag(name="bold", weight=Pango.Weight.BOLD))
             table.add(Gtk.TextTag(name="italic", style=Pango.Style.ITALIC))
-            table.add(Gtk.TextTag(name="link", foreground="#7aa2f7", weight=Pango.Weight.BOLD))
+            table.add(Gtk.TextTag(name="internal-link", foreground="#e0af68", weight=Pango.Weight.BOLD))
+            table.add(Gtk.TextTag(name="external-link", foreground="#7aa2f7", weight=Pango.Weight.BOLD))
             table.add(Gtk.TextTag(name="image", foreground="#2ac3de", style=Pango.Style.ITALIC))
             
             table.add(Gtk.TextTag(name="tag", foreground="#bb9af7", weight=Pango.Weight.BOLD))
@@ -189,29 +190,33 @@ class MarkdownHighlighter:
                 self.apply_tag("tag", line_start_offset + m.start(), line_start_offset + m.end())
 
             # Links and Images
-            for m in re.finditer(r'(!?)\[([^\]]+)\]\(([^)]+)\)', line):
-                is_image = bool(m.group(1))
-                link_text = m.group(2)
-                url = m.group(3)
+            for m in re.finditer(r'\[\[([^\]]+)\]\]|(!?)\[([^\]]+)\]\(([^)]+)\)', line):
+                full_start = line_start_offset + m.start()
+                full_end = line_start_offset + m.end()
                 
-                full_match_start = line_start_offset + m.start()
-                text_start = full_match_start + 1
-                text_end = text_start + len(link_text)
-                
-                if is_image:
-                    self.apply_tag("image", full_match_start, full_match_start + 2)
-                else:
-                    self.apply_tag("link", text_start, text_end)
-                
-                markdown_start = full_match_start
-                markdown_end = line_start_offset + m.end()
-                
-                if not is_cursor_line:
-                    self.apply_tag("invisible", markdown_start, text_start)
-                    self.apply_tag("invisible", text_end, markdown_end)
-                else:
-                    self.apply_tag("dim", markdown_start, text_start)
-                    self.apply_tag("dim", text_end, markdown_end)
+                if m.group(1): # Internal link [[Note]]
+                    self.apply_tag("internal-link", full_start, full_end)
+                    if not is_cursor_line:
+                        self.apply_tag("invisible", full_start, full_start + 2)
+                        self.apply_tag("invisible", full_end - 2, full_end)
+                else: 
+                    # External link [Text](url) or Image ![Alt](url)
+                    is_image = bool(m.group(2))
+                    link_text = m.group(3)
+                    
+                    if is_image:
+                        self.apply_tag("image", full_start, full_end)
+                    else:
+                        text_start = full_start + 1
+                        text_end = text_start + len(link_text)
+                        self.apply_tag("external-link", text_start, text_end)
+                        
+                        if not is_cursor_line:
+                            self.apply_tag("invisible", full_start, text_start)
+                            self.apply_tag("invisible", text_end, full_end)
+                        else:
+                            self.apply_tag("dim", full_start, text_start)
+                            self.apply_tag("dim", text_end, full_end)
 
             # Inline styles - FIX: Use lookarounds to prevent overlap
             self.apply_inline_style(r'(\*\*)([^*]+)(\*\*)', "bold", line, line_start_offset, is_cursor_line)

@@ -239,7 +239,8 @@ class TokyoNotes(Adw.Application):
             self.on_text_changed,
             self.on_cursor_moved,
             self.actions.on_paste_clipboard,
-            self.create_toolbar
+            self.create_toolbar,
+            lambda: self.notes_manager.get_notes()
         )
         self.buffer = self.editor.buffer
         self.text_view = self.editor.text_view
@@ -781,40 +782,64 @@ class TokyoNotes(Adw.Application):
 
         found_link = False
 
-        # Regex to match Markdown links
-        for match in re.finditer(r'\[([^\]]+)\]\(([^)]+)\)', text):
+        # Regex to match Markdown links [[NoteName]] or [Text](url)
+        for match in re.finditer(r'\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)', text):
             if match.start() <= cursor_offset <= match.end():
-                url = match.group(2)
-                if url.startswith('http://') or url.startswith('https://'):
-                    import webbrowser
-                    webbrowser.open_new_tab(url)
-                else:
-                    note_name = url.rsplit('.', 1)[0] if '.' in url else url
-                    notes = self.notes_manager.get_notes()
-                    for note in notes:
-                        if note.lower() == note_name.lower():
-                            row = self.note_list.get_first_child()
-                            while row:
-                                if hasattr(row, 'note_name') and row.note_name.lower() == note.lower():
-                                    self.note_list.select_row(row)
-                                    break
-                                row = row.get_next_sibling()
-                            break
+                if match.group(1): # Internal link [[Note]]
+                    self.on_link_clicked(match.group(1))
+                else: # Standard [Text](url)
+                    url = match.group(3)
+                    if url.startswith('http'):
+                        import webbrowser
+                        webbrowser.open_new_tab(url)
+                    else:
+                        self.on_link_clicked(url.rsplit('.', 1)[0])
+                return
+
+    def on_link_clicked(self, note_name):
+        row = self.note_list.get_first_child()
+        while row:
+            if hasattr(row, 'note_name') and row.note_name.lower() == note_name.lower():
+                self.note_list.select_row(row)
+                break
+            row = row.get_next_sibling()
+
+    def handle_link_click(self, x, y):
+        # Convert widget coordinates to buffer coordinates
+        bx, by = self.text_view.window_to_buffer_coords(Gtk.TextWindowType.TEXT, int(x), int(y))
+        success, cursor_iter = self.text_view.get_iter_at_location(bx, by)
+        if not success:
+            return
+        cursor_offset = cursor_iter.get_offset()
+
+        start, end = self.buffer.get_bounds()
+        text = self.buffer.get_text(start, end, True)
+
+        # Markdown links [[NoteName]] or [Text](url)
+        for match in re.finditer(r'\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)', text):
+            if match.start() <= cursor_offset <= match.end():
+                if match.group(1): # Internal link [[Note]]
+                    self.on_link_clicked(match.group(1))
+                else: # Standard [Text](url)
+                    url = match.group(3)
+                    if url.startswith('http'):
+                        import webbrowser
+                        webbrowser.open_new_tab(url)
+                    else:
+                        self.on_link_clicked(url.rsplit('.', 1)[0])
                 return
         
         # Regex to match raw URLs
         for match in re.finditer(r'(https?://[^\s\)]+)', text):
             if match.start() <= cursor_offset <= match.end():
-                url = match.group(1)
                 import webbrowser
-                webbrowser.open_new_tab(url)
+                webbrowser.open_new_tab(match.group(1))
                 return
         
         # Regex to match Tags
         for match in re.finditer(r'(?<!\w)#(\w+)', text):
             if match.start() <= cursor_offset <= match.end():
-                tag = match.group(0)
-                self.sidebar.search_entry.set_text(tag)
+                self.sidebar.search_entry.set_text(match.group(0))
                 self.on_search_changed(self.sidebar.search_entry)
                 return
 
@@ -824,7 +849,13 @@ class TokyoNotes(Adw.Application):
                 self.handle_deadline_click(x, y, self.current_note, cursor_iter.get_line() + 1)
                 return
 
-        return found_link
+    def on_link_clicked(self, note_name):
+        row = self.note_list.get_first_child()
+        while row:
+            if hasattr(row, 'note_name') and row.note_name.lower() == note_name.lower():
+                self.note_list.select_row(row)
+                break
+            row = row.get_next_sibling()
 
     def update_images(self):
         if self.is_updating_images:
