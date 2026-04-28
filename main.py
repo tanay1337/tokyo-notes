@@ -22,10 +22,12 @@ from core.highlighter import MarkdownHighlighter
 from core.shortcuts import setup_shortcuts
 from core.actions import ActionsHandler
 from core.utils import escape_xml, format_markdown_inline
+from core.graph_manager import GraphManager
 from ui.sidebar import Sidebar
 from ui.editor import Editor
 from ui.dashboard import Dashboard
 from ui.deadline_picker import DeadlinePicker
+from ui.graph_view import GraphView
 
 class TokyoNotes(Adw.Application):
     def __init__(self, **kwargs):
@@ -193,18 +195,15 @@ class TokyoNotes(Adw.Application):
             self.on_new_note,
             self.on_select_folder,
             self.on_search_changed,
-            self.on_dashboard_clicked
+            self.on_dashboard_clicked,
+            self
         )
         self.note_list = self.sidebar.note_list
         self.note_list.connect("row-selected", self.on_note_selected)
         
         self.split_view.set_sidebar(self.sidebar)
         
-        # Add Keyboard Shortcuts
-        setup_shortcuts(self.win, self.on_new_note_global, self.on_dashboard_clicked, self.on_search_shortcut, self.on_escape_shortcut, self.quit)
-
         # Content Header
-        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.content_header = Adw.HeaderBar()
         self.content_title = Gtk.Label(label="Tokyo Notes")
         self.content_header.set_title_widget(self.content_title)
@@ -232,8 +231,6 @@ class TokyoNotes(Adw.Application):
         self.toolbar_toggle.connect("toggled", self.on_toolbar_toggled)
         self.content_header.pack_end(self.toolbar_toggle)
         
-        self.content_box.append(self.content_header)
-
         # Editor and Toolbar
         self.editor = Editor(
             self.on_text_changed,
@@ -266,7 +263,6 @@ class TokyoNotes(Adw.Application):
         self.text_view.add_controller(gesture)
         
         self.text_view.set_focus_on_click(True)
-        self.content_box.append(self.editor)
         
         # Dashboard View
         self.dashboard_view = Dashboard(self.on_dashboard_item_selected, self.refresh_dashboard, default_filter="today")
@@ -274,10 +270,17 @@ class TokyoNotes(Adw.Application):
         
         # Stack for content switching 
         self.content_stack = Gtk.Stack()
-        self.content_stack.add_named(self.content_box, "editor")
+        self.content_stack.set_vexpand(True)
+        self.content_stack.add_named(self.editor, "editor")
         self.content_stack.add_named(self.dashboard_view, "dashboard")
+        self.graph_manager = GraphManager(self.notes_folder)
+        self.graph_view = GraphView(self.graph_manager.get_graph_data(), self.on_link_clicked)
+        self.content_stack.add_named(self.graph_view, "graph")
         
-        self.split_view.set_content(self.content_stack)
+        main_layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        main_layout.append(self.content_header)
+        main_layout.append(self.content_stack)
+        self.split_view.set_content(main_layout)
 
         # Responsive Breakpoint
         display = Gdk.Display.get_default()
@@ -298,6 +301,9 @@ class TokyoNotes(Adw.Application):
         
         # Start with a new 'Untitled' note
         self.on_new_note(None)
+        
+        # Add Keyboard Shortcuts
+        setup_shortcuts(self.win, self.on_new_note_global, self.on_dashboard_clicked, self.on_graph_clicked, self.on_search_shortcut, self.on_escape_shortcut, self.quit)
         
         self.win.present()
 
@@ -477,8 +483,7 @@ class TokyoNotes(Adw.Application):
         self.content_title.set_label(name)
         self.buffer.set_text("")
         self.refresh_list()
-        self.content_box.set_visible(True)
-        self.dashboard_view.set_visible(False)
+        self.content_stack.set_visible_child_name("editor")
 
     def on_note_selected(self, listbox, row):
         if not row or self.is_loading:
@@ -488,9 +493,8 @@ class TokyoNotes(Adw.Application):
         if not note_name:
             return
 
-        # Switch to editor view if in dashboard
-        self.content_box.set_visible(True)
-        self.dashboard_view.set_visible(False)
+        # Switch to editor view
+        self.content_stack.set_visible_child_name("editor")
         
         self.is_loading = True
         self.current_note = note_name
@@ -522,21 +526,24 @@ class TokyoNotes(Adw.Application):
         
         self.dashboard_view.update_active_filter(default_filter)
         self.refresh_dashboard(default_filter)
-        self.content_box.set_visible(False)
-        self.dashboard_view.set_visible(True)
+        self.content_stack.set_visible_child_name("dashboard")
         self.content_title.set_label("Dashboard")
 
     def on_dashboard_header_clicked(self, gesture, n_press, x, y, note_name):
-        self.ui.content_box.set_visible(True)
-        self.dashboard_view.set_visible(False)
-        self.ui.content_title.set_label(note_name)
+        self.content_stack.set_visible_child_name("editor")
+        self.content_title.set_label(note_name)
         
-        row = self.ui.sidebar.note_list.get_first_child()
+        row = self.sidebar.note_list.get_first_child()
         while row:
             if hasattr(row, 'note_name') and row.note_name.lower() == note_name.lower():
-                self.ui.sidebar.note_list.select_row(row)
+                self.sidebar.note_list.select_row(row)
                 break
             row = row.get_next_sibling()
+
+    def on_graph_clicked(self):
+        self.graph_view.update_data(self.graph_manager.get_graph_data())
+        self.content_stack.set_visible_child_name("graph")
+        self.content_title.set_label("Knowledge Graph")
 
     def handle_deadline_click(self, x, y, note_name=None, line_num=None, widget=None):
         """Helper to launch DeadlinePicker."""
@@ -780,41 +787,6 @@ class TokyoNotes(Adw.Application):
         start, end = self.buffer.get_bounds()
         text = self.buffer.get_text(start, end, True)
 
-        found_link = False
-
-        # Regex to match Markdown links [[NoteName]] or [Text](url)
-        for match in re.finditer(r'\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)', text):
-            if match.start() <= cursor_offset <= match.end():
-                if match.group(1): # Internal link [[Note]]
-                    self.on_link_clicked(match.group(1))
-                else: # Standard [Text](url)
-                    url = match.group(3)
-                    if url.startswith('http'):
-                        import webbrowser
-                        webbrowser.open_new_tab(url)
-                    else:
-                        self.on_link_clicked(url.rsplit('.', 1)[0])
-                return
-
-    def on_link_clicked(self, note_name):
-        row = self.note_list.get_first_child()
-        while row:
-            if hasattr(row, 'note_name') and row.note_name.lower() == note_name.lower():
-                self.note_list.select_row(row)
-                break
-            row = row.get_next_sibling()
-
-    def handle_link_click(self, x, y):
-        # Convert widget coordinates to buffer coordinates
-        bx, by = self.text_view.window_to_buffer_coords(Gtk.TextWindowType.TEXT, int(x), int(y))
-        success, cursor_iter = self.text_view.get_iter_at_location(bx, by)
-        if not success:
-            return
-        cursor_offset = cursor_iter.get_offset()
-
-        start, end = self.buffer.get_bounds()
-        text = self.buffer.get_text(start, end, True)
-
         # Markdown links [[NoteName]] or [Text](url)
         for match in re.finditer(r'\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)', text):
             if match.start() <= cursor_offset <= match.end():
@@ -850,10 +822,11 @@ class TokyoNotes(Adw.Application):
                 return
 
     def on_link_clicked(self, note_name):
-        row = self.note_list.get_first_child()
+        self.content_stack.set_visible_child_name("editor")
+        row = self.sidebar.note_list.get_first_child()
         while row:
             if hasattr(row, 'note_name') and row.note_name.lower() == note_name.lower():
-                self.note_list.select_row(row)
+                self.sidebar.note_list.select_row(row)
                 break
             row = row.get_next_sibling()
 
@@ -981,9 +954,9 @@ class TokyoNotes(Adw.Application):
         return True
 
     def on_escape_shortcut(self):
-        if self.dashboard_view.get_visible():
-            self.content_box.set_visible(True)
-            self.dashboard_view.set_visible(False)
+        current_page = self.content_stack.get_visible_child_name()
+        if current_page in ["dashboard", "graph"]:
+            self.content_stack.set_visible_child_name("editor")
             if self.current_note:
                 self.content_title.set_label(self.current_note)
             else:

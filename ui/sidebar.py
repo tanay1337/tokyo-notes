@@ -4,7 +4,7 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gio, GLib
 
 class Sidebar(Gtk.Box):
-    def __init__(self, on_new_note, on_select_folder, on_search_changed, on_dashboard_clicked):
+    def __init__(self, on_new_note, on_select_folder, on_search_changed, on_dashboard_clicked, app):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("sidebar")
         
@@ -35,7 +35,22 @@ class Sidebar(Gtk.Box):
         self.append(scrolled_list)
         
         # Footer
-        sidebar_footer = Gtk.Button(label="Dashboard")
-        sidebar_footer.connect("clicked", on_dashboard_clicked)
-        sidebar_footer.add_css_class("dashboard-footer-btn")
-        self.append(sidebar_footer)
+        footer_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        footer_box.set_margin_start(10)
+        footer_box.set_margin_end(10)
+        footer_box.set_margin_top(10)
+        footer_box.set_margin_bottom(10)
+        
+        dashboard_btn = Gtk.Button(label="Dashboard")
+        dashboard_btn.set_hexpand(True)
+        dashboard_btn.connect("clicked", on_dashboard_clicked)
+        dashboard_btn.add_css_class("dashboard-footer-btn")
+        footer_box.append(dashboard_btn)
+        
+        graph_btn = Gtk.Button(label="Graph")
+        graph_btn.set_hexpand(True)
+        graph_btn.connect("clicked", lambda b: app.on_graph_clicked())
+        graph_btn.add_css_class("dashboard-footer-btn")
+        footer_box.append(graph_btn)
+        
+        self.append(footer_box)
