@@ -4,7 +4,7 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gio, GLib
 
 class Sidebar(Gtk.Box):
-    def __init__(self, on_new_note, on_select_folder, on_search_changed, on_dashboard_clicked, app):
+    def __init__(self, on_new_note, on_select_folder, on_search_changed, on_dashboard_clicked, on_archive_clicked, app):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("sidebar")
         
@@ -27,30 +27,45 @@ class Sidebar(Gtk.Box):
         self.search_entry.connect("search-changed", on_search_changed)
         self.append(self.search_entry)
         
-        # List
+        # Stack for Lists
+        self.stack = Gtk.Stack()
+        self.stack.set_vexpand(True)
+        
+        self.main_list = Gtk.ListBox()
+        self.stack.add_named(self.main_list, "main")
+        
+        self.archive_list = Gtk.ListBox()
+        self.stack.add_named(self.archive_list, "archive")
+        
         scrolled_list = Gtk.ScrolledWindow()
-        scrolled_list.set_vexpand(True)
-        self.note_list = Gtk.ListBox()
-        scrolled_list.set_child(self.note_list)
+        scrolled_list.set_child(self.stack)
         self.append(scrolled_list)
         
         # Footer
-        footer_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        footer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         footer_box.set_margin_start(10)
         footer_box.set_margin_end(10)
         footer_box.set_margin_top(10)
         footer_box.set_margin_bottom(10)
+
+        # Archived Link
+        self.archived_nav_btn = Gtk.Button(label="Archived Notes")
+        self.archived_nav_btn.add_css_class("archived-nav-btn")
+        self.archived_nav_btn.connect("clicked", on_archive_clicked)
+        footer_box.append(self.archived_nav_btn)
         
+        buttons_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         dashboard_btn = Gtk.Button(label="Dashboard")
         dashboard_btn.set_hexpand(True)
         dashboard_btn.connect("clicked", on_dashboard_clicked)
         dashboard_btn.add_css_class("dashboard-footer-btn")
-        footer_box.append(dashboard_btn)
+        buttons_box.append(dashboard_btn)
         
         graph_btn = Gtk.Button(label="Graph")
         graph_btn.set_hexpand(True)
         graph_btn.connect("clicked", lambda b: app.on_graph_clicked())
         graph_btn.add_css_class("dashboard-footer-btn")
-        footer_box.append(graph_btn)
+        buttons_box.append(graph_btn)
+        footer_box.append(buttons_box)
         
         self.append(footer_box)

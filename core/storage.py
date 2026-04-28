@@ -7,13 +7,19 @@ class NotesManager:
         self.notes_dir.mkdir(exist_ok=True)
         self._content_cache = {}
 
-    def get_notes(self, search_text=""):
+    def get_notes(self, search_text="", archived_notes=None):
         """Returns a list of all .md files in the notes directory, sorted by modification time.
-        Optionally filters by title or content if search_text is provided."""
+        Optionally filters by title or content if search_text is provided, 
+        and filters out archived notes if archived_notes is provided."""
         notes = list(self.notes_dir.glob("*.md"))
         notes.sort(key=lambda x: x.stat().st_mtime, reverse=True)
         
         note_names = [n.stem for n in notes]
+        
+        # Filter archived
+        if archived_notes is not None:
+            note_names = [n for n in note_names if n not in archived_notes]
+
         if not search_text:
             return note_names
             

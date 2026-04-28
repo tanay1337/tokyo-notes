@@ -53,7 +53,29 @@ class TokyoNotes(Adw.Application):
         # Actions
         self.pinned_path = self.config_dir / "pinned.json"
         self.pinned_notes = self.load_pinned()
+        self.archive_path = self.config_dir / "archived.json"
+        self.archived_notes = self.load_archived()
         self.setup_actions()
+
+    def load_archived(self):
+        if self.archive_path.exists():
+            try:
+                return json.loads(self.archive_path.read_text())
+            except:
+                pass
+        return []
+
+    def save_archived(self):
+        self.archive_path.write_text(json.dumps(self.archived_notes))
+        
+    def on_toggle_archive_note(self, action, parameter):
+        note_name = parameter.get_string()
+        if note_name in self.archived_notes:
+            self.archived_notes.remove(note_name)
+        else:
+            self.archived_notes.append(note_name)
+        self.save_archived()
+        self.refresh_list(self.sidebar.search_entry.get_text())
 
     def load_config(self):
         default_config = {
@@ -113,6 +135,10 @@ class TokyoNotes(Adw.Application):
         unpin_action = Gio.SimpleAction.new("unpin", GLib.VariantType.new("s"))
         unpin_action.connect("activate", self.on_unpin_note)
         self.add_action(unpin_action)
+
+        archive_action = Gio.SimpleAction.new("archive", GLib.VariantType.new("s"))
+        archive_action.connect("activate", self.on_toggle_archive_note)
+        self.add_action(archive_action)
 
     def load_config(self):
         default_config = {
@@ -196,12 +222,15 @@ class TokyoNotes(Adw.Application):
             self.on_select_folder,
             self.on_search_changed,
             self.on_dashboard_clicked,
+            self.on_archived_clicked,
             self
         )
-        self.note_list = self.sidebar.note_list
-        self.note_list.connect("row-selected", self.on_note_selected)
-        
+
+        self.sidebar.main_list.connect("row-selected", self.on_note_selected)
+        self.sidebar.archive_list.connect("row-selected", self.on_note_selected)
+
         self.split_view.set_sidebar(self.sidebar)
+
         
         # Content Header
         self.content_header = Adw.HeaderBar()
@@ -274,7 +303,7 @@ class TokyoNotes(Adw.Application):
         self.content_stack.add_named(self.editor, "editor")
         self.content_stack.add_named(self.dashboard_view, "dashboard")
         self.graph_manager = GraphManager(self.notes_folder)
-        self.graph_view = GraphView(self.graph_manager.get_graph_data(), self.on_link_clicked)
+        self.graph_view = GraphView(self.graph_manager.get_graph_data(self.archived_notes), self.on_link_clicked)
         self.content_stack.add_named(self.graph_view, "graph")
         
         main_layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -379,34 +408,37 @@ class TokyoNotes(Adw.Application):
         self.text_view.grab_focus()
 
     def refresh_list(self, filter_text=""):
-        while (child := self.sidebar.note_list.get_first_child()):
-            self.sidebar.note_list.remove(child)
+        # Clear lists
+        while (child := self.sidebar.main_list.get_first_child()):
+            self.sidebar.main_list.remove(child)
+        while (child := self.sidebar.archive_list.get_first_child()):
+            self.sidebar.archive_list.remove(child)
+        
         all_notes = self.notes_manager.get_notes(filter_text)
+        main_notes = [n for n in all_notes if n not in self.archived_notes]
         
-        pinned = [n for n in all_notes if n in self.pinned_notes]
-        others = [n for n in all_notes if n not in self.pinned_notes]
+        pinned = [n for n in main_notes if n in self.pinned_notes]
+        others = [n for n in main_notes if n not in self.pinned_notes]
         
-        if not all_notes and filter_text:
-            row = Gtk.ListBoxRow()
-            label = Gtk.Label(label="No notes found", xalign=0.5)
-            label.add_css_class("dim-label")
-            row.set_child(label)
-            row.set_selectable(False)
-            self.sidebar.note_list.append(row)
-        else:
-            if pinned:
-                for note in pinned:
-                    self.add_note_row(note, is_pinned=True)
+        # Populate Main List
+        if pinned:
+            for note in pinned:
+                self.add_note_row(self.sidebar.main_list, note, is_pinned=True)
+        for note in others:
+            self.add_note_row(self.sidebar.main_list, note, is_pinned=False)
             
-            for note in others:
-                self.add_note_row(note, is_pinned=False)
+        # Populate Archive List
+        for note in self.archived_notes:
+            self.add_note_row(self.sidebar.archive_list, note, is_archived=True)
 
-    def add_note_row(self, note, is_pinned=False):
+    def add_note_row(self, list_box, note, is_pinned=False, is_archived=False):
         row = Gtk.ListBoxRow()
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         
         label = Gtk.Label(label=note, xalign=0)
         label.add_css_class("sidebar-label")
+        if is_archived:
+            label.add_css_class("muted-label")
         label.set_hexpand(True)
         box.append(label)
         
@@ -419,12 +451,12 @@ class TokyoNotes(Adw.Application):
         
         # Right Click Menu
         gesture = Gtk.GestureClick(button=3)
-        gesture.connect("pressed", self.on_row_right_click, row)
+        gesture.connect("pressed", self.on_row_right_click, row, is_archived)
         row.add_controller(gesture)
 
-        self.sidebar.note_list.append(row)
+        list_box.append(row)
 
-    def on_row_right_click(self, gesture, n_press, x, y, row):
+    def on_row_right_click(self, gesture, n_press, x, y, row, is_archived=False):
         note_name = getattr(row, 'note_name', None)
         if not note_name:
             return
@@ -435,6 +467,11 @@ class TokyoNotes(Adw.Application):
             menu.append("Unpin", f"app.unpin::{note_name}")
         else:
             menu.append("Pin", f"app.pin::{note_name}")
+        
+        if is_archived:
+            menu.append("Unarchive", f"app.archive::{note_name}")
+        else:
+            menu.append("Archive", f"app.archive::{note_name}")
             
         popover = Gtk.PopoverMenu.new_from_model(menu)
         popover.set_parent(row)
@@ -505,6 +542,20 @@ class TokyoNotes(Adw.Application):
         self.buffer.handler_unblock(self.changed_handler_id)
         self.update_highlighting()
         self.is_loading = False
+        
+        # Deselect in the other list if necessary
+        if listbox == self.sidebar.main_list:
+            self.sidebar.archive_list.unselect_all()
+        else:
+            self.sidebar.main_list.unselect_all()
+
+    def on_archived_clicked(self, btn):
+        if self.sidebar.stack.get_visible_child_name() == "archive":
+            self.sidebar.stack.set_visible_child_name("main")
+            self.sidebar.archived_nav_btn.set_label("Archived Notes")
+        else:
+            self.sidebar.stack.set_visible_child_name("archive")
+            self.sidebar.archived_nav_btn.set_label("Back to Notes")
 
     def on_dashboard_clicked(self, button=None):
         checkboxes = self.notes_manager.get_all_checkboxes()
@@ -533,15 +584,15 @@ class TokyoNotes(Adw.Application):
         self.content_stack.set_visible_child_name("editor")
         self.update_header_ui(note_name, is_editor=True)
         
-        row = self.sidebar.note_list.get_first_child()
+        row = self.sidebar.main_list.get_first_child()
         while row:
             if hasattr(row, 'note_name') and row.note_name.lower() == note_name.lower():
-                self.sidebar.note_list.select_row(row)
+                self.sidebar.main_list.select_row(row)
                 break
             row = row.get_next_sibling()
 
     def on_graph_clicked(self):
-        self.graph_view.update_data(self.graph_manager.get_graph_data())
+        self.graph_view.update_data(self.graph_manager.get_graph_data(self.archived_notes))
         self.content_stack.set_visible_child_name("graph")
         self.update_header_ui("Knowledge Graph", is_editor=False)
 
@@ -727,10 +778,10 @@ class TokyoNotes(Adw.Application):
         notes = self.notes_manager.get_notes()
         for note in notes:
             if note.lower() == cb['note'].lower():
-                row = self.note_list.get_first_child()
+                row = self.sidebar.main_list.get_first_child()
                 while row:
                     if hasattr(row, 'note_name') and row.note_name.lower() == note.lower():
-                        self.note_list.select_row(row)
+                        self.sidebar.main_list.select_row(row)
                         
                         # Scroll to the specific line
                         GLib.idle_add(self.scroll_to_line, cb['line'])
@@ -823,10 +874,10 @@ class TokyoNotes(Adw.Application):
 
     def on_link_clicked(self, note_name):
         self.content_stack.set_visible_child_name("editor")
-        row = self.sidebar.note_list.get_first_child()
+        row = self.sidebar.main_list.get_first_child()
         while row:
             if hasattr(row, 'note_name') and row.note_name.lower() == note_name.lower():
-                self.sidebar.note_list.select_row(row)
+                self.sidebar.main_list.select_row(row)
                 break
             row = row.get_next_sibling()
 

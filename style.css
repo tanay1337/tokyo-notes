@@ -192,3 +192,19 @@ text {
     color: @accent_color;
     font-weight: bold;
 }
+
+.muted-label {
+    color: #565f89; /* Tokyo Night dim/muted color */
+}
+
+.archived-nav-btn {
+    border: 1px solid #292e42;
+    background-color: #1a1b26;
+    color: #565f89;
+    font-size: 0.9em;
+}
+
+.archived-nav-btn:hover {
+    background-color: #24283b;
+    color: #7aa2f7;
+}
