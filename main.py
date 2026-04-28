@@ -480,7 +480,7 @@ class TokyoNotes(Adw.Application):
     def on_new_note(self, btn):
         name = self.notes_manager.create_note()
         self.current_note = name
-        self.content_title.set_label(name)
+        self.update_header_ui(name, is_editor=True)
         self.buffer.set_text("")
         self.refresh_list()
         self.content_stack.set_visible_child_name("editor")
@@ -498,7 +498,7 @@ class TokyoNotes(Adw.Application):
         
         self.is_loading = True
         self.current_note = note_name
-        self.content_title.set_label(self.current_note)
+        self.update_header_ui(self.current_note, is_editor=True)
         content = self.notes_manager.read_note(self.current_note)
         self.buffer.handler_block(self.changed_handler_id)
         self.buffer.set_text(content)
@@ -527,11 +527,11 @@ class TokyoNotes(Adw.Application):
         self.dashboard_view.update_active_filter(default_filter)
         self.refresh_dashboard(default_filter)
         self.content_stack.set_visible_child_name("dashboard")
-        self.content_title.set_label("Dashboard")
+        self.update_header_ui("Dashboard", is_editor=False)
 
     def on_dashboard_header_clicked(self, gesture, n_press, x, y, note_name):
         self.content_stack.set_visible_child_name("editor")
-        self.content_title.set_label(note_name)
+        self.update_header_ui(note_name, is_editor=True)
         
         row = self.sidebar.note_list.get_first_child()
         while row:
@@ -543,7 +543,7 @@ class TokyoNotes(Adw.Application):
     def on_graph_clicked(self):
         self.graph_view.update_data(self.graph_manager.get_graph_data())
         self.content_stack.set_visible_child_name("graph")
-        self.content_title.set_label("Knowledge Graph")
+        self.update_header_ui("Knowledge Graph", is_editor=False)
 
     def handle_deadline_click(self, x, y, note_name=None, line_num=None, widget=None):
         """Helper to launch DeadlinePicker."""
@@ -949,6 +949,18 @@ class TokyoNotes(Adw.Application):
     def on_cursor_moved(self, buffer, pspec):
         self.update_highlighting()
 
+    def update_header_ui(self, title, is_editor=True):
+        if is_editor:
+            self.content_title.set_label(title)
+            self.pdf_btn.set_visible(True)
+            self.copy_btn.set_visible(True)
+            self.toolbar_toggle.set_visible(True)
+        else:
+            self.content_title.set_markup(f"<b>{title}</b>")
+            self.pdf_btn.set_visible(False)
+            self.copy_btn.set_visible(False)
+            self.toolbar_toggle.set_visible(False)
+
     def on_search_shortcut(self):
         self.sidebar.search_entry.grab_focus()
         return True
@@ -958,9 +970,9 @@ class TokyoNotes(Adw.Application):
         if current_page in ["dashboard", "graph"]:
             self.content_stack.set_visible_child_name("editor")
             if self.current_note:
-                self.content_title.set_label(self.current_note)
+                self.update_header_ui(self.current_note, is_editor=True)
             else:
-                self.content_title.set_label("Tokyo Notes")
+                self.update_header_ui("Tokyo Notes", is_editor=True)
             return True
         elif self.sidebar.search_entry.has_focus():
             self.sidebar.search_entry.set_text("")
