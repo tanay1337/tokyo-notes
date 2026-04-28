@@ -52,6 +52,7 @@ class Sidebar(Gtk.Box):
         self.archived_nav_btn = Gtk.Button(label="Archived Notes")
         self.archived_nav_btn.add_css_class("archived-nav-btn")
         self.archived_nav_btn.connect("clicked", on_archive_clicked)
+        self.archived_nav_btn.set_visible(False)
         footer_box.append(self.archived_nav_btn)
         
         buttons_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)

@@ -72,6 +72,10 @@ class TokyoNotes(Adw.Application):
         note_name = parameter.get_string()
         if note_name in self.archived_notes:
             self.archived_notes.remove(note_name)
+            # If archive becomes empty while viewing it, switch back to main
+            if not self.archived_notes and self.sidebar.stack.get_visible_child_name() == "archive":
+                self.sidebar.stack.set_visible_child_name("main")
+                self.sidebar.archived_nav_btn.set_label("Archived Notes")
         else:
             self.archived_notes.append(note_name)
         self.save_archived()
@@ -430,6 +434,9 @@ class TokyoNotes(Adw.Application):
         # Populate Archive List
         for note in self.archived_notes:
             self.add_note_row(self.sidebar.archive_list, note, is_archived=True)
+            
+        # Hide archive button if no archived notes
+        self.sidebar.archived_nav_btn.set_visible(len(self.archived_notes) > 0)
 
     def add_note_row(self, list_box, note, is_pinned=False, is_archived=False):
         row = Gtk.ListBoxRow()
