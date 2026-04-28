@@ -37,10 +37,25 @@ class GraphView(Gtk.Box):
         total = len(self.nodes)
         if total == 0: return
         
+        # Get theme colors
+        context = area.get_style_context()
+        
+        # Accent color for nodes and arrows
+        success, accent_color = context.lookup_color("accent_color")
+        if not success:
+            accent_color = Gdk.RGBA()
+            accent_color.parse("rgb(122, 162, 247)") # fallback to tokyo blue
+
+        # Foreground color for labels
+        success, fg_color = context.lookup_color("fg_color")
+        if not success:
+            fg_color = Gdk.RGBA()
+            fg_color.parse("rgb(169, 177, 214)") # fallback to tokyo fg
+
         node_positions = {node: self.get_node_coords(i, total, width, height) for i, node in enumerate(self.nodes)}
         
-        # Draw edges with arrows
-        cr.set_source_rgb(0.5, 0.5, 0.5)
+        # Draw edges
+        cr.set_source_rgba(fg_color.red, fg_color.green, fg_color.blue, 0.3)
         cr.set_line_width(1.5)
         for node, targets in self.graph_data.items():
             if node not in node_positions: continue
@@ -73,15 +88,14 @@ class GraphView(Gtk.Box):
                 cr.stroke()
         
         # Draw nodes
-        cr.set_source_rgb(0.4, 0.6, 0.9)
         for node, (x, y) in node_positions.items():
+            cr.set_source_rgb(accent_color.red, accent_color.green, accent_color.blue)
             cr.arc(x, y, 10, 0, 2 * math.pi)
             cr.fill()
             
-            cr.set_source_rgb(1, 1, 1)
+            cr.set_source_rgb(fg_color.red, fg_color.green, fg_color.blue)
             cr.move_to(x + 14, y + 4)
             cr.show_text(node)
-            cr.set_source_rgb(0.4, 0.6, 0.9)
 
     def on_press(self, gesture, n_press, x, y):
         total = len(self.nodes)

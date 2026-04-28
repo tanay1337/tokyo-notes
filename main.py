@@ -26,6 +26,7 @@ from core.graph_manager import GraphManager
 from ui.sidebar import Sidebar
 from ui.editor import Editor
 from ui.dashboard import Dashboard
+from ui.settings import SettingsView
 from ui.deadline_picker import DeadlinePicker
 from ui.graph_view import GraphView
 
@@ -86,7 +87,8 @@ class TokyoNotes(Adw.Application):
             'notes_folder': str(Path.home() / "Documents" / "TokyoNotes" if (Path.home() / "Documents").exists() else "notes"),
             'show_sidebar': True,
             'show_toolbar': True,
-            'show_stats': False
+            'show_stats': False,
+            'theme': 'tokyo-night'
         }
         if self.config_path.exists():
             try:
@@ -144,27 +146,6 @@ class TokyoNotes(Adw.Application):
         archive_action.connect("activate", self.on_toggle_archive_note)
         self.add_action(archive_action)
 
-    def load_config(self):
-        default_config = {
-            'notes_folder': str(Path.home() / "Documents" / "TokyoNotes" if (Path.home() / "Documents").exists() else "notes"),
-            'show_sidebar': True,
-            'show_toolbar': True,
-            'show_stats': False
-        }
-        if self.config_path.exists():
-            try:
-                return {**default_config, **json.loads(self.config_path.read_text())}
-            except:
-                pass
-        return default_config
-
-    def save_config(self):
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            self.config_path.write_text(json.dumps(self.config))
-        except:
-            pass
-
     def on_select_folder(self, button):
         dialog = Gtk.FileChooserDialog(
             title="Select Notes Folder",
@@ -200,16 +181,21 @@ class TokyoNotes(Adw.Application):
         style_manager = Adw.StyleManager.get_default()
         style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
 
-        # Apply Tokyo Night CSS
-        style_provider = Gtk.CssProvider()
-        style_provider.load_from_path('style.css')
+        # CSS Providers
+        self.theme_provider = Gtk.CssProvider()
+        self.style_provider = Gtk.CssProvider()
+        
         display = Gdk.Display.get_default()
         if display:
             Gtk.StyleContext.add_provider_for_display(
-                display,
-                style_provider,
-                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+                display, self.theme_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
             )
+            Gtk.StyleContext.add_provider_for_display(
+                display, self.style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
+
+        # Initial Theme
+        self.apply_theme(self.config.get('theme', 'tokyo-night'))
 
         # Main Window
         self.win = Adw.ApplicationWindow(application=self)
@@ -247,8 +233,6 @@ class TokyoNotes(Adw.Application):
         self.content_header.pack_start(self.sidebar_toggle)
         self.split_view.set_show_sidebar(self.sidebar_toggle.get_active())
 
-# ... (rest of headers) ...
-
         # PDF Export Button
         self.pdf_btn = Gtk.Button(icon_name="document-save-symbolic", tooltip_text="Export to PDF")
         self.pdf_btn.connect("clicked", self.actions.on_export_pdf)
@@ -258,12 +242,11 @@ class TokyoNotes(Adw.Application):
         self.copy_btn.connect("clicked", self.actions.on_copy_markdown)
         self.content_header.pack_end(self.copy_btn)
 
-        # Toolbar Toggle Button (Eye Icon)
-        self.toolbar_toggle = Gtk.ToggleButton(icon_name="view-reveal-symbolic", tooltip_text="Toggle Formatting Toolbar")
-        self.toolbar_toggle.set_active(self.config.get('show_toolbar', True))
-        self.toolbar_toggle.connect("toggled", self.on_toolbar_toggled)
-        self.content_header.pack_end(self.toolbar_toggle)
-        
+        # Settings Button
+        self.settings_btn = Gtk.Button(icon_name="emblem-system-symbolic", tooltip_text="Settings")
+        self.settings_btn.connect("clicked", self.on_settings_clicked)
+        self.content_header.pack_end(self.settings_btn)
+
         # Editor and Toolbar
         self.editor = Editor(
             self.on_text_changed,
@@ -277,11 +260,10 @@ class TokyoNotes(Adw.Application):
         self.toolbar = self.editor.toolbar
         self.changed_handler_id = self.editor.changed_handler_id
         
-        self.toolbar.set_visible(self.toolbar_toggle.get_active())
+        self.toolbar.set_visible(self.config.get('show_toolbar', True))
         
         # Apply Stats Visibility
-        self.stats_toggle.set_active(self.config.get('show_stats', False))
-        self.editor.status_bar.set_visible(self.stats_toggle.get_active())
+        self.editor.status_bar.set_visible(self.config.get('show_stats', False))
         
         self.highlighter = MarkdownHighlighter(self.buffer)
         self.highlighter.highlight()
@@ -300,12 +282,20 @@ class TokyoNotes(Adw.Application):
         # Dashboard View
         self.dashboard_view = Dashboard(self.on_dashboard_item_selected, self.refresh_dashboard, default_filter="today")
         self.dashboard_list = self.dashboard_view.dashboard_list
+
+        # Settings View
+        self.settings_view = SettingsView(
+            self.apply_theme, 
+            self.on_settings_config_changed,
+            self.config
+        )
         
         # Stack for content switching 
         self.content_stack = Gtk.Stack()
         self.content_stack.set_vexpand(True)
         self.content_stack.add_named(self.editor, "editor")
         self.content_stack.add_named(self.dashboard_view, "dashboard")
+        self.content_stack.add_named(self.settings_view, "settings")
         self.graph_manager = GraphManager(self.notes_folder)
         self.graph_view = GraphView(self.graph_manager.get_graph_data(self.archived_notes), self.on_link_clicked)
         self.content_stack.add_named(self.graph_view, "graph")
@@ -340,6 +330,15 @@ class TokyoNotes(Adw.Application):
         
         self.win.present()
 
+    def on_settings_config_changed(self, key, value):
+        self.config[key] = value
+        self.save_config()
+        
+        if key == 'show_toolbar':
+            self.toolbar.set_visible(value)
+        elif key == 'show_stats':
+            self.editor.status_bar.set_visible(value)
+
     def create_toolbar(self):
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         toolbar.add_css_class("toolbar")
@@ -371,21 +370,7 @@ class TokyoNotes(Adw.Application):
         spacer.set_hexpand(True)
         toolbar.append(spacer)
         
-        # Stats Toggle
-        self.stats_toggle = Gtk.ToggleButton(icon_name="dialog-information-symbolic")
-        self.stats_toggle.set_tooltip_text("Show Word Count")
-        self.stats_toggle.connect("toggled", self.on_stats_toggled)
-        toolbar.append(self.stats_toggle)
-        
         return toolbar
-
-    def on_stats_toggled(self, button):
-        visible = button.get_active()
-        self.editor.status_bar.set_visible(visible)
-        self.config['show_stats'] = visible
-        self.save_config()
-        if visible:
-            self.update_stats()
 
     def update_stats(self):
         start, end = self.buffer.get_bounds()
@@ -603,6 +588,19 @@ class TokyoNotes(Adw.Application):
         self.content_stack.set_visible_child_name("graph")
         self.update_header_ui("Knowledge Graph", is_editor=False)
 
+    def on_settings_clicked(self, btn):
+        self.content_stack.set_visible_child_name("settings")
+        self.update_header_ui("Settings", is_editor=False)
+
+    def apply_theme(self, theme_name):
+        theme_path = f"themes/{theme_name}.css"
+        if Path(theme_path).exists():
+            self.theme_provider.load_from_path(theme_path)
+            # Reload style.css on top of theme variables
+            self.style_provider.load_from_path('style.css')
+            self.config['theme'] = theme_name
+            self.save_config()
+
     def handle_deadline_click(self, x, y, note_name=None, line_num=None, widget=None):
         """Helper to launch DeadlinePicker."""
         def on_date_selected(deadline):
@@ -812,12 +810,6 @@ class TokyoNotes(Adw.Application):
         self.config['show_sidebar'] = visible
         self.save_config()
 
-    def on_toolbar_toggled(self, button):
-        visible = button.get_active()
-        self.toolbar.set_visible(visible)
-        self.config['show_toolbar'] = visible
-        self.save_config()
-
     def show_export_dialog(self, title, body, is_error=False):
         dialog = Adw.MessageDialog(
             transient_for=self.win,
@@ -1012,12 +1004,10 @@ class TokyoNotes(Adw.Application):
             self.content_title.set_label(title)
             self.pdf_btn.set_visible(True)
             self.copy_btn.set_visible(True)
-            self.toolbar_toggle.set_visible(True)
         else:
             self.content_title.set_markup(f"<b>{title}</b>")
             self.pdf_btn.set_visible(False)
             self.copy_btn.set_visible(False)
-            self.toolbar_toggle.set_visible(False)
 
     def on_search_shortcut(self):
         self.sidebar.search_entry.grab_focus()

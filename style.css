@@ -1,13 +1,4 @@
-/* Tokyo Night Theme for GTK4 (Apple Notes Style) */
-
-@define-color bg_color #1a1b26;
-@define-color sidebar_bg #16161e;
-@define-color fg_color #a9b1d6;
-@define-color accent_color #7aa2f7;
-@define-color selection_color #33467c;
-@define-color header_bg #1f2335;
-@define-color border_color #292e42;
-@define-color deadline_color #ff9e64;
+/* Core Layout and Components */
 
 window {
     background-color: @bg_color;
@@ -61,8 +52,8 @@ textview text {
 }
 
 .toolbar button.active {
-    background-color: #3584e4;
-    color: white;
+    background-color: @accent_color;
+    color: @bg_color;
 }
 
 .toolbar {
@@ -100,9 +91,9 @@ text {
 }
 
 .code-block-container {
-    background-color: #1a1b26;
+    background-color: @sidebar_bg;
     border-radius: 8px;
-    border: 1px solid #292e42;
+    border: 1px solid @border_color;
     padding: 12px;
     margin: 8px 0;
 }
@@ -110,20 +101,20 @@ text {
 .dashboard-header {
     font-weight: bold;
     font-size: 13pt;
-    color: #7aa2f7;
+    color: @accent_color;
     padding: 5px 5px 5px 5px;
 }
 
 .dashboard-footer-btn {
     padding: 12px;
     border-radius: 8px;
-    background-color: #292e42;
-    color: #a9b1d6;
+    background-color: @header_bg;
+    color: @fg_color;
     font-weight: 500;
 }
 
 .dashboard-footer-btn:hover {
-    background-color: #414868;
+    background-color: @selection_color;
 }
 
 .dashboard-view {
@@ -140,13 +131,13 @@ text {
     padding: 8px 12px;
     margin: 4px 8px;
     border-radius: 8px;
-    background-color: #1f2335;
+    background-color: @header_bg;
     border-left: 4px solid @accent_color;
 }
 
 .time-column {
     font-size: 9pt;
-    color: #7aa2f7;
+    color: @accent_color;
     font-weight: 600;
     min-width: 65px;
 }
@@ -154,13 +145,13 @@ text {
 .day-header {
     font-weight: bold;
     font-size: 11pt;
-    color: #ff9e64;
+    color: @deadline_color;
     padding: 15px 10px 5px 10px;
 }
 
 .note-chip {
-    background-color: #33467c;
-    color: #a9b1d6;
+    background-color: @selection_color;
+    color: @fg_color;
     padding: 1px 8px;
     border-radius: 12px;
     font-size: 8pt;
@@ -184,7 +175,8 @@ text {
 
 .stats-label {
     font-size: 9pt;
-    color: #565f89;
+    color: @fg_color;
+    opacity: 0.7;
 }
 
 /* Style for Markdown links */
@@ -194,17 +186,56 @@ text {
 }
 
 .muted-label {
-    color: #565f89; /* Tokyo Night dim/muted color */
+    color: @fg_color;
+    opacity: 0.6;
 }
 
 .archived-nav-btn {
-    border: 1px solid #292e42;
-    background-color: #1a1b26;
-    color: #565f89;
+    border: 1px solid @border_color;
+    background-color: @bg_color;
+    color: @fg_color;
     font-size: 0.9em;
+    opacity: 0.8;
 }
 
 .archived-nav-btn:hover {
-    background-color: #24283b;
-    color: #7aa2f7;
+    background-color: @selection_color;
+    color: @accent_color;
+    opacity: 1.0;
+}
+
+/* Settings View Styles */
+.settings-section-header {
+    font-weight: bold;
+    font-size: 14pt;
+    color: @accent_color;
+    padding: 20px 15px 10px 15px;
+}
+
+.theme-card {
+    padding: 15px;
+    margin: 5px 15px;
+    border-radius: 10px;
+    background-color: @header_bg;
+    border: 2px solid transparent;
+}
+
+.theme-card:hover {
+    background-color: @selection_color;
+}
+
+.theme-card.active {
+    border-color: @accent_color;
+}
+
+.theme-name {
+    font-weight: 600;
+    font-size: 12pt;
+    color: @fg_color;
+}
+
+.theme-preview {
+    font-size: 9pt;
+    color: @fg_color;
+    opacity: 0.6;
 }
