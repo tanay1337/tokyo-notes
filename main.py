@@ -166,6 +166,7 @@ class TokyoNotes(Adw.Application):
                     self.config['notes_folder'] = new_folder
                     self.save_config()
                     self.notes_manager = NotesManager(notes_dir=new_folder)
+                    self.settings_view.update_folder_path(new_folder)
                     self.refresh_list()
                     if self.current_note:
                         self.buffer.set_text("")
@@ -209,7 +210,6 @@ class TokyoNotes(Adw.Application):
         # Sidebar
         self.sidebar = Sidebar(
             self.on_new_note,
-            self.on_select_folder,
             self.on_search_changed,
             self.on_dashboard_clicked,
             self.on_archived_clicked,
@@ -287,6 +287,7 @@ class TokyoNotes(Adw.Application):
         self.settings_view = SettingsView(
             self.apply_theme, 
             self.on_settings_config_changed,
+            self.on_select_folder,
             self.config
         )
         

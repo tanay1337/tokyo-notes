@@ -4,11 +4,12 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw
 
 class SettingsView(Gtk.Box):
-    def __init__(self, on_theme_selected, on_config_changed, config):
+    def __init__(self, on_theme_selected, on_config_changed, on_select_folder_callback, config):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add_css_class("dashboard-view")
         self.on_theme_selected = on_theme_selected
         self.on_config_changed = on_config_changed
+        self.on_select_folder_callback = on_select_folder_callback
         self.config = config
         
         scrolled = Gtk.ScrolledWindow()
@@ -16,12 +17,58 @@ class SettingsView(Gtk.Box):
         
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         
+        # General Section
+        general_section_label = Gtk.Label(label="General")
+        general_section_label.add_css_class("dashboard-header")
+        general_section_label.set_halign(Gtk.Align.START)
+        general_section_label.set_margin_start(10)
+        general_section_label.set_margin_top(15)
+        content.append(general_section_label)
+
+        general_list = Gtk.ListBox()
+        general_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        general_list.add_css_class("settings-list")
+        general_list.set_margin_start(15)
+        general_list.set_margin_end(15)
+        general_list.set_margin_top(10)
+
+        # Folder Selection Row
+        folder_row = Gtk.ListBoxRow()
+        folder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        folder_box.set_margin_start(15)
+        folder_box.set_margin_end(15)
+        folder_box.set_margin_top(10)
+        folder_box.set_margin_bottom(10)
+        
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text_box.set_hexpand(True)
+        
+        title_label = Gtk.Label(label="Notes Folder", xalign=0)
+        title_label.add_css_class("theme-name")
+        text_box.append(title_label)
+        
+        path_label = Gtk.Label(label=self.config.get('notes_folder', "Not set"), xalign=0)
+        path_label.add_css_class("theme-preview")
+        text_box.append(path_label)
+        self.path_label = path_label
+        
+        folder_box.append(text_box)
+        
+        folder_btn = Gtk.Button(label="Select")
+        folder_btn.set_valign(Gtk.Align.CENTER)
+        folder_btn.connect("clicked", self.on_select_folder_clicked)
+        folder_box.append(folder_btn)
+        
+        folder_row.set_child(folder_box)
+        general_list.append(folder_row)
+        content.append(general_list)
+
         # Toolbars Section
         toolbar_section_label = Gtk.Label(label="Toolbars")
         toolbar_section_label.add_css_class("dashboard-header")
         toolbar_section_label.set_halign(Gtk.Align.START)
         toolbar_section_label.set_margin_start(10)
-        toolbar_section_label.set_margin_top(15)
+        toolbar_section_label.set_margin_top(25)
         content.append(toolbar_section_label)
 
         toolbars_list = Gtk.ListBox()
@@ -137,6 +184,12 @@ class SettingsView(Gtk.Box):
     def on_toggle_changed(self, switch, state, config_key):
         self.on_config_changed(config_key, state)
         return False
+
+    def update_folder_path(self, new_path):
+        self.path_label.set_label(new_path)
+
+    def on_select_folder_clicked(self, button):
+        self.on_select_folder_callback(button)
 
     def select_theme(self, theme_id):
         # Update UI

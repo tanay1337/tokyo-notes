@@ -4,7 +4,7 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gio, GLib
 
 class Sidebar(Gtk.Box):
-    def __init__(self, on_new_note, on_select_folder, on_search_changed, on_dashboard_clicked, on_archive_clicked, app):
+    def __init__(self, on_new_note, on_search_changed, on_dashboard_clicked, on_archive_clicked, app):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("sidebar")
         
@@ -15,13 +15,8 @@ class Sidebar(Gtk.Box):
         new_note_btn = Gtk.Button(icon_name="document-new-symbolic")
         new_note_btn.connect("clicked", on_new_note)
         sidebar_header.pack_start(new_note_btn)
-        
-        self.folder_btn = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text="Select Notes Folder")
-        self.folder_btn.connect("clicked", on_select_folder)
-        sidebar_header.pack_end(self.folder_btn)
-        
+
         self.append(sidebar_header)
-        
         # Search
         self.search_entry = Gtk.SearchEntry(placeholder_text="Search notes...")
         self.search_entry.connect("search-changed", on_search_changed)
