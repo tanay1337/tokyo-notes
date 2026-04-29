@@ -325,11 +325,30 @@ class TokyoNotes(Adw.Application):
         
         # Start with a new 'Untitled' note
         self.on_new_note(None)
-        
+
         # Add Keyboard Shortcuts
-        setup_shortcuts(self.win, self.on_new_note_global, self.on_dashboard_clicked, self.on_graph_clicked, self.on_search_shortcut, self.on_escape_shortcut, self.quit)
+        setup_shortcuts(self.win, self.on_new_note_global, self.on_dashboard_clicked, self.on_graph_clicked, self.on_search_shortcut, self.on_escape_shortcut, self.on_delete_shortcut, self.quit)
         
         self.win.present()
+    
+    def on_delete_shortcut(self):
+        # Determine which note is currently selected
+        note_name = None
+        
+        # Check sidebar lists
+        main_row = self.sidebar.main_list.get_selected_row()
+        archive_row = self.sidebar.archive_list.get_selected_row()
+        
+        if main_row and hasattr(main_row, 'note_name'):
+             note_name = main_row.note_name
+        elif archive_row and hasattr(archive_row, 'note_name'):
+            note_name = archive_row.note_name
+            
+        if note_name:
+            # Create a GLib.Variant for the action
+            param = GLib.Variant("s", note_name)
+            self.on_delete_action(None, param)
+        return True
 
     def on_settings_config_changed(self, key, value):
         self.config[key] = value
@@ -495,6 +514,16 @@ class TokyoNotes(Adw.Application):
 
     def confirm_delete(self, note_name):
         self.notes_manager.delete_note(note_name)
+        
+        if note_name in self.archived_notes:
+            self.archived_notes.remove(note_name)
+            self.save_archived()
+            
+            # Switch back to main if last archived note deleted
+            if not self.archived_notes and self.sidebar.stack.get_visible_child_name() == "archive":
+                self.sidebar.stack.set_visible_child_name("main")
+                self.sidebar.archived_nav_btn.set_label("Archived Notes")
+            
         if self.current_note == note_name:
             self.current_note = None
             self.buffer.set_text("")

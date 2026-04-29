@@ -3,10 +3,15 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Gio, GLib
 
-def setup_shortcuts(win, on_new_note, on_dashboard, on_graph, on_search, on_escape, quit_app):
+def setup_shortcuts(win, on_new_note, on_dashboard, on_graph, on_search, on_escape, on_delete, quit_app):
     controller = Gtk.ShortcutController()
     controller.set_scope(Gtk.ShortcutScope.GLOBAL)
     
+    # Delete
+    controller.add_shortcut(Gtk.Shortcut.new(
+        Gtk.ShortcutTrigger.parse_string("Delete"),
+        Gtk.CallbackAction.new(lambda *args: on_delete() or True)
+    ))
     # Ctrl+Q
     controller.add_shortcut(Gtk.Shortcut.new(
         Gtk.ShortcutTrigger.parse_string("<Control>q"),
