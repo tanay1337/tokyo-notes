@@ -16,11 +16,12 @@ A minimal GTK4 Markdown note-taking app.
 ## Keyboard Shortcuts
 | Shortcut | Action |
 | :--- | :--- |
-| `Ctrl + N` | New Note |
-| `Ctrl + D` | Toggle Dashboard |
-| `Ctrl + F` | Focus Search |
+| `Ctrl/Cmd + N` | New Note |
+| `Ctrl/Cmd + D` | Toggle Dashboard |
+| `Ctrl/Cmd + F` | Focus Search |
+| `Ctrl/Cmd + G` | Knowledge Graph |
 | `Escape` | Close Dashboard / Clear Search |
-| `Ctrl + Q` | Quit |
+| `Ctrl/Cmd + Q` | Quit |
 
 ## Task Deadlines
 Add deadlines to checkboxes using: `[ ] Task name @YYYY-MM-DD` or `[ ] Task name @YYYY-MM-DD HH:MM`.

@@ -2,6 +2,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Gio, GLib
+from core.utils import get_accel
 
 def setup_shortcuts(win, on_new_note, on_dashboard, on_graph, on_search, on_escape, on_delete, quit_app):
     controller = Gtk.ShortcutController()
@@ -12,29 +13,29 @@ def setup_shortcuts(win, on_new_note, on_dashboard, on_graph, on_search, on_esca
         Gtk.ShortcutTrigger.parse_string("Delete"),
         Gtk.CallbackAction.new(lambda *args: on_delete() or True)
     ))
-    # Ctrl+Q
+    # Quit
     controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string("<Control>q"),
+        Gtk.ShortcutTrigger.parse_string(get_accel("q")),
         Gtk.CallbackAction.new(lambda *args: quit_app() or True)
     ))
-    # Ctrl+N
+    # New Note
     controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string("<Control>n"),
+        Gtk.ShortcutTrigger.parse_string(get_accel("n")),
         Gtk.CallbackAction.new(lambda *args: on_new_note() or True)
     ))
-    # Ctrl+D
+    # Toggle Dashboard
     controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string("<Control>d"),
+        Gtk.ShortcutTrigger.parse_string(get_accel("d")),
         Gtk.CallbackAction.new(lambda *args: on_dashboard() or True)
     ))
-    # Ctrl+G
+    # Toggle Graph
     controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string("<Control>g"),
+        Gtk.ShortcutTrigger.parse_string(get_accel("g")),
         Gtk.CallbackAction.new(lambda *args: on_graph() or True)
     ))
-    # Ctrl+F
+    # Focus Search
     controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string("<Control>f"),
+        Gtk.ShortcutTrigger.parse_string(get_accel("f")),
         Gtk.CallbackAction.new(lambda *args: on_search() or True)
     ))
     # Escape

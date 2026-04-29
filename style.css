@@ -3,7 +3,7 @@
 window {
     background-color: @bg_color;
     color: @fg_color;
-    font-family: "SF Pro Text", "SF Pro Display", "SF Pro", "Inter", "Segoe UI", "Roboto", "Sans-Serif";
+    font-family: .apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Inter", "Segoe UI", "Roboto", "Sans-Serif";
 }
 
 headerbar {

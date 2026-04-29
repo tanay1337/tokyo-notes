@@ -1,5 +1,13 @@
 import re
+import sys
 from gi.repository import Gtk, Pango
+
+IS_MAC = sys.platform == "darwin"
+
+def get_accel(key):
+    """Returns the correct accelerator string based on platform."""
+    modifier = "<Meta>" if IS_MAC else "<Control>"
+    return f"{modifier}{key}"
 
 def escape_xml(text):
     """Escapes XML special characters in text."""

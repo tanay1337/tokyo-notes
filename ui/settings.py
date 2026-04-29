@@ -110,6 +110,7 @@ class SettingsView(Gtk.Box):
         
         self.themes = [
             {"id": "tokyo-night", "name": "Tokyo Night", "preview": "Deep blues and vibrant accents"},
+            {"id": "cyberpunk-2077", "name": "Cyberpunk 2077", "preview": "Night City vibes: Yellow, Cyan, and Black"},
             {"id": "nord", "name": "Nord", "preview": "Arctic blue, clean and elegant"},
             {"id": "gruvbox", "name": "Gruvbox", "preview": "Retro warm tones, easy on the eyes"},
             {"id": "dracula", "name": "Dracula", "preview": "High contrast, vibrant purple tones"}
