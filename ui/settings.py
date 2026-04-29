@@ -97,33 +97,65 @@ class SettingsView(Gtk.Box):
         content.append(toolbars_list)
 
         # Theme Section
-        theme_section_label = Gtk.Label(label="Theme")
+        theme_section_label = Gtk.Label(label="Themes")
         theme_section_label.add_css_class("dashboard-header")
         theme_section_label.set_halign(Gtk.Align.START)
         theme_section_label.set_margin_start(10)
         theme_section_label.set_margin_top(25)
         content.append(theme_section_label)
 
-        self.theme_list = Gtk.ListBox()
-        self.theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.theme_list.add_css_class("settings-list")
+        # Tabs for Light/Dark
+        theme_stack = Gtk.Stack()
+        theme_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        theme_stack.set_margin_top(10)
         
+        stack_switcher = Gtk.StackSwitcher()
+        stack_switcher.set_stack(theme_stack)
+        stack_switcher.set_halign(Gtk.Align.CENTER)
+        content.append(stack_switcher)
+
+        self.light_theme_list = Gtk.ListBox()
+        self.light_theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.light_theme_list.add_css_class("settings-list")
+        self.light_theme_list.set_margin_start(15)
+        self.light_theme_list.set_margin_end(15)
+
+        self.dark_theme_list = Gtk.ListBox()
+        self.dark_theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.dark_theme_list.add_css_class("settings-list")
+        self.dark_theme_list.set_margin_start(15)
+        self.dark_theme_list.set_margin_end(15)
+        
+        theme_stack.add_titled(self.dark_theme_list, "dark", "Dark Mode")
+        theme_stack.add_titled(self.light_theme_list, "light", "Light Mode")
+
         self.themes = [
-            {"id": "tokyo-night", "name": "Tokyo Night", "preview": "Deep blues and vibrant accents"},
-            {"id": "cyberpunk-2077", "name": "Cyberpunk 2077", "preview": "Night City vibes: Yellow, Cyan, and Black"},
-            {"id": "nord", "name": "Nord", "preview": "Arctic blue, clean and elegant"},
-            {"id": "gruvbox", "name": "Gruvbox", "preview": "Retro warm tones, easy on the eyes"},
-            {"id": "dracula", "name": "Dracula", "preview": "High contrast, vibrant purple tones"}
+            {"id": "tokyo-light", "name": "Tokyo Light", "preview": "Clean and bright, inspired by Tokyo Day", "type": "light"},
+            {"id": "tokyo-night", "name": "Tokyo Night", "preview": "Deep blues and vibrant accents", "type": "dark"},
+            {"id": "cyberpunk-2077", "name": "Cyberpunk 2077", "preview": "Night City vibes: Yellow, Cyan, and Black", "type": "dark"},
+            {"id": "nord", "name": "Nord", "preview": "Arctic blue, clean and elegant", "type": "dark"},
+            {"id": "gruvbox", "name": "Gruvbox", "preview": "Retro warm tones, easy on the eyes", "type": "dark"},
+            {"id": "dracula", "name": "Dracula", "preview": "High contrast, vibrant purple tones", "type": "dark"}
         ]
         
         self.theme_rows = {}
         current_theme = config.get('theme', 'tokyo-night')
+        
         for theme in self.themes:
             row = self.create_theme_row(theme, theme["id"] == current_theme)
-            self.theme_list.append(row)
+            if theme["type"] == "light":
+                self.light_theme_list.append(row)
+            else:
+                self.dark_theme_list.append(row)
             self.theme_rows[theme["id"]] = row
         
-        content.append(self.theme_list)
+        # Set active stack page based on current theme
+        if "light" in current_theme:
+            theme_stack.set_visible_child_name("light")
+        else:
+            theme_stack.set_visible_child_name("dark")
+
+        content.append(theme_stack)
             
         scrolled.set_child(content)
         self.append(scrolled)

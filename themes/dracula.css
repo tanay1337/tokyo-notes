@@ -1,6 +1,7 @@
 @define-color bg_color #282a36;
 @define-color sidebar_bg #21222c;
 @define-color fg_color #f8f8f2;
+@define-color selected_fg_color #ffffff;
 @define-color accent_color #bd93f9;
 @define-color selection_color #44475a;
 @define-color header_bg #343746;

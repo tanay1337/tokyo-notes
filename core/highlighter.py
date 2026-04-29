@@ -2,61 +2,125 @@ import re
 from gi.repository import Gtk, Pango
 
 class MarkdownHighlighter:
-    def __init__(self, buffer):
+    def __init__(self, buffer, theme_name="tokyo-night"):
         self.buffer = buffer
         self.enabled = True
+        self.theme_name = theme_name
         self.setup_tags()
+
+    def get_colors(self):
+        if "light" in self.theme_name:
+            return {
+                "h1": "#34548a",
+                "h2": "#5a4a78",
+                "h3": "#33605a",
+                "h4": "#8c4351",
+                "code_bg": "#cbccd1",
+                "code_fg": "#8f5e15",
+                "code_block_bg": "#cbccd1",
+                "code_block_fg": "#343b58",
+                "checkbox_empty": "#8c4351",
+                "checkbox_checked": "#485e30",
+                "internal_link": "#8f5e15",
+                "external_link": "#34548a",
+                "image": "#33605a",
+                "tag": "#5a4a78",
+                "deadline": "#965027",
+                "hr": "#9699a3",
+                "bullet": "#34548a",
+                "number": "#5a4a78",
+                "table": "#5a4a78",
+                "blockquote": "#485e30",
+                "dim": "#9699a3"
+            }
+        else:
+            return {
+                "h1": "#7aa2f7",
+                "h2": "#bb9af7",
+                "h3": "#2ac3de",
+                "h4": "#b4f9f8",
+                "code_bg": "#292e42",
+                "code_fg": "#e0af68",
+                "code_block_bg": "#1a1b26",
+                "code_block_fg": "#a9b1d6",
+                "checkbox_empty": "#f7768e",
+                "checkbox_checked": "#9ece6a",
+                "internal_link": "#e0af68",
+                "external_link": "#7aa2f7",
+                "image": "#2ac3de",
+                "tag": "#bb9af7",
+                "deadline": "#ff9e64",
+                "hr": "#565f89",
+                "bullet": "#7aa2f7",
+                "number": "#bb9af7",
+                "table": "#bb9af7",
+                "blockquote": "#9ece6a",
+                "dim": "#565f89"
+            }
 
     def setup_tags(self):
         table = self.buffer.get_tag_table()
+        colors = self.get_colors()
         
+        # Helper to add or update tag
+        def add_or_update_tag(name, **kwargs):
+            tag = table.lookup(name)
+            if tag:
+                for prop, value in kwargs.items():
+                    tag.set_property(prop, value)
+            else:
+                table.add(Gtk.TextTag(name=name, **kwargs))
+
         # Base styles for hierarchy
-        if not table.lookup("h1"):
-            table.add(Gtk.TextTag(name="h1", weight=Pango.Weight.BOLD, size=22 * Pango.SCALE, foreground="#7aa2f7", left_margin=20))
-            table.add(Gtk.TextTag(name="h2", weight=Pango.Weight.BOLD, size=18 * Pango.SCALE, foreground="#bb9af7", left_margin=20))
-            table.add(Gtk.TextTag(name="h3", weight=Pango.Weight.BOLD, size=16 * Pango.SCALE, foreground="#2ac3de", left_margin=20))
-            table.add(Gtk.TextTag(name="h4", weight=Pango.Weight.BOLD, size=14 * Pango.SCALE, foreground="#b4f9f8", left_margin=20))
+        add_or_update_tag("h1", weight=Pango.Weight.BOLD, size=22 * Pango.SCALE, foreground=colors["h1"], left_margin=20)
+        add_or_update_tag("h2", weight=Pango.Weight.BOLD, size=18 * Pango.SCALE, foreground=colors["h2"], left_margin=20)
+        add_or_update_tag("h3", weight=Pango.Weight.BOLD, size=16 * Pango.SCALE, foreground=colors["h3"], left_margin=20)
+        add_or_update_tag("h4", weight=Pango.Weight.BOLD, size=14 * Pango.SCALE, foreground=colors["h4"], left_margin=20)
 
-            table.add(Gtk.TextTag(name="body", left_margin=30))
+        add_or_update_tag("body", left_margin=30)
 
+        add_or_update_tag("code", family="Monospace", background=colors["code_bg"], foreground=colors["code_fg"])
+        add_or_update_tag("code_block", family="Monospace", background=colors["code_block_bg"], foreground=colors["code_block_fg"])
+        add_or_update_tag("code_fence", foreground=colors["dim"], weight=Pango.Weight.BOLD)
+        
+        add_or_update_tag("checkbox_empty", foreground=colors["checkbox_empty"], weight=Pango.Weight.BOLD)
+        add_or_update_tag("checkbox_checked", foreground=colors["checkbox_checked"], weight=Pango.Weight.BOLD)
+        
+        add_or_update_tag("bold", weight=Pango.Weight.BOLD)
+        add_or_update_tag("italic", style=Pango.Style.ITALIC)
+        add_or_update_tag("internal-link", foreground=colors["internal_link"], weight=Pango.Weight.BOLD)
+        add_or_update_tag("external-link", foreground=colors["external_link"], weight=Pango.Weight.BOLD)
+        add_or_update_tag("image", foreground=colors["image"], style=Pango.Style.ITALIC)
+        
+        add_or_update_tag("tag", foreground=colors["tag"], weight=Pango.Weight.BOLD)
+        add_or_update_tag("strikethrough", strikethrough=True)
+        add_or_update_tag("deadline", foreground=colors["deadline"], style=Pango.Style.ITALIC)
+        add_or_update_tag("hr", foreground=colors["hr"], weight=Pango.Weight.BOLD)
+        
+        add_or_update_tag("list_bullet", foreground=colors["bullet"], weight=Pango.Weight.BOLD)
+        add_or_update_tag("list_number", foreground=colors["number"], weight=Pango.Weight.BOLD)
+        
+        add_or_update_tag("table_row", foreground=colors["table"], weight=Pango.Weight.BOLD)
+        add_or_update_tag("table_sep", foreground=colors["hr"], weight=Pango.Weight.BOLD)
+        
+        add_or_update_tag("blockquote", foreground=colors["blockquote"], style=Pango.Style.ITALIC)
+        
+        add_or_update_tag("setext_header", weight=Pango.Weight.BOLD, size=22 * Pango.SCALE, foreground=colors["h1"])
+        add_or_update_tag("setext_underline", foreground=colors["hr"])
+        add_or_update_tag("setext_h1", weight=Pango.Weight.BOLD, size=22 * Pango.SCALE, foreground=colors["h1"])
+        add_or_update_tag("setext_h2", weight=Pango.Weight.BOLD, size=18 * Pango.SCALE, foreground=colors["h2"])
+        
+        add_or_update_tag("autolink", foreground=colors["external_link"], underline=Pango.Underline.SINGLE)
+        add_or_update_tag("inline_html", foreground=colors["checkbox_empty"])
+        add_or_update_tag("line_break", weight=Pango.Weight.BOLD)
+        
+        add_or_update_tag("invisible", invisible=True)
+        add_or_update_tag("dim", foreground=colors["dim"])
 
-            table.add(Gtk.TextTag(name="code", family="Monospace", background="#292e42", foreground="#e0af68"))
-            table.add(Gtk.TextTag(name="code_block", family="Monospace", background="#1a1b26", foreground="#a9b1d6"))
-            table.add(Gtk.TextTag(name="code_fence", foreground="#565f89", weight=Pango.Weight.BOLD))
-            
-            table.add(Gtk.TextTag(name="checkbox_empty", foreground="#f7768e", weight=Pango.Weight.BOLD))
-            table.add(Gtk.TextTag(name="checkbox_checked", foreground="#9ece6a", weight=Pango.Weight.BOLD))
-            
-            table.add(Gtk.TextTag(name="bold", weight=Pango.Weight.BOLD))
-            table.add(Gtk.TextTag(name="italic", style=Pango.Style.ITALIC))
-            table.add(Gtk.TextTag(name="internal-link", foreground="#e0af68", weight=Pango.Weight.BOLD))
-            table.add(Gtk.TextTag(name="external-link", foreground="#7aa2f7", weight=Pango.Weight.BOLD))
-            table.add(Gtk.TextTag(name="image", foreground="#2ac3de", style=Pango.Style.ITALIC))
-            
-            table.add(Gtk.TextTag(name="tag", foreground="#bb9af7", weight=Pango.Weight.BOLD))
-            table.add(Gtk.TextTag(name="strikethrough", strikethrough=True))
-            table.add(Gtk.TextTag(name="deadline", foreground="#ff9e64", style=Pango.Style.ITALIC))
-            table.add(Gtk.TextTag(name="hr", foreground="#565f89", weight=Pango.Weight.BOLD))
-            
-            table.add(Gtk.TextTag(name="list_bullet", foreground="#7aa2f7", weight=Pango.Weight.BOLD))
-            table.add(Gtk.TextTag(name="list_number", foreground="#bb9af7", weight=Pango.Weight.BOLD))
-            
-            table.add(Gtk.TextTag(name="table_row", foreground="#bb9af7", weight=Pango.Weight.BOLD))
-            table.add(Gtk.TextTag(name="table_sep", foreground="#565f89", weight=Pango.Weight.BOLD))
-            
-            table.add(Gtk.TextTag(name="blockquote", foreground="#9ece6a", style=Pango.Style.ITALIC))
-            
-            table.add(Gtk.TextTag(name="setext_header", weight=Pango.Weight.BOLD, size=22 * Pango.SCALE, foreground="#7aa2f7"))
-            table.add(Gtk.TextTag(name="setext_underline", foreground="#565f89"))
-            table.add(Gtk.TextTag(name="setext_h1", weight=Pango.Weight.BOLD, size=22 * Pango.SCALE, foreground="#7aa2f7"))
-            table.add(Gtk.TextTag(name="setext_h2", weight=Pango.Weight.BOLD, size=18 * Pango.SCALE, foreground="#bb9af7"))
-            
-            table.add(Gtk.TextTag(name="autolink", foreground="#7aa2f7", underline=Pango.Underline.SINGLE))
-            table.add(Gtk.TextTag(name="inline_html", foreground="#f7768e"))
-            table.add(Gtk.TextTag(name="line_break", weight=Pango.Weight.BOLD))
-            
-            table.add(Gtk.TextTag(name="invisible", invisible=True))
-            table.add(Gtk.TextTag(name="dim", foreground="#565f89"))
+    def update_theme(self, theme_name):
+        self.theme_name = theme_name
+        self.setup_tags()
+        self.highlight()
 
     def get_iter_at_line(self, line):
         result = self.buffer.get_iter_at_line(line)

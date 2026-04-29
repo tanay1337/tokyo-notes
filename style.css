@@ -41,7 +41,7 @@ row {
 
 row:selected {
     background-color: @selection_color;
-    color: white;
+    color: @selected_fg_color;
 }
 
 textview text {
@@ -53,7 +53,7 @@ textview text {
 
 .toolbar button.active {
     background-color: @accent_color;
-    color: @bg_color;
+    color: @selected_fg_color;
 }
 
 .toolbar {

@@ -178,10 +178,6 @@ class TokyoNotes(Adw.Application):
         dialog.show()
 
     def do_activate(self):
-        # Force dark mode to ensure Tokyo Night theme remains consistent
-        style_manager = Adw.StyleManager.get_default()
-        style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
-
         # CSS Providers
         self.theme_provider = Gtk.CssProvider()
         self.style_provider = Gtk.CssProvider()
@@ -265,7 +261,7 @@ class TokyoNotes(Adw.Application):
         # Apply Stats Visibility
         self.editor.status_bar.set_visible(self.config.get('show_stats', False))
         
-        self.highlighter = MarkdownHighlighter(self.buffer)
+        self.highlighter = MarkdownHighlighter(self.buffer, self.config.get('theme', 'tokyo-night'))
         self.highlighter.highlight()
         
         self.link_anchors = {}
@@ -630,6 +626,17 @@ class TokyoNotes(Adw.Application):
             self.style_provider.load_from_path('style.css')
             self.config['theme'] = theme_name
             self.save_config()
+            
+            # Update highlighter colors
+            if self.highlighter:
+                self.highlighter.update_theme(theme_name)
+            
+            # Set color scheme based on theme
+            style_manager = Adw.StyleManager.get_default()
+            if "light" in theme_name:
+                style_manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
+            else:
+                style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
 
     def handle_deadline_click(self, x, y, note_name=None, line_num=None, widget=None):
         """Helper to launch DeadlinePicker."""
