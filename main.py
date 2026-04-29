@@ -1015,7 +1015,7 @@ class TokyoNotes(Adw.Application):
 
     def on_escape_shortcut(self):
         current_page = self.content_stack.get_visible_child_name()
-        if current_page in ["dashboard", "graph"]:
+        if current_page in ["dashboard", "graph", "settings"]:
             self.content_stack.set_visible_child_name("editor")
             if self.current_note:
                 self.update_header_ui(self.current_note, is_editor=True)

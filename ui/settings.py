@@ -16,45 +16,12 @@ class SettingsView(Gtk.Box):
         
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         
-        # Header
-        header_label = Gtk.Label(label="Settings")
-        header_label.add_css_class("settings-section-header")
-        header_label.set_halign(Gtk.Align.START)
-        content.append(header_label)
-        
-        # Theme Section
-        theme_section_label = Gtk.Label(label="Theme")
-        theme_section_label.add_css_class("dashboard-header")
-        theme_section_label.set_halign(Gtk.Align.START)
-        theme_section_label.set_margin_start(10)
-        content.append(theme_section_label)
-
-        self.theme_list = Gtk.ListBox()
-        self.theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.theme_list.add_css_class("settings-list")
-        
-        self.themes = [
-            {"id": "tokyo-night", "name": "Tokyo Night", "preview": "Deep blues and vibrant accents"},
-            {"id": "nord", "name": "Nord", "preview": "Arctic blue, clean and elegant"},
-            {"id": "gruvbox", "name": "Gruvbox", "preview": "Retro warm tones, easy on the eyes"},
-            {"id": "dracula", "name": "Dracula", "preview": "High contrast, vibrant purple tones"}
-        ]
-        
-        self.theme_rows = {}
-        current_theme = config.get('theme', 'tokyo-night')
-        for theme in self.themes:
-            row = self.create_theme_row(theme, theme["id"] == current_theme)
-            self.theme_list.append(row)
-            self.theme_rows[theme["id"]] = row
-        
-        content.append(self.theme_list)
-
         # Toolbars Section
         toolbar_section_label = Gtk.Label(label="Toolbars")
         toolbar_section_label.add_css_class("dashboard-header")
         toolbar_section_label.set_halign(Gtk.Align.START)
         toolbar_section_label.set_margin_start(10)
-        toolbar_section_label.set_margin_top(20)
+        toolbar_section_label.set_margin_top(15)
         content.append(toolbar_section_label)
 
         toolbars_list = Gtk.ListBox()
@@ -81,6 +48,34 @@ class SettingsView(Gtk.Box):
         toolbars_list.append(status_row)
 
         content.append(toolbars_list)
+
+        # Theme Section
+        theme_section_label = Gtk.Label(label="Theme")
+        theme_section_label.add_css_class("dashboard-header")
+        theme_section_label.set_halign(Gtk.Align.START)
+        theme_section_label.set_margin_start(10)
+        theme_section_label.set_margin_top(25)
+        content.append(theme_section_label)
+
+        self.theme_list = Gtk.ListBox()
+        self.theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.theme_list.add_css_class("settings-list")
+        
+        self.themes = [
+            {"id": "tokyo-night", "name": "Tokyo Night", "preview": "Deep blues and vibrant accents"},
+            {"id": "nord", "name": "Nord", "preview": "Arctic blue, clean and elegant"},
+            {"id": "gruvbox", "name": "Gruvbox", "preview": "Retro warm tones, easy on the eyes"},
+            {"id": "dracula", "name": "Dracula", "preview": "High contrast, vibrant purple tones"}
+        ]
+        
+        self.theme_rows = {}
+        current_theme = config.get('theme', 'tokyo-night')
+        for theme in self.themes:
+            row = self.create_theme_row(theme, theme["id"] == current_theme)
+            self.theme_list.append(row)
+            self.theme_rows[theme["id"]] = row
+        
+        content.append(self.theme_list)
             
         scrolled.set_child(content)
         self.append(scrolled)
