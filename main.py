@@ -33,6 +33,7 @@ from ui.graph_view import GraphView
 class TokyoNotes(Adw.Application):
     def __init__(self, **kwargs):
         super().__init__(application_id='com.example.TokyoNotes', **kwargs)
+        self.base_dir = Path(__file__).parent
         self.actions = ActionsHandler(self)
         
         self.config_dir = Path.home() / ".config" / "tokyo-notes"
@@ -199,7 +200,7 @@ class TokyoNotes(Adw.Application):
         # Set App Icon
         if display:
             icon_theme = Gtk.IconTheme.get_for_display(display)
-            icon_theme.add_search_path(str(Path(__file__).parent / "assets"))
+            icon_theme.add_search_path(str(self.base_dir / "assets"))
             self.win.set_icon_name("tokyo_notes_icon")
 
         # Initial Theme
@@ -365,7 +366,7 @@ class TokyoNotes(Adw.Application):
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         toolbar.add_css_class("toolbar")
         
-        assets_path = Path(__file__).parent / "assets" / "toolbar"
+        assets_path = self.base_dir / "assets" / "toolbar"
         
         formats = [
             ("**", "**", "Bold", "bold.svg"),
@@ -637,11 +638,14 @@ class TokyoNotes(Adw.Application):
         self.update_header_ui("Settings", is_editor=False)
 
     def apply_theme(self, theme_name):
-        theme_path = f"themes/{theme_name}.css"
-        if Path(theme_path).exists():
-            self.theme_provider.load_from_path(theme_path)
+        theme_path = self.base_dir / "themes" / f"{theme_name}.css"
+        if theme_path.exists():
+            self.theme_provider.load_from_path(str(theme_path))
             # Reload style.css on top of theme variables
-            self.style_provider.load_from_path('style.css')
+            style_path = self.base_dir / "style.css"
+            if style_path.exists():
+                self.style_provider.load_from_path(str(style_path))
+            
             self.config['theme'] = theme_name
             self.save_config()
             
