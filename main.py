@@ -191,13 +191,19 @@ class TokyoNotes(Adw.Application):
                 display, self.style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
             )
 
-        # Initial Theme
-        self.apply_theme(self.config.get('theme', 'tokyo-night'))
-
         # Main Window
         self.win = Adw.ApplicationWindow(application=self)
         self.win.set_title("Tokyo Notes")
         self.win.set_default_size(1000, 700)
+        
+        # Set App Icon
+        if display:
+            icon_theme = Gtk.IconTheme.get_for_display(display)
+            icon_theme.add_search_path(str(Path(__file__).parent / "assets"))
+            self.win.set_icon_name("tokyo_notes_icon")
+
+        # Initial Theme
+        self.apply_theme(self.config.get('theme', 'tokyo-night'))
 
         # Split View
         self.split_view = Adw.OverlaySplitView()
@@ -358,26 +364,38 @@ class TokyoNotes(Adw.Application):
     def create_toolbar(self):
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         toolbar.add_css_class("toolbar")
-        # Use descriptive text labels instead of icons
+        
+        assets_path = Path(__file__).parent / "assets" / "toolbar"
+        
         formats = [
-            ("**", "**", "Bold"),
-            ("_", "_", "Italic"),
-            ("~~", "~~", "Strikethrough"),
-            ("# ", "", "H1"),
-            ("## ", "", "H2"),
-            ("### ", "", "H3"),
-            ("`", "`", "Code"),
-            ("```\n", "\n```", "Block"),
-            ("- ", "", "List"),
-            ("- [ ] ", "", "Checkbox"),
-            ("[Link](url)", "", "Link"),
-            ("![Alt](url)", "", "Image"),
-            ("> ", "", "Quote"),
+            ("**", "**", "Bold", "bold.svg"),
+            ("_", "_", "Italic", "italic.svg"),
+            ("~~", "~~", "Strikethrough", "strikethrough.svg"),
+            ("# ", "", "H1", "h1.svg"),
+            ("## ", "", "H2", "h2.svg"),
+            ("### ", "", "H3", "h3.svg"),
+            ("`", "`", "Code", "code.svg"),
+            ("```\n", "\n```", "Block", "block.svg"),
+            ("- ", "", "List", "list.svg"),
+            ("- [ ] ", "", "Checkbox", "checkbox.svg"),
+            ("[Link](url)", "", "Link", "link.svg"),
+            ("![Alt](url)", "", "Image", "image.svg"),
+            ("> ", "", "Quote", "quote.svg"),
         ]
-        for prefix, suffix, label in formats:
-            btn = Gtk.Button(label=label)
+        
+        for prefix, suffix, label, icon_file in formats:
+            btn = Gtk.Button()
             btn.set_tooltip_text(label)
             btn.add_css_class("toolbar-btn")
+            
+            icon_path = assets_path / icon_file
+            if icon_path.exists():
+                img = Gtk.Image.new_from_file(str(icon_path))
+                img.set_pixel_size(16)
+                btn.set_child(img)
+            else:
+                btn.set_label(label)
+                
             btn.connect("clicked", self.apply_format, prefix, suffix)
             toolbar.append(btn)
         
@@ -635,8 +653,14 @@ class TokyoNotes(Adw.Application):
             style_manager = Adw.StyleManager.get_default()
             if "light" in theme_name:
                 style_manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
+                if hasattr(self, 'win'):
+                    self.win.add_css_class("light-theme")
+                    self.win.remove_css_class("dark-theme")
             else:
                 style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+                if hasattr(self, 'win'):
+                    self.win.add_css_class("dark-theme")
+                    self.win.remove_css_class("light-theme")
 
     def handle_deadline_click(self, x, y, note_name=None, line_num=None, widget=None):
         """Helper to launch DeadlinePicker."""

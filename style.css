@@ -69,6 +69,10 @@ textview text {
     min-height: 24px;
 }
 
+.dark-theme .toolbar-btn image {
+    filter: invert(1);
+}
+
 button:hover {
     background-color: @selection_color;
 }
