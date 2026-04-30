@@ -61,6 +61,15 @@ class SettingsView(Gtk.Box):
         
         folder_row.set_child(folder_box)
         general_list.append(folder_row)
+
+        # Sakura Effect Toggle
+        sakura_row = self.create_toggle_row(
+            "Sakura Celebration",
+            "Show cherry blossoms when completing tasks",
+            'sakura_effect'
+        )
+        general_list.append(sakura_row)
+
         content.append(general_list)
 
         # Toolbars Section

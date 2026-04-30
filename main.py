@@ -29,6 +29,7 @@ from ui.dashboard import Dashboard
 from ui.settings import SettingsView
 from ui.deadline_picker import DeadlinePicker
 from ui.graph_view import GraphView
+from ui.sakura_overlay import SakuraOverlay
 
 class TokyoNotes(Adw.Application):
     def __init__(self, **kwargs):
@@ -89,6 +90,7 @@ class TokyoNotes(Adw.Application):
             'show_sidebar': True,
             'show_toolbar': True,
             'show_stats': False,
+            'sakura_effect': True,
             'theme': 'tokyo-night'
         }
         if self.config_path.exists():
@@ -304,9 +306,15 @@ class TokyoNotes(Adw.Application):
         self.graph_view = GraphView(self.graph_manager.get_graph_data(self.archived_notes), self.on_link_clicked)
         self.content_stack.add_named(self.graph_view, "graph")
         
+        # Overlay for Sakura Celebration
+        self.overlay = Gtk.Overlay()
+        self.sakura_overlay = SakuraOverlay()
+        self.overlay.set_child(self.content_stack)
+        self.overlay.add_overlay(self.sakura_overlay)
+        
         main_layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         main_layout.append(self.content_header)
-        main_layout.append(self.content_stack)
+        main_layout.append(self.overlay)
         self.split_view.set_content(main_layout)
 
         # Responsive Breakpoint
@@ -833,6 +841,10 @@ class TokyoNotes(Adw.Application):
     def on_dashboard_checkbox_toggled(self, checkbox, cb):
         checked = checkbox.get_active()
         self.notes_manager.update_checkbox(cb['note'], cb['line'], checked)
+        
+        if checked and self.config.get('sakura_effect', True):
+            self.sakura_overlay.start_celebration()
+            
         # Re-fetch current active filter from the dashboard
         active_filter = [f for f, btn in self.dashboard_view.buttons.items() if btn.has_css_class("active")][0]
         self.refresh_dashboard(active_filter)
