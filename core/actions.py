@@ -21,6 +21,11 @@ class ActionsHandler:
         clipboard = self.app.win.get_clipboard()
         clipboard.set(content)
 
+    def on_insert_timestamp(self, *args):
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        self.app.buffer.insert_at_cursor(timestamp)
+
     def on_paste_clipboard(self, text_view):
         clipboard = self.app.win.get_clipboard()
         clipboard.read_texture_async(None, self.on_paste_texture_finish)

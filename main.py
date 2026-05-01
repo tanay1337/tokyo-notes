@@ -347,7 +347,7 @@ class TokyoNotes(Adw.Application):
         self.on_new_note(None)
 
         # Add Keyboard Shortcuts
-        setup_shortcuts(self.win, self.on_new_note_global, self.on_dashboard_clicked, self.on_graph_clicked, self.on_search_shortcut, self.on_escape_shortcut, self.on_delete_shortcut, self.quit)
+        setup_shortcuts(self.win, self.on_new_note_global, self.on_dashboard_clicked, self.on_graph_clicked, self.on_search_shortcut, self.on_escape_shortcut, self.on_delete_shortcut, self.actions.on_insert_timestamp, self.quit)
         
         self.win.present()
     
