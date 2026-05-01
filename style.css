@@ -1,5 +1,13 @@
-/* Core Layout and Components */
+/* Global UI Transitions */
+window, .sidebar, .toolbar, .dashboard-view {
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
 
+button, .toolbar-btn, .theme-card, .sidebar-label, .sidebar-snippet {
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+
+/* Core Layout and Components */
 window {
     background-color: @bg_color;
     color: @fg_color;
