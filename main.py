@@ -487,7 +487,12 @@ class TokyoNotes(Adw.Application):
         box.append(label)
         
         if is_pinned:
-            pin_icon = Gtk.Image.new_from_icon_name("pin-symbolic")
+            # Try 'pin-symbolic' (common on Linux) then 'view-pin-symbolic' (common on macOS/Adwaita)
+            pin_icon = Gtk.Image()
+            if Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).has_icon("pin-symbolic"):
+                pin_icon.set_from_icon_name("pin-symbolic")
+            else:
+                pin_icon.set_from_icon_name("view-pin-symbolic")
             box.append(pin_icon)
         
         row.set_child(box)
