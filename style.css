@@ -243,3 +243,83 @@ text {
     color: @fg_color;
     opacity: 0.6;
 }
+
+/* Calendar and Popover Styling */
+calendar {
+    background-color: transparent;
+    color: @fg_color;
+    border: none;
+}
+
+calendar > header {
+    border-bottom: 1px solid @border_color;
+    background-color: transparent;
+    padding: 5px;
+}
+
+calendar > grid {
+    padding: 8px;
+}
+
+calendar > grid > label {
+    color: @fg_color;
+}
+
+calendar > grid > label.day-name {
+    color: @accent_color;
+    font-weight: bold;
+    padding-bottom: 4px;
+}
+
+calendar > grid > label:selected {
+    background-color: @accent_color;
+    color: @selected_fg_color;
+    border-radius: 6px;
+}
+
+calendar > grid > label.other-month {
+    opacity: 0.3;
+}
+
+calendar > grid > label.today {
+    color: @selected_fg_color;
+    font-weight: bold;
+    background-color: @selection_color;
+    border: 1px solid @accent_color;
+    border-radius: 6px;
+}
+
+calendar button {
+    border-radius: 50%;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    background-color: transparent;
+    color: @fg_color;
+}
+
+calendar button:hover {
+    background-color: @selection_color;
+}
+
+popover > contents {
+    background-color: @header_bg;
+    padding: 8px;
+    border: 1px solid @border_color;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+}
+
+.deadline-picker-popover entry {
+    margin: 5px 0;
+}
+
+.suggested-action {
+    background-color: @accent_color;
+    color: @selected_fg_color;
+    font-weight: bold;
+}
+
+.suggested-action:hover {
+    filter: brightness(1.1);
+}

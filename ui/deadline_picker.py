@@ -6,6 +6,7 @@ from datetime import datetime
 class DeadlinePicker(Gtk.Popover):
     def __init__(self, callback):
         super().__init__()
+        self.add_css_class("deadline-picker-popover")
         self.callback = callback
         
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -23,6 +24,7 @@ class DeadlinePicker(Gtk.Popover):
         box.append(self.time_entry)
         
         btn = Gtk.Button(label="Set Deadline")
+        btn.add_css_class("suggested-action")
         btn.connect("clicked", self.on_set_clicked)
         box.append(btn)
         
