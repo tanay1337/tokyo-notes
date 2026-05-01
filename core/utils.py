@@ -32,6 +32,14 @@ def create_empty_state_widget(message, base_dir):
     
     return box
 
+def get_snippet(content, length=30):
+    """Returns the first 'length' characters of content, cleaned for sidebar display."""
+    # Remove all markdown headers (e.g. # Header, ## Header, etc.)
+    snippet = re.sub(r'^#+\s+.*$', '', content, flags=re.MULTILINE)
+    # Remove remaining newlines and extra spaces
+    snippet = snippet.replace('\n', ' ').strip()
+    return snippet[:length] + ("..." if len(snippet) > length else "")
+
 def format_markdown_inline(text):
     """Basic markdown to Pango markup conversion."""
     text = escape_xml(text)

@@ -22,7 +22,7 @@ from core.storage import NotesManager
 from core.highlighter import MarkdownHighlighter
 from core.shortcuts import setup_shortcuts
 from core.actions import ActionsHandler
-from core.utils import escape_xml, format_markdown_inline, create_empty_state_widget
+from core.utils import escape_xml, format_markdown_inline, create_empty_state_widget, get_snippet
 from core.graph_manager import GraphManager
 from ui.sidebar import Sidebar
 from ui.editor import Editor
@@ -480,23 +480,34 @@ class TokyoNotes(Adw.Application):
 
     def add_note_row(self, list_box, note, is_pinned=False, is_archived=False):
         row = Gtk.ListBoxRow()
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_top(5)
+        box.set_margin_bottom(5)
         
+        # Title row
+        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         label = Gtk.Label(label=note, xalign=0)
         label.add_css_class("sidebar-label")
         if is_archived:
             label.add_css_class("muted-label")
         label.set_hexpand(True)
-        box.append(label)
+        title_box.append(label)
         
         if is_pinned:
-            # Try 'pin-symbolic' (common on Linux) then 'view-pin-symbolic' (common on macOS/Adwaita)
             pin_icon = Gtk.Image()
             if Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).has_icon("pin-symbolic"):
                 pin_icon.set_from_icon_name("pin-symbolic")
             else:
                 pin_icon.set_from_icon_name("view-pin-symbolic")
-            box.append(pin_icon)
+            title_box.append(pin_icon)
+        box.append(title_box)
+
+        # Snippet row
+        content = self.notes_manager.read_note(note)
+        snippet_text = get_snippet(content)
+        snippet = Gtk.Label(label=snippet_text, xalign=0)
+        snippet.add_css_class("sidebar-snippet")
+        box.append(snippet)
         
         row.set_child(box)
         row.note_name = note

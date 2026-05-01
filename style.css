@@ -22,6 +22,15 @@ headerbar {
     font-weight: 500;
 }
 
+.sidebar-snippet {
+    font-size: 8pt;
+    color: @fg_color;
+    opacity: 0.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 list {
     background-color: transparent;
 }
