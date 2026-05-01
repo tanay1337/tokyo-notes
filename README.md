@@ -5,7 +5,6 @@ A minimal GTK4 Markdown note-taking app.
 <img src="https://imglink.cc/cdn/qAXyRK27M4.png" width="450" /> <img src="https://imglink.cc/cdn/EOOk-V8NYw.png" width="450" />
 
 ## Features
-- **Markdown Editor**: Live highlighting, code blocks, and lists.
 - **Task Management**: Dashboard with Today, Week, and All views, featuring deadline tracking and jump-to-line navigation.
 - **Automatic List Continuation**: Automatic list and task continuation when pressing `Enter`.
 - **Thematic Animations**: "Sakura Celebration" particle effect when completing tasks in Dashboard.
@@ -14,11 +13,9 @@ A minimal GTK4 Markdown note-taking app.
 - **Deadlines & Pickers**: Type `@` for a deadline picker or `[[` for a note link picker.
 - **Exporting**: Save notes as PDF or copy raw Markdown to the clipboard instantly.
 - **Themes**: Multiple themes including Tokyo Night, Nord, and Cyberpunk 2077.
-- **Image Support**: Inline display for local images and remote URLs.
 - **Navigation**: Clickable links to external sites and internal note-to-note navigation.
 - **Full-Text Search**: Find notes by title or keyword content.
 - **Status Bar**: Real-time word count, character count, and reading time.
-- **Persistent State**: Remembers UI layout (sidebar/toolbar visibility) and settings.
 
 ## Keyboard Shortcuts
 | Shortcut | Action |
@@ -55,6 +52,28 @@ git clone https://github.com/tanay1337/tokyo-notes.git
 cd tokyo-notes
 python3 main.py
 ```
+
+## AI Integration (MCP Bridge)
+Tokyo Notes can act as a "knowledge base" for local AI agents, allowing them to search, read, and manage your notes directly.
+
+### Enabling the AI Bridge
+1. Open **Settings** within the Tokyo Notes application.
+2. Scroll to the **AI & Automation** section.
+3. Toggle **AI Bridge (MCP)** to **ON**.
+4. (Optional) Set your preferred port (default is `8999`).
+5. **Restart Tokyo Notes** to initialize the bridge.
+
+### Connecting to your AI Agent
+Once enabled, your notes are accessible at: `http://127.0.0.1:8999/sse`
+
+- **For AnythingLLM / Open WebUI**: Use the **OpenAI-compatible** tool URL: `http://127.0.0.1:8999/v1/tools`
+- **For MCP-native clients (e.g., Claude Desktop)**: Use the SSE endpoint: `http://127.0.0.1:8999/sse`
+
+### What your AI can do
+- **Query**: "What are the action items in my 'Project X' note?"
+- **Manage Tasks**: "Mark the task on line 5 as done in my 'Groceries' note."
+- **Append**: "Add a summary to the end of my 'Daily Log' note."
+- **Create**: "Create a new note titled 'Meeting Notes' with the content: [summary]."
 
 ## License
 [MIT License](LICENSE)

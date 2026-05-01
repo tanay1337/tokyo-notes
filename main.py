@@ -1,6 +1,7 @@
 import sys
 import gi
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from ui.settings import SettingsView
 from ui.deadline_picker import DeadlinePicker
 from ui.graph_view import GraphView
 from ui.sakura_overlay import SakuraOverlay
+from mcp_server import run_mcp_server
 
 class TokyoNotes(Adw.Application):
     def __init__(self, **kwargs):
@@ -52,6 +54,11 @@ class TokyoNotes(Adw.Application):
         self.is_updating_images = False
         self.link_anchors = {}
         self.image_anchors = []
+        
+        # Start AI Bridge if enabled
+        if self.config.get('mcp_server_enabled', False):
+            port = self.config.get('mcp_server_port', 8999)
+            threading.Thread(target=run_mcp_server, args=(port,), daemon=True).start()
         
         # Actions
         self.pinned_path = self.config_dir / "pinned.json"
@@ -91,6 +98,8 @@ class TokyoNotes(Adw.Application):
             'show_toolbar': True,
             'show_stats': False,
             'sakura_effect': True,
+            'mcp_server_enabled': False,
+            'mcp_server_port': 8999,
             'theme': 'tokyo-night'
         }
         if self.config_path.exists():

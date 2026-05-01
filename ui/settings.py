@@ -105,6 +105,59 @@ class SettingsView(Gtk.Box):
 
         content.append(toolbars_list)
 
+        # AI Section
+        ai_section_label = Gtk.Label(label="AI")
+        ai_section_label.add_css_class("dashboard-header")
+        ai_section_label.set_halign(Gtk.Align.START)
+        ai_section_label.set_margin_start(10)
+        ai_section_label.set_margin_top(25)
+        content.append(ai_section_label)
+
+        ai_list = Gtk.ListBox()
+        ai_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        ai_list.add_css_class("settings-list")
+        ai_list.set_margin_start(15)
+        ai_list.set_margin_end(15)
+        ai_list.set_margin_top(10)
+
+        # AI Bridge Toggle
+        ai_bridge_row = self.create_toggle_row(
+            "AI Bridge (MCP)", 
+            "Allow AI agents to read and search your notes",
+            'mcp_server_enabled'
+        )
+        ai_list.append(ai_bridge_row)
+
+        # Port Selection Row
+        port_row = Gtk.ListBoxRow()
+        port_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        port_box.set_margin_start(15)
+        port_box.set_margin_end(15)
+        port_box.set_margin_top(10)
+        port_box.set_margin_bottom(10)
+
+        port_label_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        port_label_box.set_hexpand(True)
+        port_title = Gtk.Label(label="Bridge Port", xalign=0)
+        port_title.add_css_class("theme-name")
+        port_label_box.append(port_title)
+        port_desc = Gtk.Label(label="Port for the AI connection (default 8999)", xalign=0)
+        port_desc.add_css_class("theme-preview")
+        port_label_box.append(port_desc)
+        port_box.append(port_label_box)
+
+        self.port_entry = Gtk.Entry()
+        self.port_entry.set_text(str(self.config.get('mcp_server_port', 8999)))
+        self.port_entry.set_valign(Gtk.Align.CENTER)
+        self.port_entry.set_width_chars(6)
+        self.port_entry.connect("changed", self.on_port_changed)
+        port_box.append(self.port_entry)
+
+        port_row.set_child(port_box)
+        ai_list.append(port_row)
+
+        content.append(ai_list)
+
         # Theme Section
         theme_section_label = Gtk.Label(label="Themes")
         theme_section_label.add_css_class("dashboard-header")
@@ -192,6 +245,12 @@ class SettingsView(Gtk.Box):
         row.add_controller(gesture)
         
         return row
+
+    def on_port_changed(self, entry):
+        text = entry.get_text()
+        if text.isdigit():
+            self.config['mcp_server_port'] = int(text)
+            self.on_config_changed()
 
     def create_toggle_row(self, title, subtitle, config_key):
         row = Gtk.ListBoxRow()
