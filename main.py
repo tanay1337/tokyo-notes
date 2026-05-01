@@ -22,7 +22,7 @@ from core.storage import NotesManager
 from core.highlighter import MarkdownHighlighter
 from core.shortcuts import setup_shortcuts
 from core.actions import ActionsHandler
-from core.utils import escape_xml, format_markdown_inline
+from core.utils import escape_xml, format_markdown_inline, create_empty_state_widget
 from core.graph_manager import GraphManager
 from ui.sidebar import Sidebar
 from ui.editor import Editor
@@ -468,6 +468,9 @@ class TokyoNotes(Adw.Application):
         for note in others:
             self.add_note_row(self.sidebar.main_list, note, is_pinned=False)
             
+        if not pinned and not others and filter_text:
+            self.sidebar.main_list.append(create_empty_state_widget("No notes match.", self.base_dir))
+            
         # Populate Archive List
         for note in self.archived_notes:
             self.add_note_row(self.sidebar.archive_list, note, is_archived=True)
@@ -781,9 +784,9 @@ class TokyoNotes(Adw.Application):
             return row
 
         if not filtered_checkboxes:
-            label = Gtk.Label(label="Add checklists with deadlines for them to show up here.")
-            label.add_css_class("empty-state-label")
-            self.dashboard_list.append(label)
+            widget = create_empty_state_widget("No deadlines found.", self.base_dir)
+            widget.set_vexpand(True)
+            self.dashboard_list.append(widget)
         elif filter_type == "all":
             items_with_deadline = [cb for cb in filtered_checkboxes if cb.get('deadline')]
             items_without_deadline = [cb for cb in filtered_checkboxes if not cb.get('deadline')]

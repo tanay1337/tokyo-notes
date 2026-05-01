@@ -13,6 +13,25 @@ def escape_xml(text):
     """Escapes XML special characters in text."""
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
+def create_empty_state_widget(message, base_dir):
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    box.add_css_class("empty-state-box")
+    box.set_halign(Gtk.Align.CENTER)
+    box.set_valign(Gtk.Align.CENTER)
+    
+    icon_path = base_dir / "assets" / "tokyo_notes_icon.svg"
+    if icon_path.exists():
+        img = Gtk.Image.new_from_file(str(icon_path))
+        img.set_pixel_size(128)
+        img.add_css_class("empty-state-icon")
+        box.append(img)
+        
+    label = Gtk.Label(label=message)
+    label.add_css_class("empty-state-label")
+    box.append(label)
+    
+    return box
+
 def format_markdown_inline(text):
     """Basic markdown to Pango markup conversion."""
     text = escape_xml(text)

@@ -323,3 +323,17 @@ popover > contents {
 .suggested-action:hover {
     filter: brightness(1.1);
 }
+
+.empty-state-box {
+    margin-top: 50px;
+    opacity: 0.8;
+}
+
+.empty-state-icon {
+    margin-bottom: 5px;
+}
+
+.empty-state-label {
+    font-size: 11pt;
+    color: @fg_color;
+}
