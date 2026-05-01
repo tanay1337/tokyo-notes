@@ -13,6 +13,7 @@ except ImportError:
 class ActionsHandler:
     def __init__(self, app):
         self.app = app
+        self.in_zen_mode = False
 
     def on_copy_markdown(self, button):
         if not self.app.current_note: return
@@ -25,6 +26,36 @@ class ActionsHandler:
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         self.app.buffer.insert_at_cursor(timestamp)
+
+    def on_zen_mode(self, *args):
+        # We need the handler ID of the toggle button to block it
+        # Assuming sidebar_toggle is an attribute of the app
+        toggle_handler = getattr(self.app, 'sidebar_toggle_handler', None)
+        
+        if self.in_zen_mode:
+            # Restore saved configuration
+            if toggle_handler: self.app.sidebar_toggle.handler_block(toggle_handler)
+            
+            self.app.split_view.set_show_sidebar(self.app.config.get('show_sidebar', True))
+            self.app.sidebar_toggle.set_active(self.app.config.get('show_sidebar', True))
+            
+            if toggle_handler: self.app.sidebar_toggle.handler_unblock(toggle_handler)
+            
+            self.app.toolbar.set_visible(self.app.config.get('show_toolbar', True))
+            self.app.editor.status_bar.set_visible(self.app.config.get('show_stats', False))
+            self.in_zen_mode = False
+        else:
+            # Hide UI for Zen Mode
+            if toggle_handler: self.app.sidebar_toggle.handler_block(toggle_handler)
+            
+            self.app.split_view.set_show_sidebar(False)
+            self.app.sidebar_toggle.set_active(False)
+            
+            if toggle_handler: self.app.sidebar_toggle.handler_unblock(toggle_handler)
+            
+            self.app.toolbar.set_visible(False)
+            self.app.editor.status_bar.set_visible(False)
+            self.in_zen_mode = True
 
     def on_paste_clipboard(self, text_view):
         clipboard = self.app.win.get_clipboard()

@@ -243,7 +243,7 @@ class TokyoNotes(Adw.Application):
         
         self.sidebar_toggle = Gtk.ToggleButton(icon_name="sidebar-show-symbolic")
         self.sidebar_toggle.set_active(self.config.get('show_sidebar', True))
-        self.sidebar_toggle.connect("toggled", self.on_sidebar_toggled)
+        self.sidebar_toggle_handler = self.sidebar_toggle.connect("toggled", self.on_sidebar_toggled)
         self.content_header.pack_start(self.sidebar_toggle)
         self.split_view.set_show_sidebar(self.sidebar_toggle.get_active())
 
@@ -347,7 +347,7 @@ class TokyoNotes(Adw.Application):
         self.on_new_note(None)
 
         # Add Keyboard Shortcuts
-        setup_shortcuts(self.win, self.on_new_note_global, self.on_dashboard_clicked, self.on_graph_clicked, self.on_search_shortcut, self.on_escape_shortcut, self.on_delete_shortcut, self.actions.on_insert_timestamp, self.quit)
+        setup_shortcuts(self.win, self.on_new_note_global, self.on_dashboard_clicked, self.on_graph_clicked, self.on_search_shortcut, self.on_escape_shortcut, self.on_delete_shortcut, self.actions.on_insert_timestamp, self.actions.on_zen_mode, self.quit)
         
         self.win.present()
     

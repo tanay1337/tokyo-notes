@@ -40,6 +40,7 @@ python3 main.py
 | `Ctrl/Cmd + F` | Focus Search |
 | `Ctrl/Cmd + G` | Knowledge Graph |
 | `Ctrl/Cmd + Shift + T` | Insert Timestamp |
+| `Ctrl/Cmd + Shift + Z` | Zen Mode |
 | `Delete` | Delete selected note (with confirmation) |
 | `Escape` | Close Dashboard / Clear Search / Return to Editor |
 | `Ctrl/Cmd + Q` | Quit |

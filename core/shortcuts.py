@@ -4,7 +4,7 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Gio, GLib
 from core.utils import get_accel
 
-def setup_shortcuts(win, on_new_note, on_dashboard, on_graph, on_search, on_escape, on_delete, on_timestamp, quit_app):
+def setup_shortcuts(win, on_new_note, on_dashboard, on_graph, on_search, on_escape, on_delete, on_timestamp, on_zen_mode, quit_app):
     controller = Gtk.ShortcutController()
     controller.set_scope(Gtk.ShortcutScope.GLOBAL)
 
@@ -42,6 +42,11 @@ def setup_shortcuts(win, on_new_note, on_dashboard, on_graph, on_search, on_esca
     controller.add_shortcut(Gtk.Shortcut.new(
         Gtk.ShortcutTrigger.parse_string(get_accel("<Shift>t")),
         Gtk.CallbackAction.new(lambda *args: on_timestamp() or True)
+    ))
+    # Zen Mode
+    controller.add_shortcut(Gtk.Shortcut.new(
+        Gtk.ShortcutTrigger.parse_string(get_accel("<Shift>z")),
+        Gtk.CallbackAction.new(lambda *args: on_zen_mode() or True)
     ))
     # Escape
     controller.add_shortcut(Gtk.Shortcut.new(
