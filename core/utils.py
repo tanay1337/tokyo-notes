@@ -34,8 +34,18 @@ def create_empty_state_widget(message, base_dir):
 
 def get_snippet(content, length=30):
     """Returns the first 'length' characters of content, cleaned for sidebar display."""
-    # Remove all markdown headers (e.g. # Header, ## Header, etc.)
+    # Remove markdown headers
     snippet = re.sub(r'^#+\s+.*$', '', content, flags=re.MULTILINE)
+    # Remove markdown links [text](url)
+    snippet = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', snippet)
+    # Remove internal markdown links [[NoteName]]
+    snippet = re.sub(r'\[\[([^\]]+)\]\]', r'\1', snippet)
+    # Remove markdown images ![alt](url)
+    snippet = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', snippet)
+    # Remove bold/italic formatting
+    snippet = re.sub(r'(\*\*|__|\*|_)', '', snippet)
+    # Remove code blocks/inline code
+    snippet = re.sub(r'`{1,3}.*?`{1,3}', '', snippet, flags=re.DOTALL)
     # Remove remaining newlines and extra spaces
     snippet = snippet.replace('\n', ' ').strip()
     return snippet[:length] + ("..." if len(snippet) > length else "")
