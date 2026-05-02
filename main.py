@@ -307,6 +307,8 @@ class TokyoNotes(Adw.Application):
         
         # Stack for content switching 
         self.content_stack = Gtk.Stack()
+        self.content_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.content_stack.set_transition_duration(200)
         self.content_stack.set_vexpand(True)
         self.content_stack.add_named(self.editor, "editor")
         self.content_stack.add_named(self.dashboard_view, "dashboard")

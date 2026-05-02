@@ -5,188 +5,125 @@ from gi.repository import Gtk, Adw
 
 class SettingsView(Gtk.Box):
     def __init__(self, on_theme_selected, on_config_changed, on_select_folder_callback, config):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("dashboard-view")
+        
         self.on_theme_selected = on_theme_selected
         self.on_config_changed = on_config_changed
         self.on_select_folder_callback = on_select_folder_callback
         self.config = config
-        
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        # Use Adw.Clamp to control the width of the content area
+        # 850px provides a bit more space while still looking good on large screens
+        clamp = Adw.Clamp()
+        clamp.set_maximum_size(850)
+        clamp.set_tightening_threshold(600)
         
-        # General Section
-        general_section_label = Gtk.Label(label="General")
-        general_section_label.add_css_class("dashboard-header")
-        general_section_label.set_halign(Gtk.Align.START)
-        general_section_label.set_margin_start(10)
-        general_section_label.set_margin_top(15)
-        content.append(general_section_label)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
+        content.set_margin_top(30)
+        content.set_margin_bottom(30)
+        content.set_margin_start(20)
+        content.set_margin_end(20)
 
-        general_list = Gtk.ListBox()
-        general_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        general_list.add_css_class("settings-list")
-        general_list.set_margin_start(15)
-        general_list.set_margin_end(15)
-        general_list.set_margin_top(10)
+        # General Section
+        general_group = Adw.PreferencesGroup(title="General")
+        content.append(general_group)
 
         # Folder Selection Row
-        folder_row = Gtk.ListBoxRow()
-        folder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        folder_box.set_margin_start(15)
-        folder_box.set_margin_end(15)
-        folder_box.set_margin_top(10)
-        folder_box.set_margin_bottom(10)
-        
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        text_box.set_hexpand(True)
-        
-        title_label = Gtk.Label(label="Notes Folder", xalign=0)
-        title_label.add_css_class("theme-name")
-        text_box.append(title_label)
-        
-        path_label = Gtk.Label(label=self.config.get('notes_folder', "Not set"), xalign=0)
-        path_label.add_css_class("theme-preview")
-        text_box.append(path_label)
-        self.path_label = path_label
-        
-        folder_box.append(text_box)
-        
+        self.folder_row = Adw.ActionRow(title="Notes Folder")
+        self.path_label = Gtk.Label(label=self.config.get('notes_folder', "Not set"))
+        self.path_label.add_css_class("dim-label")
+        self.path_label.set_valign(Gtk.Align.CENTER)
+        self.folder_row.add_suffix(self.path_label)
+
         folder_btn = Gtk.Button(label="Select")
         folder_btn.set_valign(Gtk.Align.CENTER)
         folder_btn.connect("clicked", self.on_select_folder_clicked)
-        folder_box.append(folder_btn)
-        
-        folder_row.set_child(folder_box)
-        general_list.append(folder_row)
+        self.folder_row.add_suffix(folder_btn)
+        general_group.add(self.folder_row)
 
         # Sakura Effect Toggle
-        sakura_row = self.create_toggle_row(
-            "Sakura Celebration",
-            "Show cherry blossoms when completing tasks",
-            'sakura_effect'
+        sakura_row = Adw.SwitchRow(
+            title="Sakura Celebration",
+            subtitle="Show cherry blossoms when completing tasks"
         )
-        general_list.append(sakura_row)
-
-        content.append(general_list)
+        sakura_row.set_active(self.config.get('sakura_effect', True))
+        sakura_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'sakura_effect'))
+        general_group.add(sakura_row)
 
         # Toolbars Section
-        toolbar_section_label = Gtk.Label(label="Toolbars")
-        toolbar_section_label.add_css_class("dashboard-header")
-        toolbar_section_label.set_halign(Gtk.Align.START)
-        toolbar_section_label.set_margin_start(10)
-        toolbar_section_label.set_margin_top(25)
-        content.append(toolbar_section_label)
-
-        toolbars_list = Gtk.ListBox()
-        toolbars_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        toolbars_list.add_css_class("settings-list")
-        toolbars_list.set_margin_start(15)
-        toolbars_list.set_margin_end(15)
-        toolbars_list.set_margin_top(10)
+        toolbar_group = Adw.PreferencesGroup(title="Toolbars")
+        content.append(toolbar_group)
 
         # Formatting Bar Toggle
-        formatting_row = self.create_toggle_row(
-            "Formatting Bar", 
-            "Show markdown formatting tools above the editor",
-            'show_toolbar'
+        formatting_row = Adw.SwitchRow(
+            title="Formatting Bar",
+            subtitle="Show markdown formatting tools above the editor"
         )
-        toolbars_list.append(formatting_row)
+        formatting_row.set_active(self.config.get('show_toolbar', True))
+        formatting_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'show_toolbar'))
+        toolbar_group.add(formatting_row)
 
         # Status Bar Toggle
-        status_row = self.create_toggle_row(
-            "Status Bar", 
-            "Show word count and reading time at the bottom",
-            'show_stats'
+        status_row = Adw.SwitchRow(
+            title="Status Bar",
+            subtitle="Show word count and reading time at the bottom"
         )
-        toolbars_list.append(status_row)
-
-        content.append(toolbars_list)
+        status_row.set_active(self.config.get('show_stats', False))
+        status_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'show_stats'))
+        toolbar_group.add(status_row)
 
         # AI Section
-        ai_section_label = Gtk.Label(label="AI")
-        ai_section_label.add_css_class("dashboard-header")
-        ai_section_label.set_halign(Gtk.Align.START)
-        ai_section_label.set_margin_start(10)
-        ai_section_label.set_margin_top(25)
-        content.append(ai_section_label)
-
-        ai_list = Gtk.ListBox()
-        ai_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        ai_list.add_css_class("settings-list")
-        ai_list.set_margin_start(15)
-        ai_list.set_margin_end(15)
-        ai_list.set_margin_top(10)
+        ai_group = Adw.PreferencesGroup(title="AI")
+        content.append(ai_group)
 
         # AI Bridge Toggle
-        ai_bridge_row = self.create_toggle_row(
-            "AI Bridge (MCP)", 
-            "Allow AI agents to read and search your notes",
-            'mcp_server_enabled'
+        ai_bridge_row = Adw.SwitchRow(
+            title="AI Bridge (MCP)",
+            subtitle="Allow AI agents to read and search your notes"
         )
-        ai_list.append(ai_bridge_row)
+        ai_bridge_row.set_active(self.config.get('mcp_server_enabled', False))
+        ai_bridge_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'mcp_server_enabled'))
+        ai_group.add(ai_bridge_row)
 
         # Port Selection Row
-        port_row = Gtk.ListBoxRow()
-        port_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        port_box.set_margin_start(15)
-        port_box.set_margin_end(15)
-        port_box.set_margin_top(10)
-        port_box.set_margin_bottom(10)
-
-        port_label_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        port_label_box.set_hexpand(True)
-        port_title = Gtk.Label(label="Bridge Port", xalign=0)
-        port_title.add_css_class("theme-name")
-        port_label_box.append(port_title)
-        port_desc = Gtk.Label(label="Port for the AI connection (default 8999)", xalign=0)
-        port_desc.add_css_class("theme-preview")
-        port_label_box.append(port_desc)
-        port_box.append(port_label_box)
-
+        self.port_row = Adw.ActionRow(
+            title="Bridge Port",
+            subtitle="Port for the AI connection (default 8999)"
+        )
         self.port_entry = Gtk.Entry()
         self.port_entry.set_text(str(self.config.get('mcp_server_port', 8999)))
         self.port_entry.set_valign(Gtk.Align.CENTER)
         self.port_entry.set_width_chars(6)
         self.port_entry.connect("changed", self.on_port_changed)
-        port_box.append(self.port_entry)
-
-        port_row.set_child(port_box)
-        ai_list.append(port_row)
-
-        content.append(ai_list)
+        self.port_row.add_suffix(self.port_entry)
+        ai_group.add(self.port_row)
 
         # Theme Section
-        theme_section_label = Gtk.Label(label="Themes")
-        theme_section_label.add_css_class("dashboard-header")
-        theme_section_label.set_halign(Gtk.Align.START)
-        theme_section_label.set_margin_start(10)
-        theme_section_label.set_margin_top(25)
-        content.append(theme_section_label)
+        theme_group = Adw.PreferencesGroup(title="Themes")
+        content.append(theme_group)
 
+        theme_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        
         # Tabs for Light/Dark
         theme_stack = Gtk.Stack()
         theme_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
-        theme_stack.set_margin_top(10)
         
         stack_switcher = Gtk.StackSwitcher()
         stack_switcher.set_stack(theme_stack)
         stack_switcher.set_halign(Gtk.Align.CENTER)
-        content.append(stack_switcher)
+        theme_box.append(stack_switcher)
 
         self.light_theme_list = Gtk.ListBox()
         self.light_theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
         self.light_theme_list.add_css_class("settings-list")
-        self.light_theme_list.set_margin_start(15)
-        self.light_theme_list.set_margin_end(15)
 
         self.dark_theme_list = Gtk.ListBox()
         self.dark_theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
         self.dark_theme_list.add_css_class("settings-list")
-        self.dark_theme_list.set_margin_start(15)
-        self.dark_theme_list.set_margin_end(15)
         
         theme_stack.add_titled(self.dark_theme_list, "dark", "Dark Mode")
         theme_stack.add_titled(self.light_theme_list, "light", "Light Mode")
@@ -211,15 +148,16 @@ class SettingsView(Gtk.Box):
                 self.dark_theme_list.append(row)
             self.theme_rows[theme["id"]] = row
         
-        # Set active stack page based on current theme
         if "light" in current_theme:
             theme_stack.set_visible_child_name("light")
         else:
             theme_stack.set_visible_child_name("dark")
 
-        content.append(theme_stack)
-            
-        scrolled.set_child(content)
+        theme_box.append(theme_stack)
+        theme_group.add(theme_box)
+
+        clamp.set_child(content)
+        scrolled.set_child(clamp)
         self.append(scrolled)
 
     def create_theme_row(self, theme, is_active):
@@ -250,41 +188,10 @@ class SettingsView(Gtk.Box):
         text = entry.get_text()
         if text.isdigit():
             self.config['mcp_server_port'] = int(text)
-            self.on_config_changed()
+            self.on_config_changed('mcp_server_port', int(text))
 
-    def create_toggle_row(self, title, subtitle, config_key):
-        row = Gtk.ListBoxRow()
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        box.set_margin_start(15)
-        box.set_margin_end(15)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
-
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        text_box.set_hexpand(True)
-        
-        title_label = Gtk.Label(label=title, xalign=0)
-        title_label.add_css_class("theme-name")
-        text_box.append(title_label)
-        
-        subtitle_label = Gtk.Label(label=subtitle, xalign=0)
-        subtitle_label.add_css_class("theme-preview")
-        text_box.append(subtitle_label)
-        
-        box.append(text_box)
-        
-        switch = Gtk.Switch()
-        switch.set_active(self.config.get(config_key, True))
-        switch.set_valign(Gtk.Align.CENTER)
-        switch.connect("state-set", self.on_toggle_changed, config_key)
-        box.append(switch)
-        
-        row.set_child(box)
-        return row
-
-    def on_toggle_changed(self, switch, state, config_key):
+    def on_toggle_changed(self, state, config_key):
         self.on_config_changed(config_key, state)
-        return False
 
     def update_folder_path(self, new_path):
         self.path_label.set_label(new_path)
@@ -293,7 +200,6 @@ class SettingsView(Gtk.Box):
         self.on_select_folder_callback(button)
 
     def select_theme(self, theme_id):
-        # Update UI
         for tid, row in self.theme_rows.items():
             card = row.get_child()
             if tid == theme_id:
@@ -301,5 +207,4 @@ class SettingsView(Gtk.Box):
             else:
                 card.remove_css_class("active")
         
-        # Trigger callback
         self.on_theme_selected(theme_id)
