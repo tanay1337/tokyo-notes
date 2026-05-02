@@ -54,6 +54,7 @@ class TokyoNotes(Adw.Application):
         self.is_updating_images = False
         self.link_anchors = {}
         self.image_anchors = []
+        self.last_cursor_line = -1
         
         # Start AI Bridge if enabled
         if self.config.get('mcp_server_enabled', False):
@@ -284,6 +285,7 @@ class TokyoNotes(Adw.Application):
         
         self.link_anchors = {}
         self.image_anchors = []
+        self.last_cursor_line = -1
         
         gesture = Gtk.GestureClick.new()
         gesture.set_button(1)
@@ -605,18 +607,29 @@ class TokyoNotes(Adw.Application):
         if not note_name:
             return
 
-        # Switch to editor view
-        self.content_stack.set_visible_child_name("editor")
-        
         self.is_loading = True
         self.current_note = note_name
         self.update_header_ui(self.current_note, is_editor=True)
         content = self.notes_manager.read_note(self.current_note)
+        
         self.buffer.handler_block(self.changed_handler_id)
         self.buffer.set_text(content)
+        
+        # Immediate highlight of first 100 lines for perceived speed
+        if self.highlighter:
+            self.highlighter.highlight(start_line=0, end_line=100)
+        
         self.buffer.handler_unblock(self.changed_handler_id)
-        self.update_highlighting()
+        
+        # Switch to editor view NOW, after initial highlight
+        self.content_stack.set_visible_child_name("editor")
+        
+        # Background highlight for the rest if it's a long note
+        if self.highlighter and self.buffer.get_line_count() > 100:
+            GLib.idle_add(lambda: self.highlighter.highlight(start_line=100) or False)
+        
         self.is_loading = False
+        self.last_cursor_line = -1
         
         # Deselect in the other list if necessary
         if listbox == self.sidebar.main_list:
@@ -1091,20 +1104,41 @@ class TokyoNotes(Adw.Application):
             self.buffer.handler_unblock(self.changed_handler_id)
             self.is_updating_images = False
 
-    def update_highlighting(self):
-        GLib.idle_add(self._do_highlight)
+    def update_highlighting(self, immediate=False):
+        if immediate:
+            self._do_highlight()
+        else:
+            GLib.idle_add(self._do_highlight)
 
     def _do_highlight(self):
         if not self.highlighter: return False
         cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
         cursor_line = cursor_iter.get_line()
         self.buffer.handler_block(self.changed_handler_id)
-        self.highlighter.highlight(cursor_line)
+        self.highlighter.highlight(cursor_line=cursor_line)
         self.buffer.handler_unblock(self.changed_handler_id)
+        self.last_cursor_line = cursor_line
         return False
 
     def on_cursor_moved(self, buffer, pspec):
-        self.update_highlighting()
+        if not self.highlighter or self.is_loading:
+            return
+            
+        cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+        cursor_line = cursor_iter.get_line()
+        
+        if cursor_line != self.last_cursor_line:
+            self.buffer.handler_block(self.changed_handler_id)
+            
+            # Re-highlight the line the cursor LEFT (to restore invisible tags)
+            if self.last_cursor_line != -1:
+                self.highlighter.highlight(start_line=self.last_cursor_line, end_line=self.last_cursor_line + 1)
+            
+            # Highlight the line the cursor ENTERED (to show dim tags)
+            self.highlighter.highlight(start_line=cursor_line, end_line=cursor_line + 1, cursor_line=cursor_line)
+            
+            self.buffer.handler_unblock(self.changed_handler_id)
+            self.last_cursor_line = cursor_line
 
     def update_header_ui(self, title, is_editor=True):
         if is_editor:

@@ -1,11 +1,39 @@
 import re
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk, Pango, GLib
 
 class MarkdownHighlighter:
     def __init__(self, buffer, theme_name="tokyo-night"):
         self.buffer = buffer
         self.enabled = True
         self.theme_name = theme_name
+        
+        # Pre-compile regexes for performance
+        self.re_fenced_code = re.compile(r'```(\w*)\n?([\s\S]*?)```')
+        self.re_setext_underline = re.compile(r'^(\s*)(={3,}|-{3,})\s*$')
+        self.re_list_bullet = re.compile(r'^(\s*)([-*+])\s+')
+        self.re_hr = re.compile(r'^(\s*[-*_]){3,}\s*$')
+        self.re_blockquote = re.compile(r'^(\s*>)\s*(.*)$')
+        self.re_unordered = re.compile(r'^(\s*)([-*+])\s+(.+)$')
+        self.re_ordered = re.compile(r'^(\s*)(\d+\.)\s+(.+)$')
+        self.re_table_row = re.compile(r'^\s*\|.*\|\s*$')
+        self.re_table_sep = re.compile(r'^\s*\|?[\s\-:|]+\|?\s*$')
+        self.re_header = re.compile(r'^(#+)( .+)$')
+        self.re_checkbox_empty = re.compile(r'\[ \]')
+        self.re_checkbox_checked = re.compile(r'\[x\]')
+        self.re_deadline = re.compile(r'@\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?')
+        self.re_tag = re.compile(r'(?<!\w)#(\w+)')
+        self.re_links = re.compile(r'\[\[([^\]]+)\]\]|(!?)\[([^\]]+)\]\(([^)]+)\)')
+        self.re_autolink = re.compile(r'<([^>]+)>')
+        self.re_html = re.compile(r'<[^>]+>')
+        
+        # Inline styles
+        self.re_bold1 = re.compile(r'(\*\*)([^*]+)(\*\*)')
+        self.re_bold2 = re.compile(r'(__)([^_]+)(__)')
+        self.re_italic1 = re.compile(r'(?<!\*)\*([^*]+)\*(?!\*)')
+        self.re_italic2 = re.compile(r'(?<!_)_([^_]+)_(?!_)')
+        self.re_code = re.compile(r'(`)([^`]+)(`)')
+        self.re_strikethrough = re.compile(r'(~~)([^~]+)(~~)')
+        
         self.setup_tags()
 
     def get_colors(self):
@@ -130,151 +158,145 @@ class MarkdownHighlighter:
         result = self.buffer.get_iter_at_offset(offset)
         return result[1] if isinstance(result, tuple) else result
 
-    def highlight(self, cursor_line=None):
+    def highlight(self, start_line=0, end_line=None, cursor_line=None):
         if not self.enabled:
             return
 
-        start, end = self.buffer.get_bounds()
-        self.buffer.remove_all_tags(start, end)
-        
-        text = self.buffer.get_text(start, end, True)
-        
-        # Multi-line Code Blocks (fenced with ```)
-        for match in re.finditer(r'```(\w*)\n?([\s\S]*?)```', text):
-            full_start = match.start()
-            full_end = match.end()
-            
-            lang = match.group(1)
-            code_start = match.start(2)
-            code_end = match.end(2)
-            
-            code_s_iter = self.get_iter_at_offset(code_start)
-            code_e_iter = self.get_iter_at_offset(code_end)
-            self.buffer.apply_tag_by_name("code_block", code_s_iter, code_e_iter)
-            
-            fence_start_s = self.get_iter_at_offset(full_start)
-            fence_start_e = self.get_iter_at_offset(code_start)
-            self.buffer.apply_tag_by_name("invisible", fence_start_s, fence_start_e)
-            
-            fence_end_s = self.get_iter_at_offset(code_end)
-            fence_end_e = self.get_iter_at_offset(full_end)
-            self.buffer.apply_tag_by_name("invisible", fence_end_s, fence_end_e)
+        total_lines = self.buffer.get_line_count()
+        if end_line is None or end_line > total_lines:
+            end_line = total_lines
 
-        lines = text.split('\n')
+        # Remove tags in the specified range
+        start_iter = self.get_iter_at_line(start_line)
+        end_iter = self.get_iter_at_line(end_line)
+        if end_line == total_lines:
+            end_iter = self.buffer.get_end_iter()
+        self.buffer.remove_all_tags(start_iter, end_iter)
+        
+        text_range = self.buffer.get_text(start_iter, end_iter, True)
+        
+        # Handle Fenced Code Blocks (special because they can span multiple lines)
+        # We handle them for the entire document if we are doing a full highlight
+        # OR if we are doing a range highlight, we might need a more complex approach.
+        # For now, let's process fenced code blocks for the whole text if it's a full highlight.
+        if start_line == 0 and end_line == total_lines:
+            for match in self.re_fenced_code.finditer(text_range):
+                full_start = match.start()
+                full_end = match.end()
+                code_start = match.start(2)
+                code_end = match.end(2)
+                
+                self.apply_tag("code_block", code_start, code_end)
+                self.apply_tag("invisible", full_start, code_start)
+                self.apply_tag("invisible", code_end, full_end)
+
+        lines = text_range.split('\n')
+        offset_base = start_iter.get_offset()
+        
         for i, line in enumerate(lines):
-            line_iter = self.get_iter_at_line(i)
-            line_start_offset = line_iter.get_offset()
+            curr_line_num = start_line + i
+            line_start_offset = offset_base + sum(len(l) + 1 for l in lines[:i])
             line_end_offset = line_start_offset + len(line)
-            is_cursor_line = (cursor_line == i)
+            is_cursor_line = (cursor_line == curr_line_num)
 
-            # Setext headings (underline below text)
-            if i > 0:
-                prev_line = lines[i-1]
-                # Require 3+ dashes or equals for Setext headings and exclude list bullets
-                setext_underline = re.match(r'^(\s*)(={3,}|-{3,})\s*$', line)
-                is_list_bullet = re.match(r'^(\s*)([-*+])\s+', prev_line)
+            # Setext headings
+            if curr_line_num > 0:
+                # We need the previous line for Setext headings
+                prev_line_iter = self.get_iter_at_line(curr_line_num - 1)
+                prev_line_end = self.get_iter_at_line(curr_line_num)
+                prev_line = self.buffer.get_text(prev_line_iter, prev_line_end, True).strip('\n')
+                
+                setext_underline = self.re_setext_underline.match(line)
+                is_list_bullet = self.re_list_bullet.match(prev_line)
                 
                 if setext_underline and prev_line.strip() and not prev_line.strip().startswith('#') and not is_list_bullet:
-                    # This is a setext heading underline
                     self.apply_tag("setext_underline", line_start_offset, line_start_offset + len(line))
-                    # Also style the previous line as a heading
-                    prev_offset = self.get_iter_at_line(i-1).get_offset()
+                    prev_offset = prev_line_iter.get_offset()
                     level = 1 if setext_underline.group(2)[0] == '=' else 2
                     tag = "setext_h1" if level == 1 else "setext_h2"
                     self.apply_tag(tag, prev_offset, prev_offset + len(prev_line))
                     continue
 
-            # Horizontal rules (---, ***, ___ with 3+ characters)
-            if re.match(r'^(\s*[-*_]){3,}\s*$', line):
+            # Horizontal rules
+            if self.re_hr.match(line):
                 self.apply_tag("hr", line_start_offset, line_start_offset + len(line))
                 continue
 
-            # Block quotes (lines starting with >)
-            blockquote_match = re.match(r'^(\s*>)\s*(.*)$', line)
+            # Block quotes
+            blockquote_match = self.re_blockquote.match(line)
             if blockquote_match:
                 self.apply_tag("blockquote", line_start_offset, line_start_offset + len(blockquote_match.group(1)))
 
-            # Unordered lists (-, *, +)
-            unordered_match = re.match(r'^(\s*)([-*+])\s+(.+)$', line)
+            # Unordered lists
+            unordered_match = self.re_unordered.match(line)
             if unordered_match:
                 indent_len = len(unordered_match.group(1))
                 bullet_len = len(unordered_match.group(2))
                 self.apply_tag("list_bullet", line_start_offset + indent_len, line_start_offset + indent_len + bullet_len + 1)
 
-            # Ordered lists (1., 2., etc.)
-            ordered_match = re.match(r'^(\s*)(\d+\.)\s+(.+)$', line)
+            # Ordered lists
+            ordered_match = self.re_ordered.match(line)
             if ordered_match:
                 indent_len = len(ordered_match.group(1))
                 number_len = len(ordered_match.group(2))
                 self.apply_tag("list_number", line_start_offset + indent_len, line_start_offset + indent_len + number_len + 1)
 
-            # Tables (lines with | that are not list items)
+            # Tables
             if '|' in line and not unordered_match and not ordered_match:
-                # Highlight the header row (first row with content)
-                if re.match(r'^\s*\|.*\|\s*$', line):
-                    # Check if it's a separator row (contains only |, -, :, spaces)
-                    if re.search(r'\||\-', line):
-                        if re.match(r'^\s*\|?[\s\-:|]+\|?\s*$', line):
-                            # Separator row
-                            for m in re.finditer(r'\|', line):
-                                self.apply_tag("table_sep", line_start_offset + m.start(), line_start_offset + m.start() + 1)
-                        else:
-                            # Data row
-                            for m in re.finditer(r'\|', line):
-                                self.apply_tag("table_row", line_start_offset + m.start(), line_start_offset + m.start() + 1)
-            # Detect headings
-            header_match = re.match(r'^(#+)( .+)$', line)
+                if self.re_table_row.match(line):
+                    if self.re_table_sep.match(line):
+                        for m in re.finditer(r'\|', line):
+                            self.apply_tag("table_sep", line_start_offset + m.start(), line_start_offset + m.start() + 1)
+                    else:
+                        for m in re.finditer(r'\|', line):
+                            self.apply_tag("table_row", line_start_offset + m.start(), line_start_offset + m.start() + 1)
+
+            # Headings
+            header_match = self.re_header.match(line)
             if header_match:
                 level = len(header_match.group(1))
                 tag = f"h{min(level, 4)}"
                 self.apply_tag(tag, line_start_offset, line_end_offset)
-
-                # Apply dim tags if not cursor line
                 if not is_cursor_line:
                     self.apply_tag("invisible", line_start_offset, line_start_offset + level)
                 else:
                     self.apply_tag("dim", line_start_offset, line_start_offset + level)
                 continue
 
-            # Apply 'body' tag (left_margin=80) to all non-heading lines
             self.apply_tag("body", line_start_offset, line_end_offset)
 
-
-            for m in re.finditer(r'\[ \]', line):
+            # Checkboxes
+            for m in self.re_checkbox_empty.finditer(line):
                 self.apply_tag("checkbox_empty", line_start_offset + m.start(), line_start_offset + m.end())
-            for m in re.finditer(r'\[x\]', line):
+            for m in self.re_checkbox_checked.finditer(line):
                 self.apply_tag("checkbox_checked", line_start_offset + m.start(), line_start_offset + m.end())
             
             # Deadlines
-            for m in re.finditer(r'@\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?', line):
+            for m in self.re_deadline.finditer(line):
                 self.apply_tag("deadline", line_start_offset + m.start(), line_start_offset + m.end())
 
             # Tags
-            for m in re.finditer(r'(?<!\w)#(\w+)', line):
+            for m in self.re_tag.finditer(line):
                 self.apply_tag("tag", line_start_offset + m.start(), line_start_offset + m.end())
 
             # Links and Images
-            for m in re.finditer(r'\[\[([^\]]+)\]\]|(!?)\[([^\]]+)\]\(([^)]+)\)', line):
+            for m in self.re_links.finditer(line):
                 full_start = line_start_offset + m.start()
                 full_end = line_start_offset + m.end()
-                
-                if m.group(1): # Internal link [[Note]]
+                if m.group(1): # Internal link
                     self.apply_tag("internal-link", full_start, full_end)
                     if not is_cursor_line:
                         self.apply_tag("invisible", full_start, full_start + 2)
                         self.apply_tag("invisible", full_end - 2, full_end)
                 else: 
-                    # External link [Text](url) or Image ![Alt](url)
                     is_image = bool(m.group(2))
                     link_text = m.group(3)
-                    
                     if is_image:
                         self.apply_tag("image", full_start, full_end)
                     else:
                         text_start = full_start + 1
                         text_end = text_start + len(link_text)
                         self.apply_tag("external-link", text_start, text_end)
-                        
                         if not is_cursor_line:
                             self.apply_tag("invisible", full_start, text_start)
                             self.apply_tag("invisible", text_end, full_end)
@@ -282,44 +304,41 @@ class MarkdownHighlighter:
                             self.apply_tag("dim", full_start, text_start)
                             self.apply_tag("dim", text_end, full_end)
 
-            # Inline styles - FIX: Use lookarounds to prevent overlap
-            self.apply_inline_style(r'(\*\*)([^*]+)(\*\*)', "bold", line, line_start_offset, is_cursor_line)
-            self.apply_inline_style(r'(__)([^_]+)(__)', "bold", line, line_start_offset, is_cursor_line)
-            self.apply_inline_style(r'(?<!\*)\*([^*]+)\*(?!\*)', "italic", line, line_start_offset, is_cursor_line, True)
-            self.apply_inline_style(r'(?<!_)_([^_]+)_(?!_)', "italic", line, line_start_offset, is_cursor_line, True)
-            self.apply_inline_style(r'(`)([^`]+)(`)', "code", line, line_start_offset, is_cursor_line)
-            self.apply_inline_style(r'(~~)([^~]+)(~~)', "strikethrough", line, line_start_offset, is_cursor_line)
+            # Inline styles
+            self.apply_inline_style(self.re_bold1, "bold", line, line_start_offset, is_cursor_line)
+            self.apply_inline_style(self.re_bold2, "bold", line, line_start_offset, is_cursor_line)
+            self.apply_inline_style(self.re_italic1, "italic", line, line_start_offset, is_cursor_line, True)
+            self.apply_inline_style(self.re_italic2, "italic", line, line_start_offset, is_cursor_line, True)
+            self.apply_inline_style(self.re_code, "code", line, line_start_offset, is_cursor_line)
+            self.apply_inline_style(self.re_strikethrough, "strikethrough", line, line_start_offset, is_cursor_line)
             
-            # Autolinks (<https://...> or <email@example.com>)
-            for m in re.finditer(r'<([^>]+)>', line):
+            # Autolinks
+            for m in self.re_autolink.finditer(line):
                 content = m.group(1)
                 if content.startswith('http://') or content.startswith('https://') or '@' in content:
                     self.apply_tag("autolink", line_start_offset + m.start(), line_start_offset + m.end())
                     self.apply_tag("invisible", line_start_offset + m.start(), line_start_offset + m.start() + 1)
                     self.apply_tag("invisible", line_start_offset + m.end() - 1, line_start_offset + m.end())
 
-            # Inline HTML (<tag>...</tag> or <tag />)
-            for m in re.finditer(r'<[^>]+>', line):
+            # Inline HTML
+            for m in self.re_html.finditer(line):
                 content = m.group(0)
                 is_autolink = (content.startswith('<http') or content.startswith('<https') or ('@' in content and '<' in content))
                 if not is_autolink and not content.startswith('<!') and not content.startswith('<?'):
                     self.apply_tag("inline_html", line_start_offset + m.start(), line_start_offset + m.end())
 
-            # Line breaks (backslash at end of line)
+            # Line breaks
             if line.rstrip().endswith('\\'):
                 self.apply_tag("line_break", line_start_offset + len(line.rstrip()), line_start_offset + len(line))
 
     def apply_inline_style(self, pattern, tag, line, line_offset, is_cursor_line, is_single_marker=False):
-        for m in re.finditer(pattern, line):
+        for m in pattern.finditer(line):
             self.apply_tag(tag, line_offset + m.start(), line_offset + m.end())
-            
             if not is_cursor_line:
                 if is_single_marker:
-                    # For *italic*, markers are at start and end
                     self.apply_tag("invisible", line_offset + m.start(), line_offset + m.start() + 1)
                     self.apply_tag("invisible", line_offset + m.end() - 1, line_offset + m.end())
                 else:
-                    # Group 1 and 3 are markers
                     self.apply_tag("invisible", line_offset + m.start(1), line_offset + m.end(1))
                     self.apply_tag("invisible", line_offset + m.start(3), line_offset + m.end(3))
             else:
