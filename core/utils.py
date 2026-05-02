@@ -32,20 +32,28 @@ def create_empty_state_widget(message, base_dir):
     
     return box
 
+# Pre-compile regex patterns
+HEADER_RE = re.compile(r'^#+\s+.*$', flags=re.MULTILINE)
+LINK_RE = re.compile(r'\[([^\]]+)\]\([^)]+\)')
+INTERNAL_LINK_RE = re.compile(r'\[\[([^\]]+)\]\]')
+IMAGE_RE = re.compile(r'!\[[^\]]*\]\([^)]+\)')
+BOLD_ITALIC_RE = re.compile(r'(\*\*|__|\*|_)')
+CODE_RE = re.compile(r'`{1,3}.*?`{1,3}', flags=re.DOTALL)
+
 def get_snippet(content, length=30):
     """Returns the first 'length' characters of content, cleaned for sidebar display."""
     # Remove markdown headers
-    snippet = re.sub(r'^#+\s+.*$', '', content, flags=re.MULTILINE)
+    snippet = HEADER_RE.sub('', content)
     # Remove markdown links [text](url)
-    snippet = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', snippet)
+    snippet = LINK_RE.sub(r'\1', snippet)
     # Remove internal markdown links [[NoteName]]
-    snippet = re.sub(r'\[\[([^\]]+)\]\]', r'\1', snippet)
+    snippet = INTERNAL_LINK_RE.sub(r'\1', snippet)
     # Remove markdown images ![alt](url)
-    snippet = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', snippet)
+    snippet = IMAGE_RE.sub('', snippet)
     # Remove bold/italic formatting
-    snippet = re.sub(r'(\*\*|__|\*|_)', '', snippet)
+    snippet = BOLD_ITALIC_RE.sub('', snippet)
     # Remove code blocks/inline code
-    snippet = re.sub(r'`{1,3}.*?`{1,3}', '', snippet, flags=re.DOTALL)
+    snippet = CODE_RE.sub('', snippet)
     # Remove remaining newlines and extra spaces
     snippet = snippet.replace('\n', ' ').strip()
     return snippet[:length] + ("..." if len(snippet) > length else "")

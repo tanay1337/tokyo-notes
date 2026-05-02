@@ -56,6 +56,7 @@ class TokyoNotes(Adw.Application):
         self.link_anchors = {}
         self.image_anchors = []
         self.last_cursor_line = -1
+        self.snippet_cache = {}
         
         # Start AI Bridge if enabled
         if self.config.get('mcp_server_enabled', False):
@@ -505,8 +506,10 @@ class TokyoNotes(Adw.Application):
         box.append(title_box)
 
         # Snippet row
-        content = self.notes_manager.read_note(note)
-        snippet_text = get_snippet(content)
+        if note not in self.snippet_cache:
+            content = self.notes_manager.read_note(note)
+            self.snippet_cache[note] = get_snippet(content)
+        snippet_text = self.snippet_cache[note]
         snippet = Gtk.Label(label=snippet_text, xalign=0)
         snippet.add_css_class("sidebar-snippet")
         box.append(snippet)
@@ -1220,6 +1223,7 @@ class TokyoNotes(Adw.Application):
                         self.refresh_list() # Force immediate UI update
         
         self.notes_manager.save_note(self.current_note, content)
+        self.snippet_cache[self.current_note] = get_snippet(content)
         return False
 
     def on_text_changed(self, buffer):
