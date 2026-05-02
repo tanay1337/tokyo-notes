@@ -1,11 +1,12 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 class NotesManager:
     def __init__(self, notes_dir="notes"):
         self.notes_dir = Path(notes_dir)
         self.notes_dir.mkdir(exist_ok=True)
         self._content_cache = {}
+        self._metadata_cache = {}
 
     def get_notes(self, search_text="", archived_notes=None):
         """Returns a list of all .md files in the notes directory, sorted by modification time.
@@ -52,11 +53,77 @@ class NotesManager:
             return content
         return ""
 
+    def get_metadata(self, name):
+        """Returns metadata for a note (snippet, links, checkboxes, mtime) with caching."""
+        note_path = self.notes_dir / f"{name}.md"
+        if not note_path.exists():
+            return {"snippet": "", "links": [], "checkboxes": [], "mtime": 0}
+            
+        mtime = note_path.stat().st_mtime
+        if name in self._metadata_cache and self._metadata_cache[name]['mtime'] == mtime:
+            return self._metadata_cache[name]
+            
+        # If cache miss or outdated, read file to generate metadata
+        content = self.read_note(name)
+        snippet = self._generate_snippet(content)
+        links = re.findall(r'\[\[([^\]]+)\]\]', content)
+        checkboxes = self._extract_checkboxes(name, content)
+        
+        metadata = {
+            "snippet": snippet,
+            "links": links,
+            "checkboxes": checkboxes,
+            "mtime": mtime
+        }
+        self._metadata_cache[name] = metadata
+        return metadata
+
+    def _generate_snippet(self, content, length=30):
+        """Returns the first 'length' characters of content, cleaned for sidebar display."""
+        # 1. Remove all markdown headers
+        snippet = re.sub(r'^#+\s+.*$', '', content, flags=re.MULTILINE)
+        # 2. Remove links: [text](url) and [[link]]
+        snippet = re.sub(r'!?\[([^\]]+)\]\(([^)]+)\)|\[\[([^\]]+)\]\]', r'\1\3', snippet)
+        # 3. Remove bold/italic markers: **, __, *, _
+        snippet = re.sub(r'(\*\*|__|\*|_)', '', snippet)
+        # 4. Remove code markers
+        snippet = re.sub(r'(`{1,3})', '', snippet)
+        # 5. Remove images (already handled by link regex, but covering syntax)
+        # 6. Remove remaining newlines and extra spaces
+        snippet = snippet.replace('\n', ' ').strip()
+        return snippet[:length] + ("..." if len(snippet) > length else "")
+
+    def _extract_checkboxes(self, note_name, content):
+        checkboxes = []
+        lines = content.split('\n')
+        for line_num, line in enumerate(lines, 1):
+            match = re.match(r'^(\s*)-\s*\[([ x])\]\s*(.+?)(?:\s+@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?))?\s*$', line)
+            if match:
+                checked = match.group(2) == 'x'
+                text = match.group(3).strip()
+                deadline = match.group(4) if match.group(4) else None
+                checkboxes.append({
+                    'note': note_name,
+                    'text': text,
+                    'checked': checked,
+                    'line': line_num,
+                    'deadline': deadline
+                })
+        return checkboxes
+
     def save_note(self, name, content):
         """Saves content to a note file and updates cache."""
         note_path = self.notes_dir / f"{name}.md"
         note_path.write_text(content, encoding="utf-8")
-        self._content_cache[name] = {'content': content, 'mtime': note_path.stat().st_mtime}
+        mtime = note_path.stat().st_mtime
+        self._content_cache[name] = {'content': content, 'mtime': mtime}
+        # Update metadata cache too
+        self._metadata_cache[name] = {
+            "snippet": self._generate_snippet(content),
+            "links": re.findall(r'\[\[([^\]]+)\]\]', content),
+            "checkboxes": self._extract_checkboxes(name, content),
+            "mtime": mtime
+        }
 
     def create_note(self, name="Untitled"):
         """Returns a unique name for a new note, but does not create it on disk yet."""
@@ -73,6 +140,10 @@ class NotesManager:
         note_path = self.notes_dir / f"{name}.md"
         if note_path.exists():
             note_path.unlink()
+        if name in self._content_cache:
+            del self._content_cache[name]
+        if name in self._metadata_cache:
+            del self._metadata_cache[name]
 
     def rename_note(self, old_name, new_name):
         """Renames a note file."""
@@ -80,29 +151,21 @@ class NotesManager:
         new_path = self.notes_dir / f"{new_name}.md"
         if old_path.exists() and not new_path.exists():
             old_path.rename(new_path)
+            # Invalidate caches
+            if old_name in self._content_cache:
+                del self._content_cache[old_name]
+            if old_name in self._metadata_cache:
+                del self._metadata_cache[old_name]
             return True
         return False
 
     def get_all_checkboxes(self):
         """Returns all checkboxes from all notes grouped by note."""
-        checkboxes = []
+        all_checkboxes = []
         for note_name in self.get_notes():
-            content = self.read_note(note_name)
-            lines = content.split('\n')
-            for line_num, line in enumerate(lines, 1):
-                match = re.match(r'^(\s*)-\s*\[([ x])\]\s*(.+?)(?:\s+@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?))?\s*$', line)
-                if match:
-                    checked = match.group(2) == 'x'
-                    text = match.group(3).strip()
-                    deadline = match.group(4) if match.group(4) else None
-                    checkboxes.append({
-                        'note': note_name,
-                        'text': text,
-                        'checked': checked,
-                        'line': line_num,
-                        'deadline': deadline
-                    })
-        return checkboxes
+            metadata = self.get_metadata(note_name)
+            all_checkboxes.extend(metadata.get('checkboxes', []))
+        return all_checkboxes
 
     def update_checkbox(self, note_name, line_num, checked):
         """Updates a checkbox state in a note."""

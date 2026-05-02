@@ -50,6 +50,7 @@ class TokyoNotes(Adw.Application):
         self.highlighter = None
         self.highlight_timeout_id = 0
         self.rename_timeout_id = 0
+        self.search_timeout_id = 0
         self.changed_handler_id = 0
         self.is_updating_images = False
         self.link_anchors = {}
@@ -299,13 +300,10 @@ class TokyoNotes(Adw.Application):
         self.dashboard_view = Dashboard(self.on_dashboard_item_selected, self.refresh_dashboard, default_filter="today")
         self.dashboard_list = self.dashboard_view.dashboard_list
 
-        # Settings View
-        self.settings_view = SettingsView(
-            self.apply_theme, 
-            self.on_settings_config_changed,
-            self.on_select_folder,
-            self.config
-        )
+        # Settings and Graph Views (Lazy Initialized)
+        self.settings_view = None
+        self.graph_view = None
+        self.graph_manager = GraphManager(self.notes_manager)
         
         # Stack for content switching 
         self.content_stack = Gtk.Stack()
@@ -314,10 +312,6 @@ class TokyoNotes(Adw.Application):
         self.content_stack.set_vexpand(True)
         self.content_stack.add_named(self.editor, "editor")
         self.content_stack.add_named(self.dashboard_view, "dashboard")
-        self.content_stack.add_named(self.settings_view, "settings")
-        self.graph_manager = GraphManager(self.notes_folder)
-        self.graph_view = GraphView(self.graph_manager.get_graph_data(self.archived_notes), self.on_link_clicked)
-        self.content_stack.add_named(self.graph_view, "graph")
         
         # Overlay for Sakura Celebration
         self.overlay = Gtk.Overlay()
@@ -344,16 +338,20 @@ class TokyoNotes(Adw.Application):
                 breakpoint.add_setter(self.sidebar_toggle, "active", False)
                 self.win.add_breakpoint(breakpoint)
 
-        # Initial Load
-        self.refresh_list()
+        # Initial Load (Deferred to idle)
+        GLib.idle_add(self.initial_load)
         
-        # Start with a new 'Untitled' note
-        self.on_new_note(None)
-
         # Add Keyboard Shortcuts
         setup_shortcuts(self.win, self.on_new_note_global, self.on_dashboard_clicked, self.on_graph_clicked, self.on_search_shortcut, self.on_escape_shortcut, self.on_delete_shortcut, self.actions.on_insert_timestamp, self.actions.on_zen_mode, self.quit)
         
         self.win.present()
+
+    def initial_load(self):
+        self.refresh_list()
+        # Start with a new 'Untitled' note if no note is selected
+        if not self.current_note:
+            self.on_new_note(None)
+        return False
     
     def on_delete_shortcut(self):
         # Determine which note is currently selected
@@ -680,11 +678,24 @@ class TokyoNotes(Adw.Application):
             row = row.get_next_sibling()
 
     def on_graph_clicked(self):
+        if not self.graph_view:
+            self.graph_view = GraphView(self.graph_manager.get_graph_data(self.archived_notes), self.on_link_clicked)
+            self.content_stack.add_named(self.graph_view, "graph")
+            
         self.graph_view.update_data(self.graph_manager.get_graph_data(self.archived_notes))
         self.content_stack.set_visible_child_name("graph")
         self.update_header_ui("Knowledge Graph", is_editor=False)
 
     def on_settings_clicked(self, btn):
+        if not self.settings_view:
+            self.settings_view = SettingsView(
+                self.apply_theme, 
+                self.on_settings_config_changed,
+                self.on_select_folder,
+                self.config
+            )
+            self.content_stack.add_named(self.settings_view, "settings")
+            
         self.content_stack.set_visible_child_name("settings")
         self.update_header_ui("Settings", is_editor=False)
 
@@ -1170,7 +1181,15 @@ class TokyoNotes(Adw.Application):
         return False
 
     def on_search_changed(self, entry):
-        self.refresh_list(entry.get_text())
+        if self.search_timeout_id:
+            GLib.source_remove(self.search_timeout_id)
+        
+        self.search_timeout_id = GLib.timeout_add(150, self.do_delayed_search, entry.get_text())
+
+    def do_delayed_search(self, text):
+        self.search_timeout_id = 0
+        self.refresh_list(text)
+        return False
 
     def do_delayed_highlight(self):
         self.highlight_timeout_id = 0
