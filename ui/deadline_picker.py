@@ -1,7 +1,7 @@
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib
-from datetime import datetime
+import datetime
 
 class DeadlinePicker(Gtk.Popover):
     def __init__(self, callback):
@@ -20,7 +20,7 @@ class DeadlinePicker(Gtk.Popover):
         
         self.time_entry = Gtk.Entry()
         self.time_entry.set_placeholder_text("HH:MM")
-        self.time_entry.set_text(datetime.now().strftime("%H:%M"))
+        self.time_entry.set_text(datetime.datetime.now().strftime("%H:%M"))
         box.append(self.time_entry)
         
         btn = Gtk.Button(label="Set Deadline")

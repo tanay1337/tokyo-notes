@@ -2,7 +2,8 @@ import sys
 import gi
 import re
 import threading
-from datetime import datetime
+import datetime
+import webbrowser
 from pathlib import Path
 
 gi.require_version('Gtk', '4.0')
@@ -19,13 +20,15 @@ import json
 from pathlib import Path
 
 from core.storage import NotesManager
+from core.config import ConfigManager
 from core.highlighter import MarkdownHighlighter
 from core.shortcuts import setup_shortcuts
 from core.actions import ActionsHandler
-from core.utils import escape_xml, format_markdown_inline, create_empty_state_widget, get_snippet
+from core.utils import escape_xml, format_markdown_inline, create_empty_state_widget
 from core.graph_manager import GraphManager
 from ui.sidebar import Sidebar
 from ui.editor import Editor
+from ui.toolbar import build_toolbar
 from ui.dashboard import Dashboard
 from ui.settings import SettingsView
 from ui.deadline_picker import DeadlinePicker
@@ -39,10 +42,8 @@ class TokyoNotes(Adw.Application):
         self.base_dir = Path(__file__).parent
         self.actions = ActionsHandler(self)
         
-        self.config_dir = Path.home() / ".config" / "tokyo-notes"
-        self.config_path = self.config_dir / "tokyo-notes.json"
-        self.config = self.load_config()
-        self.notes_folder = self.config.get('notes_folder', "notes")
+        self.cfg = ConfigManager()
+        self.notes_folder = self.cfg.get('notes_folder')
         
         self.notes_manager = NotesManager(notes_dir=self.notes_folder)
         self.current_note = None
@@ -52,97 +53,36 @@ class TokyoNotes(Adw.Application):
         self.rename_timeout_id = 0
         self.search_timeout_id = 0
         self.changed_handler_id = 0
-        self.is_updating_images = False
         self.link_anchors = {}
-        self.image_anchors = []
+        self.is_updating_images = False
         self.last_cursor_line = -1
-        self.snippet_cache = {}
         
         # Start AI Bridge if enabled
-        if self.config.get('mcp_server_enabled', False):
-            port = self.config.get('mcp_server_port', 8999)
+        if self.cfg.get('mcp_server_enabled', False):
+            port = self.cfg.get('mcp_server_port', 8999)
             threading.Thread(target=run_mcp_server, args=(port,), daemon=True).start()
         
         # Actions
-        self.pinned_path = self.config_dir / "pinned.json"
-        self.pinned_notes = self.load_pinned()
-        self.archive_path = self.config_dir / "archived.json"
-        self.archived_notes = self.load_archived()
         self.setup_actions()
 
-    def load_archived(self):
-        if self.archive_path.exists():
-            try:
-                return json.loads(self.archive_path.read_text())
-            except:
-                pass
-        return []
-
-    def save_archived(self):
-        self.archive_path.write_text(json.dumps(self.archived_notes))
-        
     def on_toggle_archive_note(self, action, parameter):
         note_name = parameter.get_string()
-        if note_name in self.archived_notes:
-            self.archived_notes.remove(note_name)
-            # If archive becomes empty while viewing it, switch back to main
-            if not self.archived_notes and self.sidebar.stack.get_visible_child_name() == "archive":
-                self.sidebar.stack.set_visible_child_name("main")
-                self.sidebar.archived_nav_btn.set_label("Archived Notes")
-        else:
-            self.archived_notes.append(note_name)
-        self.save_archived()
+        self.cfg.toggle_archive(note_name)
+        # If archive becomes empty while viewing it, switch back to main
+        if not self.cfg.archived and self.sidebar.stack.get_visible_child_name() == "archive":
+            self.sidebar.stack.set_visible_child_name("main")
+            self.sidebar.archived_nav_btn.set_label("Archived Notes")
         self.refresh_list(self.sidebar.search_entry.get_text())
-
-    def load_config(self):
-        default_config = {
-            'notes_folder': str(Path.home() / "Documents" / "TokyoNotes" if (Path.home() / "Documents").exists() else "notes"),
-            'show_sidebar': True,
-            'show_toolbar': True,
-            'show_stats': False,
-            'sakura_effect': True,
-            'mcp_server_enabled': False,
-            'mcp_server_port': 8999,
-            'theme': 'tokyo-night'
-        }
-        if self.config_path.exists():
-            try:
-                return {**default_config, **json.loads(self.config_path.read_text())}
-            except:
-                pass
-        return default_config
-
-    def save_config(self):
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            self.config_path.write_text(json.dumps(self.config))
-        except:
-            pass
-
-    def load_pinned(self):
-        if self.pinned_path.exists():
-            try:
-                return json.loads(self.pinned_path.read_text())
-            except:
-                pass
-        return []
-
-    def save_pinned(self):
-        self.pinned_path.write_text(json.dumps(self.pinned_notes))
 
     def on_pin_note(self, action, parameter):
         note_name = parameter.get_string()
-        if note_name not in self.pinned_notes:
-            self.pinned_notes.append(note_name)
-            self.save_pinned()
-            self.refresh_list(self.sidebar.search_entry.get_text())
+        self.cfg.pin(note_name)
+        self.refresh_list(self.sidebar.search_entry.get_text())
 
     def on_unpin_note(self, action, parameter):
         note_name = parameter.get_string()
-        if note_name in self.pinned_notes:
-            self.pinned_notes.remove(note_name)
-            self.save_pinned()
-            self.refresh_list(self.sidebar.search_entry.get_text())
+        self.cfg.unpin(note_name)
+        self.refresh_list(self.sidebar.search_entry.get_text())
 
     def setup_actions(self):
         delete_action = Gio.SimpleAction.new("delete", GLib.VariantType.new("s"))
@@ -178,8 +118,7 @@ class TokyoNotes(Adw.Application):
                 new_folder = dialog.get_file().get_path()
                 if new_folder != self.notes_folder:
                     self.notes_folder = new_folder
-                    self.config['notes_folder'] = new_folder
-                    self.save_config()
+                    self.cfg.set('notes_folder', new_folder)
                     self.notes_manager = NotesManager(notes_dir=new_folder)
                     self.settings_view.update_folder_path(new_folder)
                     self.refresh_list()
@@ -218,7 +157,7 @@ class TokyoNotes(Adw.Application):
             self.win.set_icon_name("tokyo_notes_icon")
 
         # Initial Theme
-        self.apply_theme(self.config.get('theme', 'tokyo-night'))
+        self.apply_theme(self.cfg.get('theme'))
 
         # Split View
         self.split_view = Adw.OverlaySplitView()
@@ -230,7 +169,7 @@ class TokyoNotes(Adw.Application):
             self.on_search_changed,
             self.on_dashboard_clicked,
             self.on_archived_clicked,
-            self
+            self.on_graph_clicked
         )
 
         self.sidebar.main_list.connect("row-selected", self.on_note_selected)
@@ -245,7 +184,7 @@ class TokyoNotes(Adw.Application):
         self.content_header.set_title_widget(self.content_title)
         
         self.sidebar_toggle = Gtk.ToggleButton(icon_name="sidebar-show-symbolic")
-        self.sidebar_toggle.set_active(self.config.get('show_sidebar', True))
+        self.sidebar_toggle.set_active(self.cfg.get('show_sidebar'))
         self.sidebar_toggle_handler = self.sidebar_toggle.connect("toggled", self.on_sidebar_toggled)
         self.content_header.pack_start(self.sidebar_toggle)
         self.split_view.set_show_sidebar(self.sidebar_toggle.get_active())
@@ -265,11 +204,14 @@ class TokyoNotes(Adw.Application):
         self.content_header.pack_end(self.settings_btn)
 
         # Editor and Toolbar
+        assets_dir = self.base_dir / "assets" / "toolbar"
+        toolbar = build_toolbar(assets_dir, self.apply_format)
+        
         self.editor = Editor(
             self.on_text_changed,
             self.on_cursor_moved,
             self.actions.on_paste_clipboard,
-            self.create_toolbar,
+            toolbar,
             lambda: self.notes_manager.get_notes()
         )
         self.buffer = self.editor.buffer
@@ -277,12 +219,12 @@ class TokyoNotes(Adw.Application):
         self.toolbar = self.editor.toolbar
         self.changed_handler_id = self.editor.changed_handler_id
         
-        self.toolbar.set_visible(self.config.get('show_toolbar', True))
+        self.toolbar.set_visible(self.cfg.get('show_toolbar'))
         
         # Apply Stats Visibility
-        self.editor.status_bar.set_visible(self.config.get('show_stats', False))
+        self.editor.status_bar.set_visible(self.cfg.get('show_stats'))
         
-        self.highlighter = MarkdownHighlighter(self.buffer, self.config.get('theme', 'tokyo-night'))
+        self.highlighter = MarkdownHighlighter(self.buffer, self.cfg.get('theme'))
         self.highlighter.highlight()
         
         self.link_anchors = {}
@@ -298,7 +240,14 @@ class TokyoNotes(Adw.Application):
         self.text_view.set_focus_on_click(True)
         
         # Dashboard View
-        self.dashboard_view = Dashboard(self.on_dashboard_item_selected, self.refresh_dashboard, default_filter="today")
+        self.dashboard_view = Dashboard(
+            self.on_dashboard_item_selected,
+            self.on_dashboard_checkbox_toggled,
+            self.handle_deadline_click,
+            self.on_dashboard_empty,
+            self.refresh_dashboard,
+            default_filter="today"
+        )
         self.dashboard_list = self.dashboard_view.dashboard_list
 
         # Settings and Graph Views (Lazy Initialized)
@@ -374,60 +323,15 @@ class TokyoNotes(Adw.Application):
         return True
 
     def on_settings_config_changed(self, key, value):
-        self.config[key] = value
-        self.save_config()
-        
+        self.cfg.set(key, value)
         if key == 'show_toolbar':
+
             self.toolbar.set_visible(value)
         elif key == 'show_stats':
             self.editor.status_bar.set_visible(value)
 
-    def create_toolbar(self):
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        toolbar.add_css_class("toolbar")
-        
-        assets_path = self.base_dir / "assets" / "toolbar"
-        
-        formats = [
-            ("**", "**", "Bold", "bold.svg"),
-            ("_", "_", "Italic", "italic.svg"),
-            ("~~", "~~", "Strikethrough", "strikethrough.svg"),
-            ("# ", "", "H1", "h1.svg"),
-            ("## ", "", "H2", "h2.svg"),
-            ("### ", "", "H3", "h3.svg"),
-            ("`", "`", "Code", "code.svg"),
-            ("```\n", "\n```", "Block", "block.svg"),
-            ("- ", "", "List", "list.svg"),
-            ("- [ ] ", "", "Checkbox", "checkbox.svg"),
-            ("[Link](url)", "", "Link", "link.svg"),
-            ("![Alt](url)", "", "Image", "image.svg"),
-            ("> ", "", "Quote", "quote.svg"),
-        ]
-        
-        for prefix, suffix, label, icon_file in formats:
-            btn = Gtk.Button()
-            btn.set_tooltip_text(label)
-            btn.add_css_class("toolbar-btn")
-            
-            icon_path = assets_path / icon_file
-            if icon_path.exists():
-                img = Gtk.Image.new_from_file(str(icon_path))
-                img.set_pixel_size(16)
-                btn.set_child(img)
-            else:
-                btn.set_label(label)
-                
-            btn.connect("clicked", self.apply_format, prefix, suffix)
-            toolbar.append(btn)
-        
-        # Spacer
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        toolbar.append(spacer)
-        
-        return toolbar
-
     def update_stats(self):
+
         start, end = self.buffer.get_bounds()
         text = self.buffer.get_text(start, end, True)
         
@@ -452,86 +356,30 @@ class TokyoNotes(Adw.Application):
         self.text_view.grab_focus()
 
     def refresh_list(self, filter_text=""):
-        # Clear lists
-        while (child := self.sidebar.main_list.get_first_child()):
-            self.sidebar.main_list.remove(child)
-        while (child := self.sidebar.archive_list.get_first_child()):
-            self.sidebar.archive_list.remove(child)
-        
         all_notes = self.notes_manager.get_notes(filter_text)
-        main_notes = [n for n in all_notes if n not in self.archived_notes]
-        
-        pinned = [n for n in main_notes if n in self.pinned_notes]
-        others = [n for n in main_notes if n not in self.pinned_notes]
-        
-        # Populate Main List
-        if pinned:
-            for note in pinned:
-                self.add_note_row(self.sidebar.main_list, note, is_pinned=True)
-        for note in others:
-            self.add_note_row(self.sidebar.main_list, note, is_pinned=False)
-            
-        if not pinned and not others and filter_text:
-            self.sidebar.main_list.append(create_empty_state_widget("No notes match.", self.base_dir))
-            
-        # Populate Archive List
-        for note in self.archived_notes:
-            self.add_note_row(self.sidebar.archive_list, note, is_archived=True)
-            
-        # Hide archive button if no archived notes
-        self.sidebar.archived_nav_btn.set_visible(len(self.archived_notes) > 0)
+        main_notes = [n for n in all_notes if not self.cfg.is_archived(n)]
+        self.sidebar.populate(
+            main_notes=main_notes,
+            pinned=set(self.cfg.pinned),
+            archived_notes=self.cfg.archived,
+            on_right_click=self.on_row_right_click,
+            snippet_fn=self._get_snippet,
+            base_dir=self.base_dir,
+            filter_text=filter_text
+        )
 
-    def add_note_row(self, list_box, note, is_pinned=False, is_archived=False):
-        row = Gtk.ListBoxRow()
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        box.set_margin_top(5)
-        box.set_margin_bottom(5)
-        
-        # Title row
-        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        label = Gtk.Label(label=note, xalign=0)
-        label.add_css_class("sidebar-label")
-        if is_archived:
-            label.add_css_class("muted-label")
-        label.set_hexpand(True)
-        title_box.append(label)
-        
-        if is_pinned:
-            pin_icon = Gtk.Image()
-            if Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).has_icon("pin-symbolic"):
-                pin_icon.set_from_icon_name("pin-symbolic")
-            else:
-                pin_icon.set_from_icon_name("view-pin-symbolic")
-            title_box.append(pin_icon)
-        box.append(title_box)
-
-        # Snippet row
-        if note not in self.snippet_cache:
-            content = self.notes_manager.read_note(note)
-            self.snippet_cache[note] = get_snippet(content)
-        snippet_text = self.snippet_cache[note]
-        snippet = Gtk.Label(label=snippet_text, xalign=0)
-        snippet.add_css_class("sidebar-snippet")
-        box.append(snippet)
-        
-        row.set_child(box)
-        row.note_name = note
-        
-        # Right Click Menu
-        gesture = Gtk.GestureClick(button=3)
-        gesture.connect("pressed", self.on_row_right_click, row, is_archived)
-        row.add_controller(gesture)
-
-        list_box.append(row)
+    def _get_snippet(self, note_name: str) -> str:
+        return self.notes_manager.get_metadata(note_name).get('snippet', '')
 
     def on_row_right_click(self, gesture, n_press, x, y, row, is_archived=False):
+
         note_name = getattr(row, 'note_name', None)
         if not note_name:
             return
 
         menu = Gio.Menu()
         menu.append("Delete", f"app.delete::{note_name}")
-        if note_name in self.pinned_notes:
+        if note_name in self.cfg.pinned:
             menu.append("Unpin", f"app.unpin::{note_name}")
         else:
             menu.append("Pin", f"app.pin::{note_name}")
@@ -570,15 +418,12 @@ class TokyoNotes(Adw.Application):
 
     def confirm_delete(self, note_name):
         self.notes_manager.delete_note(note_name)
+        self.cfg.remove_note(note_name)
         
-        if note_name in self.archived_notes:
-            self.archived_notes.remove(note_name)
-            self.save_archived()
-            
-            # Switch back to main if last archived note deleted
-            if not self.archived_notes and self.sidebar.stack.get_visible_child_name() == "archive":
-                self.sidebar.stack.set_visible_child_name("main")
-                self.sidebar.archived_nav_btn.set_label("Archived Notes")
+        # Switch back to main if last archived note deleted
+        if not self.cfg.archived and self.sidebar.stack.get_visible_child_name() == "archive":
+            self.sidebar.stack.set_visible_child_name("main")
+            self.sidebar.archived_nav_btn.set_label("Archived Notes")
             
         if self.current_note == note_name:
             self.current_note = None
@@ -649,9 +494,9 @@ class TokyoNotes(Adw.Application):
     def on_dashboard_clicked(self, button=None):
         checkboxes = self.notes_manager.get_all_checkboxes()
         unchecked = [cb for cb in checkboxes if not cb['checked']]
-        
-        import datetime
+
         today = datetime.date.today()
+
         today_str = today.isoformat()
         next_week_str = (today + datetime.timedelta(days=7)).isoformat()
         
@@ -682,21 +527,23 @@ class TokyoNotes(Adw.Application):
 
     def on_graph_clicked(self):
         if not self.graph_view:
-            self.graph_view = GraphView(self.graph_manager.get_graph_data(self.archived_notes), self.on_link_clicked)
+            self.graph_view = GraphView(self.graph_manager.get_graph_data(self.cfg.archived), self.on_link_clicked)
             self.content_stack.add_named(self.graph_view, "graph")
-            
-        self.graph_view.update_data(self.graph_manager.get_graph_data(self.archived_notes))
+
+        self.graph_view.update_data(self.graph_manager.get_graph_data(self.cfg.archived))
+
         self.content_stack.set_visible_child_name("graph")
         self.update_header_ui("Knowledge Graph", is_editor=False)
 
     def on_settings_clicked(self, btn):
         if not self.settings_view:
             self.settings_view = SettingsView(
-                self.apply_theme, 
+                self.apply_theme,
                 self.on_settings_config_changed,
                 self.on_select_folder,
-                self.config
+                self.cfg
             )
+
             self.content_stack.add_named(self.settings_view, "settings")
             
         self.content_stack.set_visible_child_name("settings")
@@ -711,8 +558,7 @@ class TokyoNotes(Adw.Application):
             if style_path.exists():
                 self.style_provider.load_from_path(str(style_path))
             
-            self.config['theme'] = theme_name
-            self.save_config()
+            self.cfg.set('theme', theme_name)
             
             # Update highlighter colors
             if self.highlighter:
@@ -758,181 +604,53 @@ class TokyoNotes(Adw.Application):
         picker.popup()
 
     def refresh_dashboard(self, filter_type="today"):
-        while (child := self.dashboard_list.get_first_child()):
-            self.dashboard_list.remove(child)
-        
         checkboxes = self.notes_manager.get_all_checkboxes()
-        
-        # Filtering logic
-        import datetime
-        today = datetime.date.today()
-        today_str = today.isoformat()
-        next_week_str = (today + datetime.timedelta(days=7)).isoformat()
-        
-        def filter_items(f_type):
-            items = [cb for cb in checkboxes if not cb['checked']]
-            if f_type == "today":
-                return [cb for cb in items if cb.get('deadline') and cb['deadline'].startswith(today_str)]
-            elif f_type == "week":
-                return [cb for cb in items if cb.get('deadline') and cb['deadline'] <= next_week_str]
-            return items
+        count = self.dashboard_view.populate(checkboxes, filter_type)
+        title = f"Dashboard — {count} items" if count else "Dashboard"
+        self.win.set_title(title)
 
-        filtered_checkboxes = filter_items(filter_type)
-        
-        def get_time_label(deadline):
-            if not deadline: return "All Day"
-            parts = deadline.split(' ')
-            if len(parts) > 1:
-                return parts[1]
-            return "All Day"
+    def on_dashboard_empty(self, filter_type):
+        msg = f"No tasks for {filter_type}."
+        if filter_type == "all": msg = "No tasks found."
+        widget = create_empty_state_widget(msg, self.base_dir)
+        self.dashboard_list.append(widget)
 
-        def create_calendar_row(cb):
-            row = Gtk.ListBoxRow()
-            row.add_css_class("calendar-row")
-            row.checkbox_data = cb
-            
-            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            
-            # Time Column
-            time_str = get_time_label(cb.get('deadline'))
-            time_label = Gtk.Label(label=time_str)
-            time_label.add_css_class("time-column")
-            
-            # Deadline Edit Handler for the time label
-            gesture = Gtk.GestureClick.new()
-            gesture.connect("pressed", lambda g, n, x, y: self.handle_deadline_click(x, y, cb['note'], cb['line'], time_label))
-            time_label.add_controller(gesture)
-            box.append(time_label)
-            
-            # Checkbox
-            checkbox = Gtk.CheckButton()
-            checkbox.set_active(cb['checked'])
-            checkbox.connect("toggled", self.on_dashboard_checkbox_toggled, cb)
-            box.append(checkbox)
-            
-            # Task Text
-            label = Gtk.Label(label=cb['text'], xalign=0)
-            label.set_hexpand(True)
-            box.append(label)
-            
-            # Note Chip
-            note_chip = Gtk.Label(label=cb['note'])
-            note_chip.add_css_class("note-chip")
-            box.append(note_chip)
-            
-            row.set_child(box)
-            return row
-
-        if not filtered_checkboxes:
-            widget = create_empty_state_widget("No deadlines found.", self.base_dir)
-            widget.set_vexpand(True)
-            self.dashboard_list.append(widget)
-        elif filter_type == "all":
-            items_with_deadline = [cb for cb in filtered_checkboxes if cb.get('deadline')]
-            items_without_deadline = [cb for cb in filtered_checkboxes if not cb.get('deadline')]
-            
-            sorted_with = sorted(items_with_deadline, key=lambda x: x.get('deadline', ''))
-            
-            current_date = None
-            for cb in sorted_with:
-                deadline_date = cb.get('deadline', '').split(' ')[0]
-                if deadline_date != current_date:
-                    current_date = deadline_date
-                    try:
-                        dt = datetime.datetime.strptime(deadline_date, "%Y-%m-%d")
-                        header_text = dt.strftime("%A, %B %d")
-                    except:
-                        header_text = deadline_date
-                    
-                    header_label = Gtk.Label(label=header_text, xalign=0)
-                    header_label.add_css_class("day-header")
-                    header_row = Gtk.ListBoxRow()
-                    header_row.set_child(header_label)
-                    header_row.set_selectable(False)
-                    self.dashboard_list.append(header_row)
-                
-                self.dashboard_list.append(create_calendar_row(cb))
-            
-            if items_without_deadline:
-                header_label = Gtk.Label(label="Miscellaneous", xalign=0)
-                header_label.add_css_class("day-header")
-                header_row = Gtk.ListBoxRow()
-                header_row.set_child(header_label)
-                header_row.set_selectable(False)
-                self.dashboard_list.append(header_row)
-                
-                for cb in items_without_deadline:
-                    self.dashboard_list.append(create_calendar_row(cb))
-        elif filter_type == "today":
-            # Sort by time
-            sorted_items = sorted(filtered_checkboxes, key=lambda x: x.get('deadline', ''))
-            for cb in sorted_items:
-                self.dashboard_list.append(create_calendar_row(cb))
-        elif filter_type == "week":
-            # Group by date
-            sorted_items = sorted(filtered_checkboxes, key=lambda x: x.get('deadline', ''))
-            current_date = None
-            for cb in sorted_items:
-                deadline_date = cb.get('deadline', '').split(' ')[0]
-                if deadline_date != current_date:
-                    current_date = deadline_date
-                    try:
-                        dt = datetime.datetime.strptime(deadline_date, "%Y-%m-%d")
-                        header_text = dt.strftime("%A, %B %d")
-                    except:
-                        header_text = deadline_date
-                    
-                    header_label = Gtk.Label(label=header_text, xalign=0)
-                    header_label.add_css_class("day-header")
-                    header_row = Gtk.ListBoxRow()
-                    header_row.set_child(header_label)
-                    header_row.set_selectable(False)
-                    self.dashboard_list.append(header_row)
-                
-                self.dashboard_list.append(create_calendar_row(cb))
-        
-        total = len(filtered_checkboxes)
-        stats = f"{total} items" if total > 0 else "No items"
-        self.win.set_title(f"Dashboard - {stats}" if total > 0 else "Dashboard")
-
-    def on_dashboard_checkbox_toggled(self, checkbox, cb):
-        checked = checkbox.get_active()
+    def on_dashboard_checkbox_toggled(self, cb, checked):
         self.notes_manager.update_checkbox(cb['note'], cb['line'], checked)
         
-        if checked and self.config.get('sakura_effect', True):
+        if checked and self.cfg.get('sakura_effect'):
             self.sakura_overlay.start_celebration()
             
         # Re-fetch current active filter from the dashboard
-        active_filter = [f for f, btn in self.dashboard_view.buttons.items() if btn.has_css_class("active")][0]
+        active_filter = "today"
+        for f, btn in self.dashboard_view.buttons.items():
+            if btn.has_css_class("active"):
+                active_filter = f
+                break
         self.refresh_dashboard(active_filter)
 
     def on_dashboard_item_selected(self, listbox, row):
         if not row or not hasattr(row, 'checkbox_data'):
             return
         cb = row.checkbox_data
-        
-        self.content_box.set_visible(True)
-        self.dashboard_view.set_visible(False)
-        
+        self.content_stack.set_visible_child_name("editor")
+
         notes = self.notes_manager.get_notes()
         for note in notes:
             if note.lower() == cb['note'].lower():
-                row = self.sidebar.main_list.get_first_child()
-                while row:
-                    if hasattr(row, 'note_name') and row.note_name.lower() == note.lower():
-                        self.sidebar.main_list.select_row(row)
-                        
-                        # Scroll to the specific line
+                sidebar_row = self.sidebar.main_list.get_first_child()
+                while sidebar_row:
+                    if getattr(sidebar_row, 'note_name', '').lower() == note.lower():
+                        self.sidebar.main_list.select_row(sidebar_row)
                         GLib.idle_add(self.scroll_to_line, cb['line'])
                         break
-                    row = row.get_next_sibling()
+                    sidebar_row = sidebar_row.get_next_sibling()
                 break
 
-    def scroll_to_line(self, line_num):
-        # Adjust for 0-based indexing
-        it = self.buffer.get_iter_at_line(line_num - 1)
-        if not isinstance(it, Gtk.TextIter):
-            it = it[1]
+    def scroll_to_line(self, line_num: int):
+        success, it = self.buffer.get_iter_at_line(line_num - 1)
+        if not success:
+            return False
         mark = self.buffer.create_mark(None, it, True)
         self.text_view.scroll_to_mark(mark, 0.0, True, 0.5, 0.1)
         self.buffer.delete_mark(mark)
@@ -941,8 +659,7 @@ class TokyoNotes(Adw.Application):
     def on_sidebar_toggled(self, button):
         visible = button.get_active()
         self.split_view.set_show_sidebar(visible)
-        self.config['show_sidebar'] = visible
-        self.save_config()
+        self.cfg.set('show_sidebar', visible)
 
     def show_export_dialog(self, title, body, is_error=False):
         dialog = Adw.MessageDialog(
@@ -979,7 +696,6 @@ class TokyoNotes(Adw.Application):
                 else: # Standard [Text](url)
                     url = match.group(3)
                     if url.startswith('http'):
-                        import webbrowser
                         webbrowser.open_new_tab(url)
                     else:
                         self.on_link_clicked(url.rsplit('.', 1)[0])
@@ -988,7 +704,6 @@ class TokyoNotes(Adw.Application):
         # Regex to match raw URLs
         for match in re.finditer(r'(https?://[^\s\)]+)', text):
             if match.start() <= cursor_offset <= match.end():
-                import webbrowser
                 webbrowser.open_new_tab(match.group(1))
                 return
         
@@ -1013,110 +728,6 @@ class TokyoNotes(Adw.Application):
                 self.sidebar.main_list.select_row(row)
                 break
             row = row.get_next_sibling()
-
-    def update_images(self):
-        if self.is_updating_images:
-            return
-        
-        self.is_updating_images = True
-        
-        # Block the changed handler while modifying the buffer to prevent recursion
-        self.buffer.handler_block(self.changed_handler_id)
-        
-        try:
-            # 1. Clear existing anchors by deleting the \ufffc characters
-            start, end = self.buffer.get_bounds()
-            text = self.buffer.get_text(start, end, True)
-            for i in range(len(text) - 1, -1, -1):
-                if text[i] == '\ufffc':
-                    it_start = self.buffer.get_iter_at_offset(i)
-                    it_end = it_start.copy()
-                    it_end.forward_char()
-                    self.buffer.delete(it_start, it_end)
-            
-            self.image_anchors.clear()
-            
-            if not self.current_note:
-                return
-            
-            # Re-get text after clearing
-            start, end = self.buffer.get_bounds()
-            text = self.buffer.get_text(start, end, True)
-            
-            # 2. Find and insert images
-            note_dir = Path(self.notes_manager.notes_dir).resolve()
-            matches = list(re.finditer(r'!\[([^\]]*)\]\(([^)]+)\)', text))
-            
-            # Iterate in reverse to keep offsets valid
-            for match in reversed(matches):
-                url = match.group(2)
-                match_end = match.end()
-                
-                # Insert anchor at the end of the markdown syntax
-                anchor_iter = self.buffer.get_iter_at_offset(match_end)
-                anchor = self.buffer.create_child_anchor(anchor_iter)
-                self.image_anchors.append(anchor)
-                
-                if url.startswith('http://') or url.startswith('https://'):
-                    # Remote image with async loading
-                    widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-                    widget.add_css_class("image-container")
-                    
-                    img = Gtk.Image.new_from_icon_name("image-loading-symbolic")
-                    img.set_pixel_size(64)
-                    widget.append(img)
-                    
-                    label = Gtk.Label(label="Loading...")
-                    label.add_css_class("image-caption")
-                    widget.append(label)
-                    
-                    def on_image_loaded(file, result, img_widget, label_widget):
-                        try:
-                            success, contents, etag = file.load_contents_finish(result)
-                            if success:
-                                # Create a stream from the bytes
-                                bytes_obj = GLib.Bytes.new(contents)
-                                stream = Gio.MemoryInputStream.new_from_bytes(bytes_obj)
-                                texture = Gdk.Texture.new_from_stream(stream)
-                                img_widget.set_from_paintable(texture)
-                                img_widget.set_pixel_size(500)
-                                label_widget.set_label("")
-                                label_widget.set_visible(False)
-                        except Exception as e:
-                            img_widget.set_from_icon_name("image-missing-symbolic")
-                            label_widget.set_label(f"Failed to load")
-                            pass
-
-                    remote_file = Gio.File.new_for_uri(url)
-                    remote_file.load_contents_async(None, on_image_loaded, img, label)
-                    
-                    widget.set_size_request(400, -1)
-                else:
-                    # Resolve local path
-                    local_path = Path(url)
-                    if not local_path.is_absolute():
-                        local_path = (note_dir / url).resolve()
-                    
-                    if local_path.exists() and local_path.is_file():
-                        try:
-                            # Use Gtk.Image for simpler rendering
-                            widget = Gtk.Image.new_from_file(str(local_path))
-                            # Set a reasonable size
-                            widget.set_pixel_size(500)
-                            widget.set_margin_top(10)
-                            widget.set_margin_bottom(10)
-                        except Exception as e:
-                            widget = Gtk.Label(label=f"Error: {url}")
-                            widget.add_css_class("image-error")
-                    else:
-                        widget = Gtk.Label(label=f"Not Found: {url}")
-                        widget.add_css_class("image-error")
-                
-                self.text_view.add_child_at_anchor(widget, anchor)
-                
-        finally:
-            self.buffer.handler_unblock(self.changed_handler_id)
-            self.is_updating_images = False
 
     def update_highlighting(self, immediate=False):
         if immediate:
@@ -1197,7 +808,8 @@ class TokyoNotes(Adw.Application):
     def do_delayed_highlight(self):
         self.highlight_timeout_id = 0
         self.update_highlighting()
-        self.update_images()
+        note_dir = Path(self.notes_manager.notes_dir).resolve()
+        self.editor.update_images(note_dir)
         return False
 
     def do_delayed_save(self):
@@ -1223,7 +835,6 @@ class TokyoNotes(Adw.Application):
                         self.refresh_list() # Force immediate UI update
         
         self.notes_manager.save_note(self.current_note, content)
-        self.snippet_cache[self.current_note] = get_snippet(content)
         return False
 
     def on_text_changed(self, buffer):

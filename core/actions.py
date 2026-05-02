@@ -5,6 +5,9 @@ from gi.repository import Gtk, Adw, Gio, Gdk, Pango
 from pathlib import Path
 from core.utils import escape_xml, format_markdown_inline
 import uuid
+import datetime
+import re as _re
+_ORDERED_LIST_RE = _re.compile(r'^\d+\.\s')
 try:
     from gi.repository import PangoCairo
 except ImportError:
@@ -23,8 +26,7 @@ class ActionsHandler:
         clipboard.set(content)
 
     def on_insert_timestamp(self, *args):
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         self.app.buffer.insert_at_cursor(timestamp)
 
     def on_zen_mode(self, *args):
@@ -36,13 +38,13 @@ class ActionsHandler:
             # Restore saved configuration
             if toggle_handler: self.app.sidebar_toggle.handler_block(toggle_handler)
             
-            self.app.split_view.set_show_sidebar(self.app.config.get('show_sidebar', True))
-            self.app.sidebar_toggle.set_active(self.app.config.get('show_sidebar', True))
+            self.app.split_view.set_show_sidebar(self.app.cfg.get('show_sidebar'))
+            self.app.sidebar_toggle.set_active(self.app.cfg.get('show_sidebar'))
             
             if toggle_handler: self.app.sidebar_toggle.handler_unblock(toggle_handler)
             
-            self.app.toolbar.set_visible(self.app.config.get('show_toolbar', True))
-            self.app.editor.status_bar.set_visible(self.app.config.get('show_stats', False))
+            self.app.toolbar.set_visible(self.app.cfg.get('show_toolbar'))
+            self.app.editor.status_bar.set_visible(self.app.cfg.get('show_stats'))
             self.in_zen_mode = False
         else:
             # Hide UI for Zen Mode
@@ -62,15 +64,17 @@ class ActionsHandler:
         clipboard.read_texture_async(None, self.on_paste_texture_finish)
 
     def on_paste_texture_finish(self, clipboard, result):
-        texture = clipboard.read_texture_finish(result)
-        if texture:
-            img_id = str(uuid.uuid4())
-            filename = f"pasted_{img_id}.png" # Simplified path for testing, relative to notes
-            # NOTE: Logic to store in the notes folder needs to be handled correctly
-            # We assume the notes dir for now
-            note_dir = Path(self.app.notes_manager.notes_dir)
-            texture.save_to_png(str(note_dir / filename))
-            self.app.buffer.insert_at_cursor(f"\n![Pasted Image]({filename})\n")
+        try:
+            texture = clipboard.read_texture_finish(result)
+            if texture:
+                img_id = str(uuid.uuid4())
+                filename = f"pasted_{img_id}.png"
+                note_dir = Path(self.app.notes_manager.notes_dir)
+                texture.save_to_png(str(note_dir / filename))
+                self.app.buffer.insert_at_cursor(f"\n![Pasted Image]({filename})\n")
+        except Exception:
+            # Clipboard may contain non-texture data, ignore or handle as text
+            pass
 
     def on_export_pdf(self, button):
         if not self.app.current_note: return
@@ -158,7 +162,7 @@ class ActionsHandler:
                 cr.move_to(margin + 15, y)
                 PangoCairo.show_layout(cr, layout)
                 y += 14
-            elif stripped.startswith('1. ') or stripped.startswith('2. ') or stripped.startswith('3. '):
+            elif _ORDERED_LIST_RE.match(stripped):
                 markup = format_markdown_inline(stripped)
                 layout = context.create_pango_layout()
                 layout.set_markup(f"<span font='10'>{markup}</span>")

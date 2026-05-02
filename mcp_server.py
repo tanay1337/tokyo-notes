@@ -17,8 +17,10 @@ class NotesAPI:
         config_path = Path.home() / ".config" / "tokyo-notes" / "tokyo-notes.json"
         config = {}
         if config_path.exists():
-            try: config = json.loads(config_path.read_text())
-            except: pass
+            try:
+                config = json.loads(config_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
         self.notes_folder = config.get('notes_folder', "notes")
         self.notes_manager = NotesManager(notes_dir=self.notes_folder)
 
@@ -104,7 +106,8 @@ class OmniHandler(BaseHTTPRequestHandler):
             try:
                 while True:
                     time.sleep(15); self.wfile.write(b": ping\n\n"); self.wfile.flush()
-            except: pass
+            except (ConnectionResetError, BrokenPipeError, OSError):
+                pass
         else:
             body = json.dumps({"tools": self.api.get_catalog()}, indent=2).encode()
             self._send_headers(200, length=len(body))
