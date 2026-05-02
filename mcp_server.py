@@ -36,6 +36,7 @@ class NotesAPI:
 
     def handle_request(self, request):
         """Universal handler for MCP, OpenAI, and Llama formats."""
+        self._refresh_manager()
         m = request.get("method", "")
         p = request.get("params", {})
         
@@ -78,6 +79,19 @@ class NotesAPI:
             log(f" [!] Error: {e}")
             return {"error": {"code": -1, "message": str(e)}}
 
+    def _refresh_manager(self):
+        config_path = Path.home() / ".config" / "tokyo-notes" / "tokyo-notes.json"
+        config = {}
+        if config_path.exists():
+            try:
+                config = json.loads(config_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        new_folder = config.get('notes_folder', "notes")
+        if new_folder != self.notes_folder:
+            self.notes_folder = new_folder
+            self.notes_manager = NotesManager(notes_dir=self.notes_folder)
+
 class OmniHandler(BaseHTTPRequestHandler):
     api = None
     
@@ -110,13 +124,16 @@ class OmniHandler(BaseHTTPRequestHandler):
                 pass
         else:
             body = json.dumps({"tools": self.api.get_catalog()}, indent=2).encode()
-            self._send_headers(200, length=len(body))
+            self._send_headers(200, clen=len(body))
             self.wfile.write(body)
 
     def do_POST(self):
         log(f" >>> [POST] {self.path}")
         try:
             clen = int(self.headers.get('Content-Length', 0))
+            if clen > 1 * 1024 * 1024:
+                self._send_headers(413)
+                return
             raw = self.rfile.read(clen)
             log(f" [REQ] RAW: {raw.decode()[:200]}...")
             req = json.loads(raw)
@@ -137,7 +154,7 @@ class OmniHandler(BaseHTTPRequestHandler):
 def run_mcp_server(port=8999):
     api = NotesAPI()
     OmniHandler.api = api
-    server = ThreadingHTTPServer(('0.0.0.0', port), OmniHandler)
+    server = ThreadingHTTPServer(('127.0.0.1', port), OmniHandler)
     log(f"Tokyo Notes AI Bridge Ready on http://127.0.0.1:{port}/sse")
     server.serve_forever()
 

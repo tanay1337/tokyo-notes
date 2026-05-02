@@ -5,6 +5,15 @@ from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 from pathlib import Path
 from core.utils import create_empty_state_widget
 
+_PIN_ICON_NAME: str | None = None
+
+def _get_pin_icon_name() -> str:
+    global _PIN_ICON_NAME
+    if _PIN_ICON_NAME is None:
+        theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+        _PIN_ICON_NAME = "pin-symbolic" if theme.has_icon("pin-symbolic") else "view-pin-symbolic"
+    return _PIN_ICON_NAME
+
 class Sidebar(Gtk.Box):
     def __init__(self, on_new_note, on_search_changed, on_dashboard_clicked, on_archive_clicked, on_graph_clicked):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
@@ -119,10 +128,7 @@ class Sidebar(Gtk.Box):
         
         if is_pinned:
             pin_icon = Gtk.Image()
-            if Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).has_icon("pin-symbolic"):
-                pin_icon.set_from_icon_name("pin-symbolic")
-            else:
-                pin_icon.set_from_icon_name("view-pin-symbolic")
+            pin_icon.set_from_icon_name(_get_pin_icon_name())
             title_box.append(pin_icon)
         box.append(title_box)
 

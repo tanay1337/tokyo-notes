@@ -10,14 +10,10 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
 from gi.repository import Gtk, Gdk, Gio, GLib, Adw, Pango
-import cairo
 try:
     from gi.repository import PangoCairo
 except ImportError:
     PangoCairo = None
-
-import json
-from pathlib import Path
 
 from core.storage import NotesManager
 from core.config import ConfigManager
@@ -53,7 +49,6 @@ class TokyoNotes(Adw.Application):
         self.rename_timeout_id = 0
         self.search_timeout_id = 0
         self.changed_handler_id = 0
-        self.link_anchors = {}
         self.is_updating_images = False
         self.last_cursor_line = -1
         
@@ -226,11 +221,9 @@ class TokyoNotes(Adw.Application):
         
         self.highlighter = MarkdownHighlighter(self.buffer, self.cfg.get('theme'))
         self.highlighter.highlight()
-        
-        self.link_anchors = {}
+
         self.image_anchors = []
         self.last_cursor_line = -1
-        
         gesture = Gtk.GestureClick.new()
         gesture.set_button(1)
         gesture.connect("pressed", self.on_click_pressed)
@@ -617,18 +610,11 @@ class TokyoNotes(Adw.Application):
 
     def on_dashboard_checkbox_toggled(self, cb, checked):
         self.notes_manager.update_checkbox(cb['note'], cb['line'], checked)
-        
+
         if checked and self.cfg.get('sakura_effect'):
             self.sakura_overlay.start_celebration()
-            
-        # Re-fetch current active filter from the dashboard
-        active_filter = "today"
-        for f, btn in self.dashboard_view.buttons.items():
-            if btn.has_css_class("active"):
-                active_filter = f
-                break
-        self.refresh_dashboard(active_filter)
 
+        self.refresh_dashboard(self.dashboard_view.active_filter)
     def on_dashboard_item_selected(self, listbox, row):
         if not row or not hasattr(row, 'checkbox_data'):
             return
@@ -671,8 +657,6 @@ class TokyoNotes(Adw.Application):
         if is_error:
             dialog.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.present()
-
-# ... (removed action methods) ...
 
     def on_click_pressed(self, gesture, n_press, x, y):
         self.handle_link_click(x, y)

@@ -31,6 +31,7 @@ class Dashboard(Gtk.Box):
         self.append(self.filter_box)
         
         # Initialize active button
+        self.active_filter = default_filter
         self.update_active_filter(default_filter)
         
         scrolled_dashboard = Gtk.ScrolledWindow()
@@ -48,6 +49,7 @@ class Dashboard(Gtk.Box):
         self.refresh_callback(filter_type)
 
     def update_active_filter(self, active_type):
+        self.active_filter = active_type
         for f_type, btn in self.buttons.items():
             if f_type == active_type:
                 btn.add_css_class("active")
@@ -81,7 +83,7 @@ class Dashboard(Gtk.Box):
         if filter_type == "today":
             return [cb for cb in unchecked if (cb.get('deadline') or '').startswith(today_str)]
         if filter_type == "week":
-            return [cb for cb in unchecked if (cb.get('deadline') or '') <= next_week_str]
+            return [cb for cb in unchecked if cb.get('deadline') and cb['deadline'] <= next_week_str]
         return unchecked
 
     def _populate_flat(self, items):
