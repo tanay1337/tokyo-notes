@@ -1,13 +1,21 @@
+"""Sidebar UI component for note listing and navigation."""
+from __future__ import annotations
+
+from typing import Any, Callable, TYPE_CHECKING
+
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, Gio, GLib, Gdk
-from pathlib import Path
+from gi.repository import Adw, Gdk, Gtk
 from core.utils import create_empty_state_widget
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _PIN_ICON_NAME: str | None = None
 
 def _get_pin_icon_name() -> str:
+    """Returns the appropriate pin icon name."""
     global _PIN_ICON_NAME
     if _PIN_ICON_NAME is None:
         theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
@@ -15,7 +23,14 @@ def _get_pin_icon_name() -> str:
     return _PIN_ICON_NAME
 
 class Sidebar(Gtk.Box):
-    def __init__(self, on_new_note, on_search_changed, on_dashboard_clicked, on_archive_clicked, on_graph_clicked):
+    def __init__(
+        self, 
+        on_new_note: Callable[..., Any], 
+        on_search_changed: Callable[..., Any], 
+        on_dashboard_clicked: Callable[..., Any], 
+        on_archive_clicked: Callable[..., Any], 
+        on_graph_clicked: Callable[..., Any]
+    ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("sidebar")
         
@@ -77,8 +92,8 @@ class Sidebar(Gtk.Box):
         
         self.append(footer_box)
 
-    def populate(self, main_notes: list, pinned: set, archived_notes: list,
-                 on_right_click, snippet_fn, base_dir, filter_text=""):
+    def populate(self, main_notes: list[str], pinned: set[str], archived_notes: list[str],
+                 on_right_click: Callable[..., Any], snippet_fn: Callable[[str], str], base_dir: Path, filter_text: str = "") -> None:
         """Rebuild both list boxes. Caller provides data and callbacks."""
         self._clear(self.main_list)
         self._clear(self.archive_list)
@@ -98,6 +113,7 @@ class Sidebar(Gtk.Box):
         if not pinned_notes and not other_notes and filter_text:
             self.main_list.append(create_empty_state_widget("No notes match.", base_dir))
 
+        # Archived notes are not in main_notes, so we don't perform content search here
         for note in archived_notes:
             if not filter_text or filter_text.lower() in note.lower():
                 self.archive_list.append(
@@ -106,12 +122,14 @@ class Sidebar(Gtk.Box):
 
         self.archived_nav_btn.set_visible(bool(archived_notes))
 
-    def _clear(self, list_box):
+    def _clear(self, list_box: Gtk.ListBox) -> None:
+        """Clears all children from a list box."""
         while (child := list_box.get_first_child()):
             list_box.remove(child)
 
-    def _make_row(self, note_name, snippet_text, is_pinned=False,
-                  is_archived=False, on_right_click=None, base_dir=None):
+    def _make_row(self, note_name: str, snippet_text: str, is_pinned: bool = False,
+                  is_archived: bool = False, on_right_click: Callable[..., Any] | None = None, base_dir: Path | None = None) -> Gtk.ListBoxRow:
+        """Creates a sidebar row for a note."""
         row = Gtk.ListBoxRow()
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         box.set_margin_top(5)

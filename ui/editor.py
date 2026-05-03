@@ -1,13 +1,33 @@
+"""Markdown editor component with syntax highlighting and image support."""
+from __future__ import annotations
+
+import re
+from typing import Any, Callable, TYPE_CHECKING
+
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, Pango, GLib, Gdk, Gio
-import re
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
+
+from pathlib import Path
 from ui.deadline_picker import DeadlinePicker
 from ui.link_picker import LinkPicker
 
+_CONTINUATION_PATTERNS: list[tuple[str, str]] = [
+    (r'^(\s*-\s*\[[ xX]\])(.*)$', "task"),
+    (r'^(\s*[-*+])\s+',           "list"),
+    (r'^(\s*\d+\.)\s+',           "ordered"),
+]
+
 class Editor(Gtk.Box):
-    def __init__(self, on_text_changed, on_cursor_moved, on_paste_clipboard, toolbar, get_notes_callback):
+    def __init__(
+        self, 
+        on_text_changed: Callable[[Gtk.TextBuffer], Any], 
+        on_cursor_moved: Callable[[Any, Any], Any], 
+        on_paste_clipboard: Callable[[Gtk.TextView], Any], 
+        toolbar: Gtk.Box, 
+        get_notes_callback: Callable[[], list[str]]
+    ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.get_notes_callback = get_notes_callback
         
@@ -18,7 +38,7 @@ class Editor(Gtk.Box):
         # Editor
         scrolled_editor = Gtk.ScrolledWindow()
         scrolled_editor.set_vexpand(True)
-        self.text_view = Gtk.TextView()
+        self.text_view: Gtk.TextView = Gtk.TextView()
         self.text_view.set_wrap_mode(Gtk.WrapMode.WORD)
         self.text_view.set_left_margin(30)
         self.text_view.set_right_margin(80)
@@ -36,8 +56,7 @@ class Editor(Gtk.Box):
         self.controller.connect("key-pressed", self.on_key_pressed)
         self.text_view.add_controller(self.controller)
         
-        self.buffer = self.text_view.get_buffer()
-        # Connect key handler directly to buffer if possible or keep on TextView
+        self.buffer: Gtk.TextBuffer = self.text_view.get_buffer()
         self.buffer.connect("insert-text", self.on_insert_text)
         self.changed_handler_id = self.buffer.connect("changed", on_text_changed)
         self.buffer.connect("notify::cursor-position", on_cursor_moved)
@@ -56,10 +75,11 @@ class Editor(Gtk.Box):
         
         self.append(self.status_bar)
         
-        self.image_anchors = []
-        self.is_updating_images = False
+        self.image_anchors: list[Gtk.TextChildAnchor] = []
+        self.is_updating_images: bool = False
 
-    def on_key_pressed(self, controller, keyval, keycode, state):
+    def on_key_pressed(self, controller: Gtk.EventControllerKey, keyval: int, keycode: int, state: Gdk.ModifierType) -> bool:
+        """Handles list continuation on Enter key."""
         if keyval in [Gdk.KEY_Return, Gdk.KEY_KP_Enter]:
             buffer = self.text_view.get_buffer()
             insert_mark = buffer.get_insert()
@@ -72,14 +92,7 @@ class Editor(Gtk.Box):
             line_end.forward_to_line_end()
             line_text = buffer.get_text(line_start, iter, False)
 
-            # Check for patterns (Pattern, Type)
-            patterns = [
-                (r'^(\s*-\s*\[[ xX]\])(.*)$', "task"),
-                (r'^(\s*[-*+])\s+', "list"),
-                (r'^(\s*\d+\.)\s+', "ordered")
-            ]
-            
-            for pattern, p_type in patterns:
+            for pattern, p_type in _CONTINUATION_PATTERNS:
                 match = re.match(pattern, line_text)
                 if match:
                     # Capture the full prefix including spaces and marker
@@ -113,7 +126,8 @@ class Editor(Gtk.Box):
                     return True # Prevent default to avoid extra newline
         return False
 
-    def on_insert_text(self, buffer, location, text, len):
+    def on_insert_text(self, buffer: Gtk.TextBuffer, location: Gtk.TextIter, text: str, length: int) -> None:
+        """Triggers pickers for shortcuts."""
         if text == '@':
             GLib.idle_add(self.show_deadline_picker)
         elif text == '[':
@@ -122,8 +136,9 @@ class Editor(Gtk.Box):
             if iter.get_char() == '[':
                 GLib.idle_add(self.show_link_picker)
 
-    def show_link_picker(self):
-        def on_selected(note_name):
+    def show_link_picker(self) -> None:
+        """Shows the link selection popover."""
+        def on_selected(note_name: str) -> None:
             self.buffer.insert_at_cursor(f"{note_name}]]")
             
         notes = self.get_notes_callback()
@@ -136,7 +151,8 @@ class Editor(Gtk.Box):
         picker.set_pointing_to(rect)
         picker.popup()
 
-    def show_deadline_picker(self):
+    def show_deadline_picker(self) -> None:
+        """Shows the deadline selection popover."""
         picker = DeadlinePicker(self.on_deadline_selected)
         picker.set_parent(self.text_view)
         
@@ -147,7 +163,8 @@ class Editor(Gtk.Box):
         
         picker.popup()
 
-    def update_images(self, note_dir: Path):
+    def update_images(self, note_dir: Path) -> None:
+        """Updates embedded images."""
         if self.is_updating_images:
             return
         
@@ -187,7 +204,7 @@ class Editor(Gtk.Box):
                 self.image_anchors.append(anchor)
                 
                 if url.startswith('http://') or url.startswith('https://'):
-                    # Remote image with async loading
+                    # Remote image with async loading (intentional positional-arg passing)
                     widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
                     widget.add_css_class("image-container")
                     
@@ -199,7 +216,7 @@ class Editor(Gtk.Box):
                     label.add_css_class("image-caption")
                     widget.append(label)
                     
-                    def on_image_loaded(file, result, img_widget, label_widget):
+                    def on_image_loaded(file: Gio.File, result: Gio.AsyncResult, img_widget: Gtk.Image, label_widget: Gtk.Label) -> None:
                         try:
                             success, contents, etag = file.load_contents_finish(result)
                             if success:
@@ -211,10 +228,9 @@ class Editor(Gtk.Box):
                                 img_widget.set_pixel_size(500)
                                 label_widget.set_label("")
                                 label_widget.set_visible(False)
-                        except Exception as e:
+                        except Exception:
                             img_widget.set_from_icon_name("image-missing-symbolic")
-                            label_widget.set_label(f"Failed to load")
-                            pass
+                            label_widget.set_label("Failed to load")
 
                     remote_file = Gio.File.new_for_uri(url)
                     remote_file.load_contents_async(None, on_image_loaded, img, label)
@@ -234,7 +250,7 @@ class Editor(Gtk.Box):
                             widget.set_pixel_size(500)
                             widget.set_margin_top(10)
                             widget.set_margin_bottom(10)
-                        except Exception as e:
+                        except Exception:
                             widget = Gtk.Label(label=f"Error: {url}")
                             widget.add_css_class("image-error")
                     else:
@@ -247,7 +263,6 @@ class Editor(Gtk.Box):
             self.buffer.handler_unblock(self.changed_handler_id)
             self.is_updating_images = False
 
-    def on_deadline_selected(self, deadline):
-        # The '@' was already inserted by the buffer (before the callback was triggered).
-        # We append the date and time.
-        self.buffer.insert_at_cursor(f"{deadline}")
+    def on_deadline_selected(self, deadline: str) -> None:
+        """Inserts deadline string."""
+        self.buffer.insert_at_cursor(deadline)

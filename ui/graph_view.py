@@ -1,51 +1,61 @@
+"""Graph view component for visualizing note relationships."""
+from __future__ import annotations
+
+import math
+from typing import Any, Callable, TYPE_CHECKING
+
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('PangoCairo', '1.0')
-from gi.repository import Gtk, Gdk, Pango, PangoCairo
-import math
+from gi.repository import Gdk, Gtk, Pango, PangoCairo
+
+if TYPE_CHECKING:
+    import cairo
 
 class GraphView(Gtk.Box):
-    def __init__(self, graph_data, on_node_clicked):
+    def __init__(self, graph_data: dict[str, list[str]], on_node_clicked: Callable[[str], None]) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        self.graph_data = graph_data
-        self.on_node_clicked = on_node_clicked
-        self.nodes = list(graph_data.keys())
+        self.graph_data: dict[str, list[str]] = graph_data
+        self.on_node_clicked: Callable[[str], None] = on_node_clicked
+        self.nodes: list[str] = list(graph_data.keys())
         
-        self.canvas = Gtk.DrawingArea()
+        self.canvas: Gtk.DrawingArea = Gtk.DrawingArea()
         self.canvas.set_draw_func(self.on_draw)
         self.canvas.set_size_request(600, 600)
         
         self.append(self.canvas)
         
-        self._node_positions = {}
-        self._last_size = (0, 0)
+        self._node_positions: dict[str, tuple[float, float]] = {}
+        self._last_size: tuple[int, int] = (0, 0)
         self.canvas.connect("resize", lambda w, ww, hh: self._invalidate_positions())
         
         gesture = Gtk.GestureClick.new()
         gesture.connect("pressed", self.on_press)
         self.canvas.add_controller(gesture)
 
-    def _invalidate_positions(self):
+    def _invalidate_positions(self) -> None:
         self._node_positions = {}
 
-    def _get_positions(self, width, height):
+    def _get_positions(self, width: int, height: int) -> dict[str, tuple[float, float]]:
         if not self._node_positions or self._last_size != (width, height):
             total = len(self.nodes)
             if total > 0:
                 self._node_positions = {
-                    node: self.get_node_coords(i, total, width, height)
+                    node: self.get_node_coords(i, total, float(width), float(height))
                     for i, node in enumerate(self.nodes)
                 }
                 self._last_size = (width, height)
         return self._node_positions
 
-    def update_data(self, new_data):
+    def update_data(self, new_data: dict[str, list[str]]) -> None:
+        """Updates graph data."""
         self.graph_data = new_data
         self.nodes = list(new_data.keys())
         self._invalidate_positions()
         self.canvas.queue_draw()
 
-    def get_node_coords(self, index, total, width, height):
+    def get_node_coords(self, index: int, total: int, width: float, height: float) -> tuple[float, float]:
+        """Calculates circular layout coordinates."""
         center_x, center_y = width / 2, height / 2
         radius = min(width, height) / 3
         angle = (2 * math.pi * index) / total
@@ -53,7 +63,8 @@ class GraphView(Gtk.Box):
         y = center_y + radius * math.sin(angle)
         return x, y
 
-    def on_draw(self, area, cr, width, height):
+    def on_draw(self, area: Gtk.DrawingArea, cr: cairo.Context, width: int, height: int) -> None:
+        """Draws the graph topology."""
         if not self.nodes:
             return
         
@@ -122,7 +133,8 @@ class GraphView(Gtk.Box):
             cr.move_to(x + 14, y - 6) # Adjusted y for Pango layout
             PangoCairo.show_layout(cr, layout)
 
-    def on_press(self, gesture, n_press, x, y):
+    def on_press(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
+        """Handles node clicks."""
         width = self.canvas.get_width()
         height = self.canvas.get_height()
         node_positions = self._get_positions(width, height)

@@ -1,4 +1,4 @@
-# ui/toolbar.py
+"""Toolbar widget construction for Tokyo Notes editor."""
 from pathlib import Path
 from gi.repository import Gtk
 
@@ -18,7 +18,8 @@ FORMATS = [
     ("> ",   "",     "Quote",         "quote.svg"),
 ]
 
-def build_toolbar(assets_dir: Path, on_format) -> Gtk.Box:
+def build_toolbar(assets_dir: Path, on_format: Any) -> Gtk.Box:
+    """Builds the editor toolbar widget."""
     toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
     toolbar.add_css_class("toolbar")
     for prefix, suffix, label, icon_file in FORMATS:

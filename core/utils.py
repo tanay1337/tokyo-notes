@@ -1,73 +1,87 @@
+"""Utility functions for Tokyo Notes text processing and UI widget generation."""
+from __future__ import annotations
+
 import re
 import sys
-from gi.repository import Gtk, Pango
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-IS_MAC = sys.platform == "darwin"
+from gi.repository import Gtk
 
-def get_accel(key):
+if TYPE_CHECKING:
+    pass
+
+IS_MAC: bool = sys.platform == "darwin"
+
+
+def get_accel(key: str) -> str:
     """Returns the correct accelerator string based on platform."""
-    modifier = "<Meta>" if IS_MAC else "<Control>"
+    modifier: str = "<Meta>" if IS_MAC else "<Control>"
     return f"{modifier}{key}"
 
-def escape_xml(text):
+
+def escape_xml(text: str) -> str:
     """Escapes XML special characters in text."""
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
-def create_empty_state_widget(message, base_dir):
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+def create_empty_state_widget(message: str, base_dir: Path) -> Gtk.Box:
+    """Creates a standardized empty state widget."""
+    box: Gtk.Box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     box.add_css_class("empty-state-box")
     box.set_halign(Gtk.Align.CENTER)
     box.set_valign(Gtk.Align.CENTER)
     
-    icon_path = base_dir / "assets" / "tokyo_notes_icon.svg"
+    icon_path: Path = base_dir / "assets" / "tokyo_notes_icon.svg"
     if icon_path.exists():
-        img = Gtk.Image.new_from_file(str(icon_path))
+        img: Gtk.Image = Gtk.Image.new_from_file(str(icon_path))
         img.set_pixel_size(128)
         img.add_css_class("empty-state-icon")
         box.append(img)
         
-    label = Gtk.Label(label=message)
+    label: Gtk.Label = Gtk.Label(label=message)
     label.add_css_class("empty-state-label")
     box.append(label)
     
     return box
 
+
 # Pre-compile regex patterns
-HEADER_RE = re.compile(r'^#+\s+.*$', flags=re.MULTILINE)
-LINK_RE = re.compile(r'\[([^\]]+)\]\([^)]+\)')
-INTERNAL_LINK_RE = re.compile(r'\[\[([^\]]+)\]\]')
-IMAGE_RE = re.compile(r'!\[[^\]]*\]\([^)]+\)')
-BOLD_ITALIC_RE = re.compile(r'(\*\*|__|\*|_)')
-CODE_RE = re.compile(r'`{1,3}.*?`{1,3}', flags=re.DOTALL)
+HEADER_RE: re.Pattern = re.compile(r'^#+\s+.*$', flags=re.MULTILINE)
+LINK_RE: re.Pattern = re.compile(r'\[([^\]]+)\]\([^)]+\)')
+INTERNAL_LINK_RE: re.Pattern = re.compile(r'\[\[([^\]]+)\]\]')
+IMAGE_RE: re.Pattern = re.compile(r'!\[[^\]]*\]\([^)]+\)')
+BOLD_ITALIC_RE: re.Pattern = re.compile(r'(\*\*|__|\*|_)')
+CODE_RE: re.Pattern = re.compile(r'`{1,3}.*?`{1,3}', flags=re.DOTALL)
 
 # Pre-compile regex patterns for format_markdown_inline
-_FMI_LINK_RE    = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
-_FMI_BOLD1_RE   = re.compile(r'\*\*([^*]+)\*\*')
-_FMI_BOLD2_RE   = re.compile(r'__([^_]+)__')
-_FMI_ITALIC1_RE = re.compile(r'\*([^*]+)\*')
-_FMI_ITALIC2_RE = re.compile(r'_([^_]+)_')
-_FMI_CODE_RE    = re.compile(r'`([^`]+)`')
-_FMI_STRIKE_RE  = re.compile(r'~~([^~]+)~~')
+_FMI_LINK_RE: re.Pattern    = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
+_FMI_BOLD1_RE: re.Pattern   = re.compile(r'\*\*([^*]+)\*\*')
+_FMI_BOLD2_RE: re.Pattern   = re.compile(r'__([^_]+)__')
+_FMI_ITALIC1_RE: re.Pattern = re.compile(r'\*([^*]+)\*')
+_FMI_ITALIC2_RE: re.Pattern = re.compile(r'_([^_]+)_')
+_FMI_CODE_RE: re.Pattern    = re.compile(r'`([^`]+)`')
+_FMI_STRIKE_RE: re.Pattern  = re.compile(r'~~([^~]+)~~')
 
-def get_snippet(content, length=30):
+
+def _clean_snippet(text: str) -> str:
+    """Applies a sequence of regex replacements to clean text for snippets."""
+    text = HEADER_RE.sub('', text)
+    text = LINK_RE.sub(r'\1', text)
+    text = INTERNAL_LINK_RE.sub(r'\1', text)
+    text = IMAGE_RE.sub('', text)
+    text = BOLD_ITALIC_RE.sub('', text)
+    text = CODE_RE.sub('', text)
+    return text.replace('\n', ' ').strip()
+
+
+def get_snippet(content: str, length: int = 30) -> str:
     """Returns the first 'length' characters of content, cleaned for sidebar display."""
-    # Remove markdown headers
-    snippet = HEADER_RE.sub('', content)
-    # Remove markdown links [text](url)
-    snippet = LINK_RE.sub(r'\1', snippet)
-    # Remove internal markdown links [[NoteName]]
-    snippet = INTERNAL_LINK_RE.sub(r'\1', snippet)
-    # Remove markdown images ![alt](url)
-    snippet = IMAGE_RE.sub('', snippet)
-    # Remove bold/italic formatting
-    snippet = BOLD_ITALIC_RE.sub('', snippet)
-    # Remove code blocks/inline code
-    snippet = CODE_RE.sub('', snippet)
-    # Remove remaining newlines and extra spaces
-    snippet = snippet.replace('\n', ' ').strip()
+    snippet: str = _clean_snippet(content)
     return snippet[:length] + ("..." if len(snippet) > length else "")
 
-def format_markdown_inline(text):
+
+def format_markdown_inline(text: str) -> str:
     """Basic markdown to Pango markup conversion."""
     text = escape_xml(text)
     text = _FMI_LINK_RE.sub(r'<span foreground="#1B365D" underline="single">\1</span>', text)

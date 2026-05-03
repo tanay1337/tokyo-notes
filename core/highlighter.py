@@ -1,97 +1,86 @@
+"""Syntax highlighting management for markdown editor."""
+from __future__ import annotations
+
 import re
-from gi.repository import Gtk, Pango, GLib
+from typing import Any, TYPE_CHECKING
+
+from gi.repository import Gtk, Pango
+
+if TYPE_CHECKING:
+    pass
+
+_COLOR_KEYS: tuple[str, ...] = (
+    "h1", "h2", "h3", "h4", "code_bg", "code_fg", "code_block_bg", 
+    "code_block_fg", "checkbox_empty", "checkbox_checked", 
+    "internal_link", "external_link", "image", "tag", "deadline", 
+    "hr", "bullet", "number", "table", "blockquote", "dim"
+)
 
 class MarkdownHighlighter:
-    def __init__(self, buffer, theme_name="tokyo-night"):
-        self.buffer = buffer
-        self.enabled = True
-        self.theme_name = theme_name
+    def __init__(self, buffer: Gtk.TextBuffer, theme_name: str = "tokyo-night") -> None:
+        self.buffer: Gtk.TextBuffer = buffer
+        self.enabled: bool = True
+        self.theme_name: str = theme_name
         
         # Pre-compile regexes for performance
-        self.re_fenced_code = re.compile(r'```(\w*)\n?([\s\S]*?)```')
-        self.re_setext_underline = re.compile(r'^(\s*)(={3,}|-{3,})\s*$')
-        self.re_list_bullet = re.compile(r'^(\s*)([-*+])\s+')
-        self.re_hr = re.compile(r'^(\s*[-*_]){3,}\s*$')
-        self.re_blockquote = re.compile(r'^(\s*>)\s*(.*)$')
-        self.re_unordered = re.compile(r'^(\s*)([-*+])\s+(.+)$')
-        self.re_ordered = re.compile(r'^(\s*)(\d+\.)\s+(.+)$')
-        self.re_table_row = re.compile(r'^\s*\|.*\|\s*$')
-        self.re_table_sep = re.compile(r'^\s*\|?[\s\-:|]+\|?\s*$')
-        self.re_header = re.compile(r'^(#+)( .+)$')
-        self.re_checkbox_empty = re.compile(r'\[ \]')
-        self.re_checkbox_checked = re.compile(r'\[x\]')
-        self.re_deadline = re.compile(r'@\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?')
-        self.re_tag = re.compile(r'(?<!\w)#(\w+)')
-        self.re_links = re.compile(r'\[\[([^\]]+)\]\]|(!?)\[([^\]]+)\]\(([^)]+)\)')
-        self.re_autolink = re.compile(r'<([^>]+)>')
-        self.re_html = re.compile(r'<[^>]+>')
+        self.re_fenced_code: re.Pattern = re.compile(r'```(\w*)\n?([\s\S]*?)```')
+        self.re_setext_underline: re.Pattern = re.compile(r'^(\s*)(={3,}|-{3,})\s*$')
+        self.re_list_bullet: re.Pattern = re.compile(r'^(\s*)([-*+])\s+')
+        self.re_hr: re.Pattern = re.compile(r'^(\s*[-*_]){3,}\s*$')
+        self.re_blockquote: re.Pattern = re.compile(r'^(\s*>)\s*(.*)$')
+        self.re_unordered: re.Pattern = re.compile(r'^(\s*)([-*+])\s+(.+)$')
+        self.re_ordered: re.Pattern = re.compile(r'^(\s*)(\d+\.)\s+(.+)$')
+        self.re_table_row: re.Pattern = re.compile(r'^\s*\|.*\|\s*$')
+        self.re_table_sep: re.Pattern = re.compile(r'^\s*\|?[\s\-:|]+\|?\s*$')
+        self.re_header: re.Pattern = re.compile(r'^(#+)( .+)$')
+        self.re_checkbox_empty: re.Pattern = re.compile(r'\[ \]')
+        self.re_checkbox_checked: re.Pattern = re.compile(r'\[x\]')
+        self.re_deadline: re.Pattern = re.compile(r'@\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?')
+        self.re_tag: re.Pattern = re.compile(r'(?<!\w)#(\w+)')
+        self.re_links: re.Pattern = re.compile(r'\[\[([^\]]+)\]\]|(!?)\[([^\]]+)\]\(([^)]+)\)')
+        self.re_autolink: re.Pattern = re.compile(r'<([^>]+)>')
+        self.re_html: re.Pattern = re.compile(r'<[^>]+>')
         
         # Inline styles
-        self.re_bold1 = re.compile(r'(\*\*)([^*]+)(\*\*)')
-        self.re_bold2 = re.compile(r'(__)([^_]+)(__)')
-        self.re_italic1 = re.compile(r'(?<!\*)\*([^*]+)\*(?!\*)')
-        self.re_italic2 = re.compile(r'(?<!_)_([^_]+)_(?!_)')
-        self.re_code = re.compile(r'(`)([^`]+)(`)')
-        self.re_strikethrough = re.compile(r'(~~)([^~]+)(~~)')
+        self.re_bold1: re.Pattern = re.compile(r'(\*\*)([^*]+)(\*\*)')
+        self.re_bold2: re.Pattern = re.compile(r'(__)([^_]+)(__)')
+        self.re_italic1: re.Pattern = re.compile(r'(?<!\*)\*([^*]+)\*(?!\*)')
+        self.re_italic2: re.Pattern = re.compile(r'(?<!_)_([^_]+)_(?!_)')
+        self.re_code: re.Pattern = re.compile(r'(`)([^`]+)(`)')
+        self.re_strikethrough: re.Pattern = re.compile(r'(~~)([^~]+)(~~)')
         
         self.setup_tags()
 
-    def get_colors(self):
+    def get_colors(self) -> dict[str, str]:
+        """Returns theme colors."""
         if "light" in self.theme_name:
             return {
-                "h1": "#34548a",
-                "h2": "#5a4a78",
-                "h3": "#33605a",
-                "h4": "#8c4351",
-                "code_bg": "#cbccd1",
-                "code_fg": "#8f5e15",
-                "code_block_bg": "#cbccd1",
-                "code_block_fg": "#343b58",
-                "checkbox_empty": "#8c4351",
-                "checkbox_checked": "#485e30",
-                "internal_link": "#8f5e15",
-                "external_link": "#34548a",
-                "image": "#33605a",
-                "tag": "#5a4a78",
-                "deadline": "#965027",
-                "hr": "#9699a3",
-                "bullet": "#34548a",
-                "number": "#5a4a78",
-                "table": "#5a4a78",
-                "blockquote": "#485e30",
+                "h1": "#34548a", "h2": "#5a4a78", "h3": "#33605a", "h4": "#8c4351",
+                "code_bg": "#cbccd1", "code_fg": "#8f5e15", "code_block_bg": "#cbccd1",
+                "code_block_fg": "#343b58", "checkbox_empty": "#8c4351",
+                "checkbox_checked": "#485e30", "internal_link": "#8f5e15",
+                "external_link": "#34548a", "image": "#33605a", "tag": "#5a4a78",
+                "deadline": "#965027", "hr": "#9699a3", "bullet": "#34548a",
+                "number": "#5a4a78", "table": "#5a4a78", "blockquote": "#485e30",
                 "dim": "#9699a3"
             }
-        else:
-            return {
-                "h1": "#7aa2f7",
-                "h2": "#bb9af7",
-                "h3": "#2ac3de",
-                "h4": "#b4f9f8",
-                "code_bg": "#292e42",
-                "code_fg": "#e0af68",
-                "code_block_bg": "#1a1b26",
-                "code_block_fg": "#a9b1d6",
-                "checkbox_empty": "#f7768e",
-                "checkbox_checked": "#9ece6a",
-                "internal_link": "#e0af68",
-                "external_link": "#7aa2f7",
-                "image": "#2ac3de",
-                "tag": "#bb9af7",
-                "deadline": "#ff9e64",
-                "hr": "#565f89",
-                "bullet": "#7aa2f7",
-                "number": "#bb9af7",
-                "table": "#bb9af7",
-                "blockquote": "#9ece6a",
-                "dim": "#565f89"
-            }
+        return {
+            "h1": "#7aa2f7", "h2": "#bb9af7", "h3": "#2ac3de", "h4": "#b4f9f8",
+            "code_bg": "#292e42", "code_fg": "#e0af68", "code_block_bg": "#1a1b26",
+            "code_block_fg": "#a9b1d6", "checkbox_empty": "#f7768e",
+            "checkbox_checked": "#9ece6a", "internal_link": "#e0af68",
+            "external_link": "#7aa2f7", "image": "#2ac3de", "tag": "#bb9af7",
+            "deadline": "#ff9e64", "hr": "#565f89", "bullet": "#7aa2f7",
+            "number": "#bb9af7", "table": "#bb9af7", "blockquote": "#9ece6a",
+            "dim": "#565f89"
+        }
 
-    def setup_tags(self):
+    def setup_tags(self) -> None:
+        """Sets up or updates text tags in the buffer."""
         table = self.buffer.get_tag_table()
         colors = self.get_colors()
         
-        # Helper to add or update tag
-        def add_or_update_tag(name, **kwargs):
+        def add_or_update_tag(name: str, **kwargs: Any) -> None:
             tag = table.lookup(name)
             if tag:
                 for prop, value in kwargs.items():
@@ -99,66 +88,58 @@ class MarkdownHighlighter:
             else:
                 table.add(Gtk.TextTag(name=name, **kwargs))
 
-        # Base styles for hierarchy
         add_or_update_tag("h1", weight=Pango.Weight.BOLD, size=22 * Pango.SCALE, foreground=colors["h1"], left_margin=20)
         add_or_update_tag("h2", weight=Pango.Weight.BOLD, size=18 * Pango.SCALE, foreground=colors["h2"], left_margin=20)
         add_or_update_tag("h3", weight=Pango.Weight.BOLD, size=16 * Pango.SCALE, foreground=colors["h3"], left_margin=20)
         add_or_update_tag("h4", weight=Pango.Weight.BOLD, size=14 * Pango.SCALE, foreground=colors["h4"], left_margin=20)
-
         add_or_update_tag("body", left_margin=30)
-
         add_or_update_tag("code", family="Monospace", background=colors["code_bg"], foreground=colors["code_fg"])
         add_or_update_tag("code_block", family="Monospace", background=colors["code_block_bg"], foreground=colors["code_block_fg"])
         add_or_update_tag("code_fence", foreground=colors["dim"], weight=Pango.Weight.BOLD)
-        
         add_or_update_tag("checkbox_empty", foreground=colors["checkbox_empty"], weight=Pango.Weight.BOLD)
         add_or_update_tag("checkbox_checked", foreground=colors["checkbox_checked"], weight=Pango.Weight.BOLD)
-        
         add_or_update_tag("bold", weight=Pango.Weight.BOLD)
         add_or_update_tag("italic", style=Pango.Style.ITALIC)
         add_or_update_tag("internal-link", foreground=colors["internal_link"], weight=Pango.Weight.BOLD)
         add_or_update_tag("external-link", foreground=colors["external_link"], weight=Pango.Weight.BOLD)
         add_or_update_tag("image", foreground=colors["image"], style=Pango.Style.ITALIC)
-        
         add_or_update_tag("tag", foreground=colors["tag"], weight=Pango.Weight.BOLD)
         add_or_update_tag("strikethrough", strikethrough=True)
         add_or_update_tag("deadline", foreground=colors["deadline"], style=Pango.Style.ITALIC)
         add_or_update_tag("hr", foreground=colors["hr"], weight=Pango.Weight.BOLD)
-        
         add_or_update_tag("list_bullet", foreground=colors["bullet"], weight=Pango.Weight.BOLD)
         add_or_update_tag("list_number", foreground=colors["number"], weight=Pango.Weight.BOLD)
-        
         add_or_update_tag("table_row", foreground=colors["table"], weight=Pango.Weight.BOLD)
         add_or_update_tag("table_sep", foreground=colors["hr"], weight=Pango.Weight.BOLD)
-        
         add_or_update_tag("blockquote", foreground=colors["blockquote"], style=Pango.Style.ITALIC)
-        
         add_or_update_tag("setext_header", weight=Pango.Weight.BOLD, size=22 * Pango.SCALE, foreground=colors["h1"])
         add_or_update_tag("setext_underline", foreground=colors["hr"])
         add_or_update_tag("setext_h1", weight=Pango.Weight.BOLD, size=22 * Pango.SCALE, foreground=colors["h1"])
         add_or_update_tag("setext_h2", weight=Pango.Weight.BOLD, size=18 * Pango.SCALE, foreground=colors["h2"])
-        
         add_or_update_tag("autolink", foreground=colors["external_link"], underline=Pango.Underline.SINGLE)
         add_or_update_tag("inline_html", foreground=colors["checkbox_empty"])
         add_or_update_tag("line_break", weight=Pango.Weight.BOLD)
-        
         add_or_update_tag("invisible", invisible=True)
         add_or_update_tag("dim", foreground=colors["dim"])
 
-    def update_theme(self, theme_name):
+    def update_theme(self, theme_name: str) -> None:
+        """Updates the theme and re-highlights."""
         self.theme_name = theme_name
         self.setup_tags()
         self.highlight()
 
-    def get_iter_at_line(self, line):
+    def get_iter_at_line(self, line: int) -> Gtk.TextIter:
+        """Returns iter at line, handling the tuple-unwrap API safely."""
         result = self.buffer.get_iter_at_line(line)
         return result[1] if isinstance(result, tuple) else result
 
-    def get_iter_at_offset(self, offset):
+    def get_iter_at_offset(self, offset: int) -> Gtk.TextIter:
+        """Returns iter at offset, handling the tuple-unwrap API safely."""
         result = self.buffer.get_iter_at_offset(offset)
         return result[1] if isinstance(result, tuple) else result
 
-    def highlight(self, start_line=0, end_line=None, cursor_line=None):
+    def highlight(self, start_line: int = 0, end_line: int | None = None, cursor_line: int | None = None) -> None:
+        """Performs syntax highlighting on a range of lines."""
         if not self.enabled:
             return
 
@@ -175,7 +156,7 @@ class MarkdownHighlighter:
         
         text_range = self.buffer.get_text(start_iter, end_iter, True)
         
-        # Handle Fenced Code Blocks
+        # Handle Fenced Code Blocks (intentional: only partial re-highlights skip code block detection)
         if start_line == 0 and end_line == total_lines:
             for match in self.re_fenced_code.finditer(text_range):
                 full_start = match.start()
@@ -329,7 +310,8 @@ class MarkdownHighlighter:
             
             line_start_offset += len(line) + 1
 
-    def apply_inline_style(self, pattern, tag, line, line_offset, is_cursor_line, is_single_marker=False):
+    def apply_inline_style(self, pattern: re.Pattern, tag: str, line: str, line_offset: int, is_cursor_line: bool, is_single_marker: bool = False) -> None:
+        """Applies an inline style tag."""
         for m in pattern.finditer(line):
             self.apply_tag(tag, line_offset + m.start(), line_offset + m.end())
             if not is_cursor_line:
@@ -347,7 +329,8 @@ class MarkdownHighlighter:
                     self.apply_tag("dim", line_offset + m.start(1), line_offset + m.end(1))
                     self.apply_tag("dim", line_offset + m.start(3), line_offset + m.end(3))
 
-    def apply_tag(self, tag_name, start_offset, end_offset):
+    def apply_tag(self, tag_name: str, start_offset: int, end_offset: int) -> None:
+        """Applies a tag, ensuring valid offsets."""
         if start_offset >= end_offset:
             return
         start_iter = self.get_iter_at_offset(start_offset)
@@ -355,7 +338,8 @@ class MarkdownHighlighter:
         end_iter.forward_chars(end_offset - start_offset)
         self.buffer.apply_tag_by_name(tag_name, start_iter, end_iter)
 
-    def set_enabled(self, enabled):
+    def set_enabled(self, enabled: bool) -> None:
+        """Enables or disables syntax highlighting."""
         self.enabled = enabled
         if not enabled:
             start, end = self.buffer.get_bounds()

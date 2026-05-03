@@ -1,10 +1,33 @@
+"""Settings view for configuring application preferences."""
+from __future__ import annotations
+
+from typing import Any, Callable, TYPE_CHECKING
+
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw
+from gi.repository import Adw, Gtk
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+_THEMES: list[dict[str, str]] = [
+    {"id": "tokyo-light",    "name": "Tokyo Light",    "preview": "Clean and bright, inspired by Tokyo Day", "type": "light"},
+    {"id": "tokyo-night",    "name": "Tokyo Night",    "preview": "Deep blues and vibrant accents", "type": "dark"},
+    {"id": "cyberpunk-2077", "name": "Cyberpunk 2077", "preview": "Night City vibes: Yellow, Cyan, and Black", "type": "dark"},
+    {"id": "nord",           "name": "Nord",           "preview": "Arctic blue, clean and elegant", "type": "dark"},
+    {"id": "gruvbox",        "name": "Gruvbox",        "preview": "Retro warm tones, easy on the eyes", "type": "dark"},
+    {"id": "dracula",        "name": "Dracula",        "preview": "High contrast, vibrant purple tones", "type": "dark"},
+]
 
 class SettingsView(Gtk.Box):
-    def __init__(self, on_theme_selected, on_config_changed, on_select_folder_callback, initial_values):
+    def __init__(
+        self, 
+        on_theme_selected: Callable[[str], Any], 
+        on_config_changed: Callable[[str, Any], Any], 
+        on_select_folder_callback: Callable[[Gtk.Button], Any], 
+        initial_values: dict[str, Any]
+    ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("dashboard-view")
 
@@ -15,7 +38,6 @@ class SettingsView(Gtk.Box):
         scrolled.set_vexpand(True)
         
         # Use Adw.Clamp to control the width of the content area
-        # 850px provides a bit more space while still looking good on large screens
         clamp = Adw.Clamp()
         clamp.set_maximum_size(850)
         clamp.set_tightening_threshold(600)
@@ -32,7 +54,7 @@ class SettingsView(Gtk.Box):
 
         # Folder Selection Row
         self.folder_row = Adw.ActionRow(title="Notes Folder")
-        self.path_label = Gtk.Label(label=initial_values.get('notes_folder'))
+        self.path_label = Gtk.Label(label=initial_values.get('notes_folder', ''))
         self.path_label.add_css_class("dim-label")
         self.path_label.set_valign(Gtk.Align.CENTER)
         self.folder_row.add_suffix(self.path_label)
@@ -48,7 +70,7 @@ class SettingsView(Gtk.Box):
             title="Sakura Celebration",
             subtitle="Show cherry blossoms when completing tasks"
         )
-        sakura_row.set_active(initial_values.get('sakura_effect'))
+        sakura_row.set_active(initial_values.get('sakura_effect', True))
         sakura_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'sakura_effect'))
         general_group.add(sakura_row)
 
@@ -61,7 +83,7 @@ class SettingsView(Gtk.Box):
             title="Formatting Bar",
             subtitle="Show markdown formatting tools above the editor"
         )
-        formatting_row.set_active(initial_values.get('show_toolbar'))
+        formatting_row.set_active(initial_values.get('show_toolbar', True))
         formatting_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'show_toolbar'))
         toolbar_group.add(formatting_row)
 
@@ -70,7 +92,7 @@ class SettingsView(Gtk.Box):
             title="Status Bar",
             subtitle="Show word count and reading time at the bottom"
         )
-        status_row.set_active(initial_values.get('show_stats'))
+        status_row.set_active(initial_values.get('show_stats', False))
         status_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'show_stats'))
         toolbar_group.add(status_row)
 
@@ -83,7 +105,7 @@ class SettingsView(Gtk.Box):
             title="AI Bridge (MCP)",
             subtitle="Allow AI agents to read and search your notes"
         )
-        ai_bridge_row.set_active(initial_values.get('mcp_server_enabled'))
+        ai_bridge_row.set_active(initial_values.get('mcp_server_enabled', False))
         ai_bridge_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'mcp_server_enabled'))
         ai_group.add(ai_bridge_row)
 
@@ -93,7 +115,7 @@ class SettingsView(Gtk.Box):
             subtitle="Port for the AI connection (default 8999)"
         )
         self.port_entry = Gtk.Entry()
-        self.port_entry.set_text(str(initial_values.get('mcp_server_port')))
+        self.port_entry.set_text(str(initial_values.get('mcp_server_port', 8999)))
         self.port_entry.set_valign(Gtk.Align.CENTER)
         self.port_entry.set_width_chars(6)
         self.port_entry.connect("changed", self.on_port_changed)
@@ -126,19 +148,10 @@ class SettingsView(Gtk.Box):
         theme_stack.add_titled(self.dark_theme_list, "dark", "Dark Mode")
         theme_stack.add_titled(self.light_theme_list, "light", "Light Mode")
 
-        self.themes = [
-            {"id": "tokyo-light", "name": "Tokyo Light", "preview": "Clean and bright, inspired by Tokyo Day", "type": "light"},
-            {"id": "tokyo-night", "name": "Tokyo Night", "preview": "Deep blues and vibrant accents", "type": "dark"},
-            {"id": "cyberpunk-2077", "name": "Cyberpunk 2077", "preview": "Night City vibes: Yellow, Cyan, and Black", "type": "dark"},
-            {"id": "nord", "name": "Nord", "preview": "Arctic blue, clean and elegant", "type": "dark"},
-            {"id": "gruvbox", "name": "Gruvbox", "preview": "Retro warm tones, easy on the eyes", "type": "dark"},
-            {"id": "dracula", "name": "Dracula", "preview": "High contrast, vibrant purple tones", "type": "dark"}
-        ]
+        self.theme_rows: dict[str, Gtk.ListBoxRow] = {}
+        current_theme = initial_values.get('theme', 'tokyo-night')
         
-        self.theme_rows = {}
-        current_theme = initial_values.get('theme')
-        
-        for theme in self.themes:
+        for theme in _THEMES:
             row = self.create_theme_row(theme, theme["id"] == current_theme)
             if theme["type"] == "light":
                 self.light_theme_list.append(row)
@@ -158,7 +171,8 @@ class SettingsView(Gtk.Box):
         scrolled.set_child(clamp)
         self.append(scrolled)
 
-    def create_theme_row(self, theme, is_active):
+    def create_theme_row(self, theme: dict[str, str], is_active: bool) -> Gtk.ListBoxRow:
+        """Creates a theme selection row."""
         row = Gtk.ListBoxRow()
         
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -182,21 +196,26 @@ class SettingsView(Gtk.Box):
         
         return row
 
-    def on_port_changed(self, entry):
+    def on_port_changed(self, entry: Gtk.Entry) -> None:
+        """Handles MCP port change."""
         text = entry.get_text()
         if text.isdigit():
             self.on_config_changed('mcp_server_port', int(text))
 
-    def on_toggle_changed(self, state, config_key):
+    def on_toggle_changed(self, state: bool, config_key: str) -> None:
+        """Handles UI toggles."""
         self.on_config_changed(config_key, state)
 
-    def update_folder_path(self, new_path):
+    def update_folder_path(self, new_path: str) -> None:
+        """Updates the displayed folder path."""
         self.path_label.set_label(new_path)
 
-    def on_select_folder_clicked(self, button):
+    def on_select_folder_clicked(self, button: Gtk.Button) -> None:
+        """Triggers folder select dialog."""
         self.on_select_folder_callback(button)
 
-    def select_theme(self, theme_id):
+    def select_theme(self, theme_id: str) -> None:
+        """Selects a theme."""
         for tid, row in self.theme_rows.items():
             card = row.get_child()
             if tid == theme_id:

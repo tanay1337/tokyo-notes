@@ -735,10 +735,42 @@ class TokyoNotes(Adw.Application):
 
         self.refresh_dashboard(self.dashboard_view.active_filter)
 
-    def on_dashboard_item_selected(self, listbox, row):
-        if not row or not hasattr(row, "checkbox_data"):
-            return
-        pass
+    def _select_sidebar_row(self, note_name: str) -> bool:
+        """Select the sidebar row matching note_name (case-insensitive).
+        Returns True if found, False otherwise."""
+        name_lower = note_name.lower()
+        for list_box in (self.sidebar.main_list, self.sidebar.archive_list):
+            row = list_box.get_first_child()
+            while row:
+                if getattr(row, "note_name", "").lower() == name_lower:
+                    list_box.select_row(row)
+                    return True
+                row = row.get_next_sibling()
+        return False
+
+    def _flush_pending_save(self) -> None:
+        """Immediately write any pending note content to disk."""
+        if self.rename_timeout_id > 0:
+            GLib.source_remove(self.rename_timeout_id)
+            self.rename_timeout_id = 0
+        if self.current_note:
+            start, end = self.buffer.get_bounds()
+            content = self.buffer.get_text(start, end, True)
+            if content.strip():
+                self.notes_manager.save_note(self.current_note, content)
+
+    def _maybe_exit_archive_view(self) -> None:
+        """If the archive is now empty and we're viewing it, switch back to main."""
+        if (
+            not self.cfg.archived
+            and self.sidebar.stack.get_visible_child_name() == "archive"
+        ):
+            self.sidebar.stack.set_visible_child_name("main")
+            self.sidebar.archived_nav_btn.set_label("Archived Notes")
+
+    def on_dashboard_item_selected(self, listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        """Reserved: called when a dashboard row is selected.
+        Currently unused; row-level navigation is handled via row click gestures."""
 
     def handle_row_click(self, gesture, n_press, x, y, cb):
         self.content_stack.set_visible_child_name("editor")

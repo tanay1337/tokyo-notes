@@ -1,10 +1,44 @@
+"""Keyboard shortcut management for Tokyo Notes."""
+from __future__ import annotations
+
+from typing import Callable, TYPE_CHECKING
+
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Gio, GLib
+from gi.repository import Gtk
+
 from core.utils import get_accel
 
-def setup_shortcuts(win, on_new_note, on_dashboard, on_graph, on_search, on_escape, on_delete, on_timestamp, on_zen_mode, quit_app):
+if TYPE_CHECKING:
+    pass
+
+def setup_shortcuts(
+    win: Gtk.ApplicationWindow,
+    on_new_note: Callable[[], None],
+    on_dashboard: Callable[[], None],
+    on_graph: Callable[[], None],
+    on_search: Callable[[], None],
+    on_escape: Callable[[], None],
+    on_delete: Callable[[], None],
+    on_timestamp: Callable[[], None],
+    on_zen_mode: Callable[[], None],
+    quit_app: Callable[[], None]
+) -> None:
+    """Sets up global keyboard shortcuts for the main application window.
+    
+    Args:
+        win: Main application window.
+        on_new_note: Callback for Ctrl+N (New Note).
+        on_dashboard: Callback for Ctrl+D (Dashboard).
+        on_graph: Callback for Ctrl+G (Graph View).
+        on_search: Callback for Ctrl+F (Search).
+        on_escape: Callback for Escape (Dismiss/Back).
+        on_delete: Callback for Delete (Delete Note).
+        on_timestamp: Callback for Shift+T (Insert Timestamp).
+        on_zen_mode: Callback for Shift+Z (Zen Mode).
+        quit_app: Callback for Ctrl+Q (Quit).
+    """
     controller = Gtk.ShortcutController()
     controller.set_scope(Gtk.ShortcutScope.GLOBAL)
 
