@@ -8,12 +8,13 @@ import re
 
 class Dashboard(Gtk.Box):
     def __init__(self, on_item_selected, on_checkbox_toggled, on_deadline_click, 
-                 on_empty, refresh_callback, default_filter="today"):
+                 on_row_click, on_empty, refresh_callback, default_filter="today"):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add_css_class("dashboard-view")
         self.refresh_callback = refresh_callback
         self.on_checkbox_toggled = on_checkbox_toggled
         self.on_deadline_click = on_deadline_click
+        self.on_row_click = on_row_click
         self.on_empty = on_empty
         
         # Filter Bar
@@ -128,6 +129,7 @@ class Dashboard(Gtk.Box):
         row = Gtk.ListBoxRow()
         row.add_css_class("calendar-row")
         row.checkbox_data = cb
+        row.set_selectable(False)
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
         time_str = cb['deadline'].split(' ')[1] if cb.get('deadline') and ' ' in cb['deadline'] else "All Day"
@@ -145,6 +147,10 @@ class Dashboard(Gtk.Box):
 
         label = Gtk.Label(label=cb['text'], xalign=0)
         label.set_hexpand(True)
+        # Handle row clicks on the label only
+        gesture = Gtk.GestureClick.new()
+        gesture.connect("pressed", lambda g, n, x, y, _cb=cb: self.on_row_click(g, n, x, y, _cb))
+        label.add_controller(gesture)
         box.append(label)
 
         chip = Gtk.Label(label=cb['note'])

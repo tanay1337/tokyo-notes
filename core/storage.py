@@ -1,4 +1,4 @@
-from core.utils import get_snippet, create_empty_state_widget
+from core.utils import get_snippet
 import re
 from pathlib import Path
 
@@ -133,10 +133,9 @@ class NotesManager:
         note_path = self.notes_dir / f"{name}.md"
         if note_path.exists():
             note_path.unlink()
-        if name in self._content_cache:
-            del self._content_cache[name]
-        if name in self._metadata_cache:
-            del self._metadata_cache[name]
+        self._content_cache.pop(name, None)
+        self._metadata_cache.pop(name, None)
+        self._mtime_cache.pop(name, None)
 
     def rename_note(self, old_name, new_name):
         """Renames a note file."""
@@ -145,10 +144,9 @@ class NotesManager:
         if old_path.exists() and not new_path.exists():
             old_path.rename(new_path)
             # Invalidate caches
-            if old_name in self._content_cache:
-                del self._content_cache[old_name]
-            if old_name in self._metadata_cache:
-                del self._metadata_cache[old_name]
+            self._content_cache.pop(old_name, None)
+            self._metadata_cache.pop(old_name, None)
+            self._mtime_cache.pop(old_name, None)
             return True
         return False
 
