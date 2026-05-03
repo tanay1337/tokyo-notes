@@ -49,7 +49,7 @@ class TokyoNotes(Adw.Application):
         self.rename_timeout_id = 0
         self.search_timeout_id = 0
         self.changed_handler_id = 0
-        self.is_updating_images = False
+        self.image_timeout_id = 0
         self.last_cursor_line = -1
         
         # Start AI Bridge if enabled
@@ -97,34 +97,32 @@ class TokyoNotes(Adw.Application):
         self.add_action(archive_action)
 
     def on_select_folder(self, button):
-        dialog = Gtk.FileChooserDialog(
-            title="Select Notes Folder",
-            action=Gtk.FileChooserAction.SELECT_FOLDER,
-            transient_for=self.win
-        )
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Select", Gtk.ResponseType.OK)
-        
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Select Notes Folder")
         if Path(self.notes_folder).exists():
-            dialog.set_file(Gio.File.new_for_path(str(Path(self.notes_folder).absolute())))
-        
-        def on_response(dialog, response):
-            if response == Gtk.ResponseType.OK:
-                new_folder = dialog.get_file().get_path()
+            dialog.set_initial_folder(
+                Gio.File.new_for_path(str(Path(self.notes_folder).absolute()))
+            )
+        dialog.select_folder(self.win, None, self._on_folder_selected)
+
+    def _on_folder_selected(self, dialog, result):
+        try:
+            folder = dialog.select_folder_finish(result)
+            if folder:
+                new_folder = folder.get_path()
                 if new_folder != self.notes_folder:
                     self.notes_folder = new_folder
                     self.cfg.set('notes_folder', new_folder)
                     self.notes_manager = NotesManager(notes_dir=new_folder)
-                    self.settings_view.update_folder_path(new_folder)
+                    if self.settings_view:
+                        self.settings_view.update_folder_path(new_folder)
                     self.refresh_list()
                     if self.current_note:
                         self.buffer.set_text("")
                         self.current_note = None
                         self.win.set_title("Tokyo Notes")
-            dialog.destroy()
-        
-        dialog.connect("response", on_response)
-        dialog.show()
+        except GLib.Error:
+            pass  # User cancelled
 
     def do_activate(self):
         # CSS Providers
@@ -305,7 +303,7 @@ class TokyoNotes(Adw.Application):
         archive_row = self.sidebar.archive_list.get_selected_row()
         
         if main_row and hasattr(main_row, 'note_name'):
-             note_name = main_row.note_name
+            note_name = main_row.note_name
         elif archive_row and hasattr(archive_row, 'note_name'):
             note_name = archive_row.note_name
             
@@ -318,13 +316,11 @@ class TokyoNotes(Adw.Application):
     def on_settings_config_changed(self, key, value):
         self.cfg.set(key, value)
         if key == 'show_toolbar':
-
             self.toolbar.set_visible(value)
         elif key == 'show_stats':
             self.editor.status_bar.set_visible(value)
 
     def update_stats(self):
-
         start, end = self.buffer.get_bounds()
         text = self.buffer.get_text(start, end, True)
         
@@ -339,7 +335,12 @@ class TokyoNotes(Adw.Application):
             start, end = self.buffer.get_selection_bounds()
             text = self.buffer.get_text(start, end, True)
             self.buffer.delete(start, end)
-            self.buffer.insert(start, f"{prefix}{text}{suffix}")
+            is_block = not suffix and prefix.rstrip() != prefix  # ends with space → block
+            if is_block and '\n' in text:
+                formatted = '\n'.join(prefix + line for line in text.split('\n'))
+            else:
+                formatted = f"{prefix}{text}{suffix}"
+            self.buffer.insert(start, formatted)
         else:
             self.buffer.insert_at_cursor(f"{prefix}{suffix}")
             if suffix:
@@ -534,7 +535,15 @@ class TokyoNotes(Adw.Application):
                 self.apply_theme,
                 self.on_settings_config_changed,
                 self.on_select_folder,
-                self.cfg
+                {
+                    'notes_folder': self.cfg.get('notes_folder'),
+                    'show_toolbar': self.cfg.get('show_toolbar'),
+                    'show_stats': self.cfg.get('show_stats'),
+                    'sakura_effect': self.cfg.get('sakura_effect'),
+                    'mcp_server_enabled': self.cfg.get('mcp_server_enabled'),
+                    'mcp_server_port': self.cfg.get('mcp_server_port'),
+                    'theme': self.cfg.get('theme'),
+                }
             )
 
             self.content_stack.add_named(self.settings_view, "settings")
@@ -597,7 +606,7 @@ class TokyoNotes(Adw.Application):
         picker.popup()
 
     def refresh_dashboard(self, filter_type="today"):
-        checkboxes = self.notes_manager.get_all_checkboxes()
+        checkboxes = self.notes_manager.get_all_checkboxes(exclude=self.cfg.archived)
         count = self.dashboard_view.populate(checkboxes, filter_type)
         title = f"Dashboard — {count} items" if count else "Dashboard"
         self.win.set_title(title)
@@ -621,17 +630,14 @@ class TokyoNotes(Adw.Application):
         cb = row.checkbox_data
         self.content_stack.set_visible_child_name("editor")
 
-        notes = self.notes_manager.get_notes()
-        for note in notes:
-            if note.lower() == cb['note'].lower():
-                sidebar_row = self.sidebar.main_list.get_first_child()
-                while sidebar_row:
-                    if getattr(sidebar_row, 'note_name', '').lower() == note.lower():
-                        self.sidebar.main_list.select_row(sidebar_row)
-                        GLib.idle_add(self.scroll_to_line, cb['line'])
-                        break
-                    sidebar_row = sidebar_row.get_next_sibling()
-                break
+        for list_box in (self.sidebar.main_list, self.sidebar.archive_list):
+            sidebar_row = list_box.get_first_child()
+            while sidebar_row:
+                if getattr(sidebar_row, 'note_name', '').lower() == cb['note'].lower():
+                    list_box.select_row(sidebar_row)
+                    GLib.idle_add(self.scroll_to_line, cb['line'])
+                    return
+                sidebar_row = sidebar_row.get_next_sibling()
 
     def scroll_to_line(self, line_num: int):
         success, it = self.buffer.get_iter_at_line(line_num - 1)
@@ -658,60 +664,15 @@ class TokyoNotes(Adw.Application):
             dialog.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.present()
 
-    def on_click_pressed(self, gesture, n_press, x, y):
-        self.handle_link_click(x, y)
-
-    def handle_link_click(self, x, y):
-        # Convert widget coordinates to buffer coordinates
-        bx, by = self.text_view.window_to_buffer_coords(Gtk.TextWindowType.TEXT, int(x), int(y))
-        success, cursor_iter = self.text_view.get_iter_at_location(bx, by)
-        if not success:
-            return
-        cursor_offset = cursor_iter.get_offset()
-
-        start, end = self.buffer.get_bounds()
-        text = self.buffer.get_text(start, end, True)
-
-        # Markdown links [[NoteName]] or [Text](url)
-        for match in re.finditer(r'\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)', text):
-            if match.start() <= cursor_offset <= match.end():
-                if match.group(1): # Internal link [[Note]]
-                    self.on_link_clicked(match.group(1))
-                else: # Standard [Text](url)
-                    url = match.group(3)
-                    if url.startswith('http'):
-                        webbrowser.open_new_tab(url)
-                    else:
-                        self.on_link_clicked(url.rsplit('.', 1)[0])
-                return
-        
-        # Regex to match raw URLs
-        for match in re.finditer(r'(https?://[^\s\)]+)', text):
-            if match.start() <= cursor_offset <= match.end():
-                webbrowser.open_new_tab(match.group(1))
-                return
-        
-        # Regex to match Tags
-        for match in re.finditer(r'(?<!\w)#(\w+)', text):
-            if match.start() <= cursor_offset <= match.end():
-                self.sidebar.search_entry.set_text(match.group(0))
-                self.on_search_changed(self.sidebar.search_entry)
-                return
-
-        # Regex to match Deadlines
-        for match in re.finditer(r'@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)', text):
-            if match.start() <= cursor_offset <= match.end():
-                self.handle_deadline_click(x, y, self.current_note, cursor_iter.get_line() + 1)
-                return
-
     def on_link_clicked(self, note_name):
         self.content_stack.set_visible_child_name("editor")
-        row = self.sidebar.main_list.get_first_child()
-        while row:
-            if hasattr(row, 'note_name') and row.note_name.lower() == note_name.lower():
-                self.sidebar.main_list.select_row(row)
-                break
-            row = row.get_next_sibling()
+        for list_box in (self.sidebar.main_list, self.sidebar.archive_list):
+            row = list_box.get_first_child()
+            while row:
+                if getattr(row, 'note_name', '').lower() == note_name.lower():
+                    list_box.select_row(row)
+                    return
+                row = row.get_next_sibling()
 
     def update_highlighting(self, immediate=False):
         if immediate:
@@ -778,6 +739,47 @@ class TokyoNotes(Adw.Application):
             return True
         return False
 
+    def on_click_pressed(self, gesture, n_press, x, y):
+        self.handle_link_click(x, y)
+
+    def handle_link_click(self, x, y):
+        bx, by = self.text_view.window_to_buffer_coords(Gtk.TextWindowType.TEXT, int(x), int(y))
+        success, cursor_iter = self.text_view.get_iter_at_location(bx, by)
+        if not success:
+            return
+
+        line_start = cursor_iter.copy()
+        line_start.set_line_offset(0)
+        line_end = cursor_iter.copy()
+        if not line_end.ends_line():
+            line_end.forward_to_line_end()
+
+        line_text = self.buffer.get_text(line_start, line_end, True)
+        click_col = cursor_iter.get_line_offset()
+
+        for kind, pattern in _CLICK_PATTERNS:
+            for m in pattern.finditer(line_text):
+                if m.start() <= click_col <= m.end():
+                    self._dispatch_click(kind, m, x, y, cursor_iter)
+                    return
+
+    def _dispatch_click(self, kind, match, x, y, cursor_iter):
+        if kind == 'wiki':
+            self.on_link_clicked(match.group(1))
+        elif kind == 'mdlink':
+            url = match.group(3)
+            if url.startswith('http'):
+                webbrowser.open_new_tab(url)
+            else:
+                self.on_link_clicked(url.rsplit('.', 1)[0])
+        elif kind == 'url':
+            webbrowser.open_new_tab(match.group(0))
+        elif kind == 'tag':
+            self.sidebar.search_entry.set_text(match.group(0))
+            self.on_search_changed(self.sidebar.search_entry)
+        elif kind == 'deadline':
+            self.handle_deadline_click(x, y, self.current_note, cursor_iter.get_line() + 1)
+
     def on_search_changed(self, entry):
         if self.search_timeout_id:
             GLib.source_remove(self.search_timeout_id)
@@ -792,8 +794,14 @@ class TokyoNotes(Adw.Application):
     def do_delayed_highlight(self):
         self.highlight_timeout_id = 0
         self.update_highlighting()
-        note_dir = Path(self.notes_manager.notes_dir).resolve()
-        self.editor.update_images(note_dir)
+        return False
+
+    def do_delayed_images(self):
+        self.image_timeout_id = 0
+        start, end = self.buffer.get_bounds()
+        if '![' in self.buffer.get_text(start, end, False):
+            note_dir = Path(self.notes_manager.notes_dir).resolve()
+            self.editor.update_images(note_dir)
         return False
 
     def do_delayed_save(self):
@@ -822,7 +830,7 @@ class TokyoNotes(Adw.Application):
         return False
 
     def on_text_changed(self, buffer):
-        if self.is_loading or not self.current_note or self.is_updating_images:
+        if self.is_loading or not self.current_note or self.editor.is_updating_images:
             return
         
         # Update word counts if status bar is visible
@@ -833,11 +841,22 @@ class TokyoNotes(Adw.Application):
             GLib.source_remove(self.highlight_timeout_id)
         self.highlight_timeout_id = GLib.timeout_add(100, self.do_delayed_highlight)
         
+        if self.image_timeout_id > 0:
+            GLib.source_remove(self.image_timeout_id)
+        self.image_timeout_id = GLib.timeout_add(2000, self.do_delayed_images)
+        
         if self.rename_timeout_id > 0:
             GLib.source_remove(self.rename_timeout_id)
         self.rename_timeout_id = GLib.timeout_add(1000, self.do_delayed_save)
 
 if __name__ == "__main__":
+    _CLICK_PATTERNS = [
+        ('wiki',     re.compile(r'\[\[([^\]]+)\]\]')),
+        ('mdlink',   re.compile(r'(!?)\[([^\]]+)\]\(([^)]+)\)')),
+        ('url',      re.compile(r'https?://[^\s\)]+')),
+        ('tag',      re.compile(r'(?<!\w)#(\w+)')),
+        ('deadline', re.compile(r'@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)')),
+    ]
     # Import PangoCairo for PDF export
     from gi.repository import PangoCairo
     app = TokyoNotes()

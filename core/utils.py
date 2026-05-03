@@ -40,6 +40,15 @@ IMAGE_RE = re.compile(r'!\[[^\]]*\]\([^)]+\)')
 BOLD_ITALIC_RE = re.compile(r'(\*\*|__|\*|_)')
 CODE_RE = re.compile(r'`{1,3}.*?`{1,3}', flags=re.DOTALL)
 
+# Pre-compile regex patterns for format_markdown_inline
+_FMI_LINK_RE    = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
+_FMI_BOLD1_RE   = re.compile(r'\*\*([^*]+)\*\*')
+_FMI_BOLD2_RE   = re.compile(r'__([^_]+)__')
+_FMI_ITALIC1_RE = re.compile(r'\*([^*]+)\*')
+_FMI_ITALIC2_RE = re.compile(r'_([^_]+)_')
+_FMI_CODE_RE    = re.compile(r'`([^`]+)`')
+_FMI_STRIKE_RE  = re.compile(r'~~([^~]+)~~')
+
 def get_snippet(content, length=30):
     """Returns the first 'length' characters of content, cleaned for sidebar display."""
     # Remove markdown headers
@@ -61,11 +70,11 @@ def get_snippet(content, length=30):
 def format_markdown_inline(text):
     """Basic markdown to Pango markup conversion."""
     text = escape_xml(text)
-    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<span foreground="#1B365D" underline="single">\1</span>', text)
-    text = re.sub(r'\*\*([^*]+)\*\*', r'<span font_weight="500">\1</span>', text)
-    text = re.sub(r'__([^_]+)__', r'<span font_weight="500">\1</span>', text)
-    text = re.sub(r'\*([^*]+)\*', r'<span font_style="italic">\1</span>', text)
-    text = re.sub(r'_([^_]+)_', r'<span font_style="italic">\1</span>', text)
-    text = re.sub(r'`([^`]+)`', r'<span font_family="monospace" background="#e8e6dc">\1</span>', text)
-    text = re.sub(r'~~([^~]+)~~', r'<span strikethrough="true">\1</span>', text)
+    text = _FMI_LINK_RE.sub(r'<span foreground="#1B365D" underline="single">\1</span>', text)
+    text = _FMI_BOLD1_RE.sub(r'<span font_weight="500">\1</span>', text)
+    text = _FMI_BOLD2_RE.sub(r'<span font_weight="500">\1</span>', text)
+    text = _FMI_ITALIC1_RE.sub(r'<span font_style="italic">\1</span>', text)
+    text = _FMI_ITALIC2_RE.sub(r'<span font_style="italic">\1</span>', text)
+    text = _FMI_CODE_RE.sub(r'<span font_family="monospace" background="#e8e6dc">\1</span>', text)
+    text = _FMI_STRIKE_RE.sub(r'<span strikethrough="true">\1</span>', text)
     return text

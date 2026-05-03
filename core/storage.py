@@ -1,3 +1,4 @@
+from core.utils import get_snippet, create_empty_state_widget
 import re
 from pathlib import Path
 
@@ -7,15 +8,18 @@ class NotesManager:
         self.notes_dir.mkdir(exist_ok=True)
         self._content_cache = {}
         self._metadata_cache = {}
+        self._mtime_cache = {}
 
     def get_notes(self, search_text="", archived_notes=None):
-        """Returns a list of all .md files in the notes directory, sorted by modification time.
-        Optionally filters by title or content if search_text is provided, 
-        and filters out archived notes if archived_notes is provided."""
-        notes = list(self.notes_dir.glob("*.md"))
-        notes.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        """Returns a list of all .md files in the notes directory, sorted by modification time."""
+        entries = [(p, p.stat()) for p in self.notes_dir.glob("*.md")]
+        entries.sort(key=lambda x: x[1].st_mtime, reverse=True)
         
-        note_names = [n.stem for n in notes]
+        # Pre-warm the mtime cache
+        for p, st in entries:
+            self._mtime_cache[p.stem] = st.st_mtime
+
+        note_names = [p.stem for p, _ in entries]
         
         # Filter archived
         if archived_notes is not None:
@@ -27,12 +31,10 @@ class NotesManager:
         search_text = search_text.lower()
         filtered_names = []
         for name in note_names:
-            # Check title match
             if search_text in name.lower():
                 filtered_names.append(name)
                 continue
             
-            # Check content match
             content = self.read_note(name).lower()
             if search_text in content:
                 filtered_names.append(name)
@@ -42,16 +44,18 @@ class NotesManager:
     def read_note(self, name):
         """Reads the content of a note by its name with caching."""
         note_path = self.notes_dir / f"{name}.md"
-        if note_path.exists():
-            # Check mtime to invalidate cache
-            mtime = note_path.stat().st_mtime
-            if name in self._content_cache and self._content_cache[name]['mtime'] == mtime:
-                return self._content_cache[name]['content']
+        if not note_path.exists():
+            return ""
+        
+        mtime = self._mtime_cache.get(name) or note_path.stat().st_mtime
+        cached = self._content_cache.get(name)
+        if cached and cached['mtime'] == mtime:
+            return cached['content']
             
-            content = note_path.read_text(encoding="utf-8")
-            self._content_cache[name] = {'content': content, 'mtime': mtime}
-            return content
-        return ""
+        content = note_path.read_text(encoding="utf-8")
+        self._content_cache[name] = {'content': content, 'mtime': mtime}
+        self._mtime_cache[name] = mtime
+        return content
 
     def get_metadata(self, name):
         """Returns metadata for a note (snippet, links, checkboxes, mtime) with caching."""
@@ -59,13 +63,17 @@ class NotesManager:
         if not note_path.exists():
             return {"snippet": "", "links": [], "checkboxes": [], "mtime": 0}
             
-        mtime = note_path.stat().st_mtime
-        if name in self._metadata_cache and self._metadata_cache[name]['mtime'] == mtime:
-            return self._metadata_cache[name]
+        mtime = self._mtime_cache.get(name) or note_path.stat().st_mtime
+        cached_content = self._content_cache.get(name)
+        cached_meta = self._metadata_cache.get(name)
+        
+        if cached_meta and cached_meta['mtime'] == mtime:
+            return cached_meta
             
-        # If cache miss or outdated, read file to generate metadata
-        content = self.read_note(name)
-        snippet = self._generate_snippet(content)
+        # If cache miss or outdated, regenerate metadata
+        # Use existing content cache if possible
+        content = cached_content['content'] if cached_content and cached_content['mtime'] == mtime else self.read_note(name)
+        snippet = get_snippet(content)
         links = re.findall(r'\[\[([^\]]+)\]\]', content)
         checkboxes = self._extract_checkboxes(name, content)
         
@@ -77,21 +85,6 @@ class NotesManager:
         }
         self._metadata_cache[name] = metadata
         return metadata
-
-    def _generate_snippet(self, content, length=30):
-        """Returns the first 'length' characters of content, cleaned for sidebar display."""
-        # 1. Remove all markdown headers
-        snippet = re.sub(r'^#+\s+.*$', '', content, flags=re.MULTILINE)
-        # 2. Remove links: [text](url) and [[link]]
-        snippet = re.sub(r'!?\[([^\]]+)\]\(([^)]+)\)|\[\[([^\]]+)\]\]', r'\1\3', snippet)
-        # 3. Remove bold/italic markers: **, __, *, _
-        snippet = re.sub(r'(\*\*|__|\*|_)', '', snippet)
-        # 4. Remove code markers
-        snippet = re.sub(r'(`{1,3})', '', snippet)
-        # 5. Remove images (already handled by link regex, but covering syntax)
-        # 6. Remove remaining newlines and extra spaces
-        snippet = snippet.replace('\n', ' ').strip()
-        return snippet[:length] + ("..." if len(snippet) > length else "")
 
     def _extract_checkboxes(self, note_name, content):
         checkboxes = []
@@ -119,7 +112,7 @@ class NotesManager:
         self._content_cache[name] = {'content': content, 'mtime': mtime}
         # Update metadata cache too
         self._metadata_cache[name] = {
-            "snippet": self._generate_snippet(content),
+            "snippet": get_snippet(content),
             "links": re.findall(r'\[\[([^\]]+)\]\]', content),
             "checkboxes": self._extract_checkboxes(name, content),
             "mtime": mtime
@@ -159,10 +152,12 @@ class NotesManager:
             return True
         return False
 
-    def get_all_checkboxes(self):
-        """Returns all checkboxes from all notes grouped by note."""
+    def get_all_checkboxes(self, exclude=None):
+        """Returns all checkboxes from all notes grouped by note, optionally excluding some."""
         all_checkboxes = []
         for note_name in self.get_notes():
+            if exclude and note_name in exclude:
+                continue
             metadata = self.get_metadata(note_name)
             all_checkboxes.extend(metadata.get('checkboxes', []))
         return all_checkboxes

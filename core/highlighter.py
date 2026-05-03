@@ -175,10 +175,7 @@ class MarkdownHighlighter:
         
         text_range = self.buffer.get_text(start_iter, end_iter, True)
         
-        # Handle Fenced Code Blocks (special because they can span multiple lines)
-        # We handle them for the entire document if we are doing a full highlight
-        # OR if we are doing a range highlight, we might need a more complex approach.
-        # For now, let's process fenced code blocks for the whole text if it's a full highlight.
+        # Handle Fenced Code Blocks
         if start_line == 0 and end_line == total_lines:
             for match in self.re_fenced_code.finditer(text_range):
                 full_start = match.start()
@@ -191,12 +188,10 @@ class MarkdownHighlighter:
                 self.apply_tag("invisible", code_end, full_end)
 
         lines = text_range.split('\n')
-        offset_base = start_iter.get_offset()
+        line_start_offset = start_iter.get_offset()
         
         for i, line in enumerate(lines):
             curr_line_num = start_line + i
-            line_start_offset = offset_base + sum(len(l) + 1 for l in lines[:i])
-            line_end_offset = line_start_offset + len(line)
             is_cursor_line = (cursor_line == curr_line_num)
 
             # Setext headings
@@ -215,11 +210,13 @@ class MarkdownHighlighter:
                     level = 1 if setext_underline.group(2)[0] == '=' else 2
                     tag = "setext_h1" if level == 1 else "setext_h2"
                     self.apply_tag(tag, prev_offset, prev_offset + len(prev_line))
+                    line_start_offset += len(line) + 1
                     continue
 
             # Horizontal rules
             if self.re_hr.match(line):
                 self.apply_tag("hr", line_start_offset, line_start_offset + len(line))
+                line_start_offset += len(line) + 1
                 continue
 
             # Block quotes
@@ -256,14 +253,15 @@ class MarkdownHighlighter:
             if header_match:
                 level = len(header_match.group(1))
                 tag = f"h{min(level, 4)}"
-                self.apply_tag(tag, line_start_offset, line_end_offset)
+                self.apply_tag(tag, line_start_offset, line_start_offset + len(line))
                 if not is_cursor_line:
                     self.apply_tag("invisible", line_start_offset, line_start_offset + level)
                 else:
                     self.apply_tag("dim", line_start_offset, line_start_offset + level)
+                line_start_offset += len(line) + 1
                 continue
 
-            self.apply_tag("body", line_start_offset, line_end_offset)
+            self.apply_tag("body", line_start_offset, line_start_offset + len(line))
 
             # Checkboxes
             for m in self.re_checkbox_empty.finditer(line):
@@ -314,11 +312,9 @@ class MarkdownHighlighter:
             
             # Autolinks
             for m in self.re_autolink.finditer(line):
-                content = m.group(1)
-                if content.startswith('http://') or content.startswith('https://') or '@' in content:
-                    self.apply_tag("autolink", line_start_offset + m.start(), line_start_offset + m.end())
-                    self.apply_tag("invisible", line_start_offset + m.start(), line_start_offset + m.start() + 1)
-                    self.apply_tag("invisible", line_start_offset + m.end() - 1, line_start_offset + m.end())
+                self.apply_tag("autolink", line_start_offset + m.start(), line_start_offset + m.end())
+                self.apply_tag("invisible", line_start_offset + m.start(), line_start_offset + m.start() + 1)
+                self.apply_tag("invisible", line_start_offset + m.end() - 1, line_start_offset + m.end())
 
             # Inline HTML
             for m in self.re_html.finditer(line):
@@ -330,6 +326,8 @@ class MarkdownHighlighter:
             # Line breaks
             if line.rstrip().endswith('\\'):
                 self.apply_tag("line_break", line_start_offset + len(line.rstrip()), line_start_offset + len(line))
+            
+            line_start_offset += len(line) + 1
 
     def apply_inline_style(self, pattern, tag, line, line_offset, is_cursor_line, is_single_marker=False):
         for m in pattern.finditer(line):
@@ -353,7 +351,8 @@ class MarkdownHighlighter:
         if start_offset >= end_offset:
             return
         start_iter = self.get_iter_at_offset(start_offset)
-        end_iter = self.get_iter_at_offset(end_offset)
+        end_iter = start_iter.copy()
+        end_iter.forward_chars(end_offset - start_offset)
         self.buffer.apply_tag_by_name(tag_name, start_iter, end_iter)
 
     def set_enabled(self, enabled):

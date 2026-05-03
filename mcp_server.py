@@ -14,15 +14,11 @@ def log(msg):
 
 class NotesAPI:
     def __init__(self):
-        config_path = Path.home() / ".config" / "tokyo-notes" / "tokyo-notes.json"
-        config = {}
-        if config_path.exists():
-            try:
-                config = json.loads(config_path.read_text())
-            except (json.JSONDecodeError, OSError):
-                pass
-        self.notes_folder = config.get('notes_folder', "notes")
-        self.notes_manager = NotesManager(notes_dir=self.notes_folder)
+        self._config_path = Path.home() / ".config" / "tokyo-notes" / "tokyo-notes.json"
+        self._config_mtime = 0
+        self.notes_folder = "notes"
+        self.notes_manager = None
+        self._refresh_manager()
 
     def get_catalog(self):
         tools = [
@@ -80,17 +76,19 @@ class NotesAPI:
             return {"error": {"code": -1, "message": str(e)}}
 
     def _refresh_manager(self):
-        config_path = Path.home() / ".config" / "tokyo-notes" / "tokyo-notes.json"
-        config = {}
-        if config_path.exists():
-            try:
-                config = json.loads(config_path.read_text())
-            except (json.JSONDecodeError, OSError):
-                pass
-        new_folder = config.get('notes_folder', "notes")
-        if new_folder != self.notes_folder:
-            self.notes_folder = new_folder
-            self.notes_manager = NotesManager(notes_dir=self.notes_folder)
+        try:
+            mtime = self._config_path.stat().st_mtime
+            if mtime == self._config_mtime:
+                return  # Config unchanged
+            self._config_mtime = mtime
+            config = json.loads(self._config_path.read_text())
+            new_folder = config.get('notes_folder', 'notes')
+            if new_folder != self.notes_folder or self.notes_manager is None:
+                self.notes_folder = new_folder
+                self.notes_manager = NotesManager(notes_dir=new_folder)
+        except (OSError, json.JSONDecodeError):
+            if self.notes_manager is None:
+                self.notes_manager = NotesManager(notes_dir="notes")
 
 class OmniHandler(BaseHTTPRequestHandler):
     api = None

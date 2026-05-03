@@ -1,6 +1,7 @@
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk
+gi.require_version('PangoCairo', '1.0')
+from gi.repository import Gtk, Gdk, Pango, PangoCairo
 import math
 
 class GraphView(Gtk.Box):
@@ -16,13 +17,32 @@ class GraphView(Gtk.Box):
         
         self.append(self.canvas)
         
+        self._node_positions = {}
+        self._last_size = (0, 0)
+        self.canvas.connect("resize", lambda w, ww, hh: self._invalidate_positions())
+        
         gesture = Gtk.GestureClick.new()
         gesture.connect("pressed", self.on_press)
         self.canvas.add_controller(gesture)
 
+    def _invalidate_positions(self):
+        self._node_positions = {}
+
+    def _get_positions(self, width, height):
+        if not self._node_positions or self._last_size != (width, height):
+            total = len(self.nodes)
+            if total > 0:
+                self._node_positions = {
+                    node: self.get_node_coords(i, total, width, height)
+                    for i, node in enumerate(self.nodes)
+                }
+                self._last_size = (width, height)
+        return self._node_positions
+
     def update_data(self, new_data):
         self.graph_data = new_data
         self.nodes = list(new_data.keys())
+        self._invalidate_positions()
         self.canvas.queue_draw()
 
     def get_node_coords(self, index, total, width, height):
@@ -34,8 +54,10 @@ class GraphView(Gtk.Box):
         return x, y
 
     def on_draw(self, area, cr, width, height):
-        total = len(self.nodes)
-        if total == 0: return
+        if not self.nodes:
+            return
+        
+        node_positions = self._get_positions(width, height)
         
         # Get theme colors
         context = area.get_style_context()
@@ -52,8 +74,6 @@ class GraphView(Gtk.Box):
             fg_color = Gdk.RGBA()
             fg_color.parse("rgb(169, 177, 214)") # fallback to tokyo fg
 
-        node_positions = {node: self.get_node_coords(i, total, width, height) for i, node in enumerate(self.nodes)}
-        
         # Draw edges
         cr.set_source_rgba(fg_color.red, fg_color.green, fg_color.blue, 0.3)
         cr.set_line_width(1.5)
@@ -88,20 +108,24 @@ class GraphView(Gtk.Box):
                 cr.stroke()
         
         # Draw nodes
+        layout = PangoCairo.create_layout(cr)
+        desc = Pango.FontDescription.from_string("Sans 9")
+        layout.set_font_description(desc)
+        
         for node, (x, y) in node_positions.items():
             cr.set_source_rgb(accent_color.red, accent_color.green, accent_color.blue)
             cr.arc(x, y, 10, 0, 2 * math.pi)
             cr.fill()
             
             cr.set_source_rgb(fg_color.red, fg_color.green, fg_color.blue)
-            cr.move_to(x + 14, y + 4)
-            cr.show_text(node)
+            layout.set_text(node, -1)
+            cr.move_to(x + 14, y - 6) # Adjusted y for Pango layout
+            PangoCairo.show_layout(cr, layout)
 
     def on_press(self, gesture, n_press, x, y):
-        total = len(self.nodes)
         width = self.canvas.get_width()
         height = self.canvas.get_height()
-        node_positions = {node: self.get_node_coords(i, total, width, height) for i, node in enumerate(self.nodes)}
+        node_positions = self._get_positions(width, height)
         for node, (nx, ny) in node_positions.items():
             if math.hypot(nx - x, ny - y) < 20:
                 self.on_node_clicked(node)

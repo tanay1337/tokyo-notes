@@ -25,8 +25,8 @@ class ConfigManager:
         self.archive_path = self.config_dir / "archived.json"
 
         self.data = self._load_json(self.config_path, CONFIG_DEFAULTS)
-        self.pinned: list[str] = self._load_json(self.pinned_path, [])
-        self.archived: list[str] = self._load_json(self.archive_path, [])
+        self.pinned: set[str] = set(self._load_json(self.pinned_path, []))
+        self.archived: set[str] = set(self._load_json(self.archive_path, []))
 
     def _load_json(self, path: Path, default):
         if path.exists():
@@ -38,8 +38,10 @@ class ConfigManager:
 
     def _save_json(self, path: Path, data):
         self.config_dir.mkdir(parents=True, exist_ok=True)
+        # Convert sets to sorted lists for deterministic JSON
+        save_data = sorted(list(data)) if isinstance(data, set) else data
         try:
-            path.write_text(json.dumps(data), encoding="utf-8")
+            path.write_text(json.dumps(save_data), encoding="utf-8")
         except OSError:
             pass
 
@@ -53,7 +55,7 @@ class ConfigManager:
     # --- Pinned ---
     def pin(self, note_name: str):
         if note_name not in self.pinned:
-            self.pinned.append(note_name)
+            self.pinned.add(note_name)
             self._save_json(self.pinned_path, self.pinned)
 
     def unpin(self, note_name: str):
@@ -67,9 +69,9 @@ class ConfigManager:
     # --- Archived ---
     def toggle_archive(self, note_name: str):
         if note_name in self.archived:
-            self.archived.remove(note_name)
+            self.archived.discard(note_name)
         else:
-            self.archived.append(note_name)
+            self.archived.add(note_name)
         self._save_json(self.archive_path, self.archived)
 
     def is_archived(self, note_name: str) -> bool:
@@ -77,9 +79,10 @@ class ConfigManager:
 
     def remove_note(self, note_name: str):
         """Cleanup pinned and archived lists when a note is deleted."""
+        changed = False
         if note_name in self.pinned:
-            self.pinned.remove(note_name)
+            self.pinned.discard(note_name)
             self._save_json(self.pinned_path, self.pinned)
         if note_name in self.archived:
-            self.archived.remove(note_name)
+            self.archived.discard(note_name)
             self._save_json(self.archive_path, self.archived)

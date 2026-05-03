@@ -1,7 +1,6 @@
 import gi
 import random
 import math
-import time
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, GObject
 
@@ -36,14 +35,12 @@ class SakuraPetal:
         self.color = random.choice(pinks)
         self.opacity = random.uniform(0.6, 0.9)
 
-    def update(self, width, height):
+    def update(self, width, height, t):
         self.y += self.speed_y
-        self.x += self.speed_x + math.sin(time.time() * self.oscillation_speed + self.oscillation_offset) * 0.5
+        self.x += self.speed_x + math.sin(t * self.oscillation_speed + self.oscillation_offset) * 0.5
         self.rotation += self.rotation_speed
         
-        if self.y > height + 20:
-            return False
-        return True
+        return self.y <= height + 20
 
 class SakuraOverlay(Gtk.DrawingArea):
     def __init__(self):
@@ -54,7 +51,7 @@ class SakuraOverlay(Gtk.DrawingArea):
         
         self.petals = []
         self.is_animating = False
-        self.start_time = 0
+        self.start_time = None
         self.duration = 4.0 # seconds
         
         self.set_draw_func(self.on_draw)
@@ -66,7 +63,7 @@ class SakuraOverlay(Gtk.DrawingArea):
             width, height = 1000, 700 # Fallback
             
         self.petals = [SakuraPetal(width, height) for _ in range(40)]
-        self.start_time = time.time()
+        self.start_time = None
         
         if not self.is_animating:
             self.is_animating = True
@@ -75,15 +72,19 @@ class SakuraOverlay(Gtk.DrawingArea):
     def on_tick(self, widget, frame_clock):
         if not self.is_animating:
             return False
+        
+        t = frame_clock.get_frame_time() / 1_000_000.0  # → seconds
+        if self.start_time is None:
+            self.start_time = t
             
         width = self.get_width()
         height = self.get_height()
         
         # Update petals
-        self.petals = [p for p in self.petals if p.update(width, height)]
+        self.petals = [p for p in self.petals if p.update(width, height, t)]
         
         # Check if duration is up and no more petals
-        if time.time() - self.start_time > self.duration and not self.petals:
+        if t - self.start_time > self.duration and not self.petals:
             self.is_animating = False
             self.queue_draw()
             return False

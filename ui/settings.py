@@ -4,14 +4,13 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw
 
 class SettingsView(Gtk.Box):
-    def __init__(self, on_theme_selected, on_config_changed, on_select_folder_callback, cfg):
+    def __init__(self, on_theme_selected, on_config_changed, on_select_folder_callback, initial_values):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("dashboard-view")
 
         self.on_theme_selected = on_theme_selected
         self.on_config_changed = on_config_changed
         self.on_select_folder_callback = on_select_folder_callback
-        self.cfg = cfg
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         
@@ -33,7 +32,7 @@ class SettingsView(Gtk.Box):
 
         # Folder Selection Row
         self.folder_row = Adw.ActionRow(title="Notes Folder")
-        self.path_label = Gtk.Label(label=self.cfg.get('notes_folder'))
+        self.path_label = Gtk.Label(label=initial_values.get('notes_folder'))
         self.path_label.add_css_class("dim-label")
         self.path_label.set_valign(Gtk.Align.CENTER)
         self.folder_row.add_suffix(self.path_label)
@@ -49,7 +48,7 @@ class SettingsView(Gtk.Box):
             title="Sakura Celebration",
             subtitle="Show cherry blossoms when completing tasks"
         )
-        sakura_row.set_active(self.cfg.get('sakura_effect'))
+        sakura_row.set_active(initial_values.get('sakura_effect'))
         sakura_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'sakura_effect'))
         general_group.add(sakura_row)
 
@@ -62,7 +61,7 @@ class SettingsView(Gtk.Box):
             title="Formatting Bar",
             subtitle="Show markdown formatting tools above the editor"
         )
-        formatting_row.set_active(self.cfg.get('show_toolbar'))
+        formatting_row.set_active(initial_values.get('show_toolbar'))
         formatting_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'show_toolbar'))
         toolbar_group.add(formatting_row)
 
@@ -71,7 +70,7 @@ class SettingsView(Gtk.Box):
             title="Status Bar",
             subtitle="Show word count and reading time at the bottom"
         )
-        status_row.set_active(self.cfg.get('show_stats'))
+        status_row.set_active(initial_values.get('show_stats'))
         status_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'show_stats'))
         toolbar_group.add(status_row)
 
@@ -84,7 +83,7 @@ class SettingsView(Gtk.Box):
             title="AI Bridge (MCP)",
             subtitle="Allow AI agents to read and search your notes"
         )
-        ai_bridge_row.set_active(self.cfg.get('mcp_server_enabled'))
+        ai_bridge_row.set_active(initial_values.get('mcp_server_enabled'))
         ai_bridge_row.connect("notify::active", lambda row, pspec: self.on_toggle_changed(row.get_active(), 'mcp_server_enabled'))
         ai_group.add(ai_bridge_row)
 
@@ -94,7 +93,7 @@ class SettingsView(Gtk.Box):
             subtitle="Port for the AI connection (default 8999)"
         )
         self.port_entry = Gtk.Entry()
-        self.port_entry.set_text(str(self.cfg.get('mcp_server_port')))
+        self.port_entry.set_text(str(initial_values.get('mcp_server_port')))
         self.port_entry.set_valign(Gtk.Align.CENTER)
         self.port_entry.set_width_chars(6)
         self.port_entry.connect("changed", self.on_port_changed)
@@ -137,7 +136,7 @@ class SettingsView(Gtk.Box):
         ]
         
         self.theme_rows = {}
-        current_theme = self.cfg.get('theme')
+        current_theme = initial_values.get('theme')
         
         for theme in self.themes:
             row = self.create_theme_row(theme, theme["id"] == current_theme)
