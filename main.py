@@ -253,22 +253,12 @@ class TokyoNotes(Adw.Application):
 
         self.text_view.set_focus_on_click(True)
 
-        # Dashboard View
-        self.dashboard_view = Dashboard(
-            self.on_dashboard_item_selected,
-            self.on_dashboard_checkbox_toggled,
-            self.on_dashboard_deadline_click,
-            self.handle_row_click,
-            self.on_dashboard_empty,
-            self.refresh_dashboard,
-            default_filter="today",
-        )
-        self.dashboard_list = self.dashboard_view.dashboard_list
+        # Dashboard View (Lazy Loaded)
 
         # Settings and Graph Views (Lazy Initialized)
         self.settings_view = None
         self.graph_view = None
-        self.graph_manager = GraphManager(self.notes_manager)
+        self.graph_manager = None  # Lazy-loaded on first graph click
 
         # Stack for content switching
         self.content_stack = Gtk.Stack()
@@ -276,7 +266,6 @@ class TokyoNotes(Adw.Application):
         self.content_stack.set_transition_duration(200)
         self.content_stack.set_vexpand(True)
         self.content_stack.add_named(self.editor, "editor")
-        self.content_stack.add_named(self.dashboard_view, "dashboard")
 
         # Overlay for Sakura Celebration
         self.overlay = Gtk.Overlay()
@@ -288,6 +277,9 @@ class TokyoNotes(Adw.Application):
         main_layout.append(self.content_header)
         main_layout.append(self.overlay)
         self.split_view.set_content(main_layout)
+
+        # Show window immediately for perceived startup speed
+        self.win.present()
 
         # Responsive Breakpoint
         display = Gdk.Display.get_default()
@@ -319,8 +311,6 @@ class TokyoNotes(Adw.Application):
             self.actions.on_zen_mode,
             self.quit,
         )
-
-        self.win.present()
 
     def initial_load(self):
         self.refresh_list()
@@ -538,18 +528,18 @@ class TokyoNotes(Adw.Application):
         self.buffer.handler_block(self.changed_handler_id)
         self.buffer.set_text(content)
 
-        # Immediate highlight of first 100 lines for perceived speed
+        # Switch to editor view FIRST for perceived speed
+        self.content_stack.set_visible_child_name("editor")
+
+        # Show first 30 lines immediately (sync, fast)
         if self.highlighter:
-            self.highlighter.highlight(start_line=0, end_line=100)
+            self.highlighter.highlight(start_line=0, end_line=30)
 
         self.buffer.handler_unblock(self.changed_handler_id)
 
-        # Switch to editor view NOW, after initial highlight
-        self.content_stack.set_visible_child_name("editor")
-
-        # Background highlight for the rest if it's a long note
-        if self.highlighter and self.buffer.get_line_count() > 100:
-            GLib.idle_add(lambda: self.highlighter.highlight(start_line=100) or False)
+        # Background highlight for the rest
+        if self.highlighter and self.buffer.get_line_count() > 30:
+            GLib.idle_add(lambda: self._finish_highlighting() or False)
 
         self.is_loading = False
         self.last_cursor_line = -1
@@ -560,6 +550,12 @@ class TokyoNotes(Adw.Application):
         else:
             self.sidebar.main_list.unselect_all()
 
+    def _finish_highlighting(self):
+        """Finish highlighting remaining lines after initial load."""
+        if self.highlighter and self.current_note:
+            self.highlighter.highlight(start_line=30)
+        return False
+
     def on_archived_clicked(self, btn):
         if self.sidebar.stack.get_visible_child_name() == "archive":
             self.sidebar.stack.set_visible_child_name("main")
@@ -569,6 +565,20 @@ class TokyoNotes(Adw.Application):
             self.sidebar.archived_nav_btn.set_label("Back to Notes")
 
     def on_dashboard_clicked(self, button=None):
+        # Lazy create Dashboard view on first access
+        if not hasattr(self, 'dashboard_view') or self.dashboard_view is None:
+            self.dashboard_view = Dashboard(
+                self.on_dashboard_item_selected,
+                self.on_dashboard_checkbox_toggled,
+                self.on_dashboard_deadline_click,
+                self.handle_row_click,
+                self.on_dashboard_empty,
+                self.refresh_dashboard,
+                default_filter="today",
+            )
+            self.dashboard_list = self.dashboard_view.dashboard_list
+            self.content_stack.add_named(self.dashboard_view, "dashboard")
+
         checkboxes = self.notes_manager.get_all_checkboxes(exclude=self.cfg.archived)
         unchecked = [cb for cb in checkboxes if not cb["checked"]]
 
@@ -608,6 +618,10 @@ class TokyoNotes(Adw.Application):
                 row = row.get_next_sibling()
 
     def on_graph_clicked(self):
+        # Lazy create graph manager and view
+        if not self.graph_manager:
+            self.graph_manager = GraphManager(self.notes_manager)
+        
         if not self.graph_view:
             self.graph_view = GraphView(
                 self.graph_manager.get_graph_data(self.cfg.archived),
@@ -821,7 +835,8 @@ class TokyoNotes(Adw.Application):
             GLib.idle_add(self._do_highlight)
 
     def _do_highlight(self):
-        if not self.highlighter:
+        # Skip if not in editor view
+        if not self.highlighter or self.content_stack.get_visible_child_name() != "editor":
             return False
         cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
         cursor_line = cursor_iter.get_line()
@@ -832,7 +847,8 @@ class TokyoNotes(Adw.Application):
         return False
 
     def on_cursor_moved(self, buffer, pspec):
-        if not self.highlighter or self.is_loading:
+        # Skip if not in editor view or no highlighter
+        if not self.highlighter or self.is_loading or self.content_stack.get_visible_child_name() != "editor":
             return
 
         cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
