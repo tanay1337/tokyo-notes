@@ -37,6 +37,7 @@ class Sidebar(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.app = app
         self.add_css_class("sidebar")
+        self._rows: dict[str, Gtk.ListBoxRow] = {}
 
         # ---- Header ----
         sidebar_header = Adw.HeaderBar()
@@ -59,9 +60,11 @@ class Sidebar(Gtk.Box):
         self.stack.set_vexpand(True)
 
         self.main_list = Gtk.ListBox()
+        self.main_list.set_sort_func(self._sort_notes)
         self.stack.add_named(self.main_list, "main")
 
         self.archive_list = Gtk.ListBox()
+        self.archive_list.set_sort_func(self._sort_notes)
         self.stack.add_named(self.archive_list, "archive")
 
         scrolled_list = Gtk.ScrolledWindow()
@@ -165,47 +168,153 @@ class Sidebar(Gtk.Box):
         base_dir: Path,
         filter_text: str = "",
     ) -> None:
-        """Rebuild both list boxes from scratch."""
-        self._clear(self.main_list)
-        self._clear(self.archive_list)
+        """Sync the sidebar rows with the provided note lists.
 
-        pinned_notes = [n for n in main_notes if n in pinned]
-        other_notes  = [n for n in main_notes if n not in pinned]
+        Uses targeted add/remove/update calls to minimize UI churn.
+        """
+        all_incoming = set(main_notes) | archived_notes
 
-        for note in pinned_notes:
-            self.main_list.append(
-                self._make_row(note, snippet_fn(note), is_pinned=True,
-                               on_right_click=on_right_click, base_dir=base_dir)
-            )
-        for note in other_notes:
-            self.main_list.append(
-                self._make_row(note, snippet_fn(note), is_pinned=False,
-                               on_right_click=on_right_click, base_dir=base_dir)
-            )
+        # 1. Remove rows for notes that are no longer in the incoming set.
+        to_remove = [name for name in self._rows if name not in all_incoming]
+        for name in to_remove:
+            self.remove_note(name)
 
-        if not pinned_notes and not other_notes:
+        # 2. Update existing rows or add new ones.
+        for name in main_notes:
+            is_pinned = name in pinned
+            snippet = snippet_fn(name)
+            if name in self._rows:
+                self.update_note(name, snippet, is_pinned=is_pinned, is_archived=False)
+            else:
+                self.add_note(
+                    name,
+                    snippet,
+                    is_pinned=is_pinned,
+                    is_archived=False,
+                    on_right_click=on_right_click,
+                    base_dir=base_dir,
+                )
+
+        for name in archived_notes:
+            snippet = snippet_fn(name)
+            if name in self._rows:
+                self.update_note(name, snippet, is_pinned=False, is_archived=True)
+            else:
+                self.add_note(
+                    name,
+                    snippet,
+                    is_pinned=False,
+                    is_archived=True,
+                    on_right_click=on_right_click,
+                    base_dir=base_dir,
+                )
+
+        # 3. Handle empty state.
+        self._clear_empty_state()
+        if not main_notes:
             msg = "No notes match." if filter_text else "No notes yet."
             self.main_list.append(create_empty_state_widget(msg, base_dir))
 
-        for note in archived_notes:
-            fl = filter_text.lower()
-            # Check name first (cheap), then content (requires metadata read).
-            if filter_text and fl not in note.lower() and fl not in snippet_fn(note).lower():
-                continue
-            self.archive_list.append(
-                self._make_row(note, snippet_fn(note), is_archived=True,
-                               on_right_click=on_right_click, base_dir=base_dir)
-            )
-
         self.archived_nav_btn.set_sensitive(bool(archived_notes))
+        self.main_list.invalidate_sort()
+        self.archive_list.invalidate_sort()
+
+    def add_note(
+        self,
+        name: str,
+        snippet: str,
+        is_pinned: bool = False,
+        is_archived: bool = False,
+        on_right_click: Callable[..., Any] | None = None,
+        base_dir: Path | None = None,
+    ) -> None:
+        """Create and add a new row for *name*."""
+        row = self._make_row(
+            name, snippet, is_pinned, is_archived, on_right_click, base_dir
+        )
+        self._rows[name] = row
+        target_list = self.archive_list if is_archived else self.main_list
+        target_list.append(row)
+
+    def remove_note(self, name: str) -> None:
+        """Remove the row for *name* from its parent list and tracking dict."""
+        row = self._rows.pop(name, None)
+        if row:
+            parent = row.get_parent()
+            if parent:
+                parent.remove(row)
+
+    def update_note(
+        self,
+        name: str,
+        snippet: str,
+        is_pinned: bool = False,
+        is_archived: bool = False,
+    ) -> None:
+        """Update the visual state of an existing row, moving it between lists if needed."""
+        row = self._rows.get(name)
+        if not row:
+            return
+
+        # 1. Update text content in-place.
+        if hasattr(row, "snippet_label"):
+            row.snippet_label.set_label(snippet)
+
+        # 2. Update pin/archive visual markers.
+        current_parent = row.get_parent()
+        target_parent = self.archive_list if is_archived else self.main_list
+
+        if current_parent != target_parent:
+            if current_parent:
+                current_parent.remove(row)
+            target_parent.append(row)
+
+        # Update the row's internal state so the sort function sees it.
+        row.is_pinned = is_pinned
+        row.is_archived = is_archived
+
+        # Update the pin icon visibility
+        title_box = row.get_child().get_first_child()
+        pin_icon = title_box.get_last_child()
+        if isinstance(pin_icon, Gtk.Image):
+            pin_icon.set_visible(is_pinned)
+        elif is_pinned:
+            # Add icon if it was missing
+            new_pin = Gtk.Image()
+            new_pin.set_from_icon_name(_get_pin_icon_name())
+            title_box.append(new_pin)
 
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
 
+    def _sort_notes(self, row1: Gtk.ListBoxRow, row2: Gtk.ListBoxRow) -> int:
+        """Sort function for ListBox: Pinned first, then by mtime descending."""
+        # 1. Pinned status (True > False)
+        p1 = getattr(row1, "is_pinned", False)
+        p2 = getattr(row2, "is_pinned", False)
+        if p1 != p2:
+            return -1 if p1 else 1
+
+        # 2. Modification time (Newer > Older)
+        m1 = self.app.notes_manager.get_mtime(row1.note_name)
+        m2 = self.app.notes_manager.get_mtime(row2.note_name)
+        return 1 if m2 > m1 else -1
+
+    def _clear_empty_state(self) -> None:
+        """Remove any empty-state widgets from the main list."""
+        child = self.main_list.get_first_child()
+        while child:
+            next_sibling = child.get_next_sibling()
+            if not hasattr(child, "note_name"):
+                self.main_list.remove(child)
+            child = next_sibling
+
     def _clear(self, list_box: Gtk.ListBox) -> None:
-        """Remove all children from *list_box*."""
+        """Remove all children from *list_box* and clear tracking."""
         while (child := list_box.get_first_child()):
+            if hasattr(child, "note_name"):
+                self._rows.pop(child.note_name, None)
             list_box.remove(child)
 
     def _make_row(
@@ -232,10 +341,10 @@ class Sidebar(Gtk.Box):
         label.set_hexpand(True)
         title_box.append(label)
 
-        if is_pinned:
-            pin_icon = Gtk.Image()
-            pin_icon.set_from_icon_name(_get_pin_icon_name())
-            title_box.append(pin_icon)
+        pin_icon = Gtk.Image()
+        pin_icon.set_from_icon_name(_get_pin_icon_name())
+        pin_icon.set_visible(is_pinned)
+        title_box.append(pin_icon)
 
         box.append(title_box)
 
@@ -248,8 +357,10 @@ class Sidebar(Gtk.Box):
 
         row.set_child(box)
         row.note_name = note_name
-        row.title_label = label      # stored for O(1) in-place updates
-        row.snippet_label = snippet  # stored for O(1) in-place updates
+        row.is_pinned = is_pinned
+        row.is_archived = is_archived
+        row.title_label = label
+        row.snippet_label = snippet
 
         if on_right_click:
             gesture = Gtk.GestureClick(button=3)

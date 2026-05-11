@@ -71,8 +71,9 @@ class TokyoNotes(Adw.Application):
     # ------------------------------------------------------------------ #
 
     def do_shutdown(self) -> None:
-        """Flush any pending config writes before the process exits."""
+        """Flush any pending config writes and note saves before the process exits."""
         self.cfg.flush_immediate()
+        self.notes_manager.wait_until_empty()
         logger.info("Tokyo Notes shutting down")
         # PyGObject's Gio.Application.do_shutdown() takes no arguments beyond self.
         Adw.Application.do_shutdown(self)

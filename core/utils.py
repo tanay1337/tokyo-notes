@@ -33,6 +33,29 @@ URL_RE: re.Pattern            = re.compile(r"https?://[^\s\)]+")
 TAG_RE: re.Pattern            = re.compile(r"(?<!\w)#(\w+)")
 DEADLINE_RE: re.Pattern       = re.compile(r"@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)")
 
+# --- Checkbox Patterns ---
+# Extraction: indent, checked_char, text, deadline
+CB_EXTRACT_RE: re.Pattern = re.compile(
+    r"^(\s*)-\s*\[([ xX])\]\s*(.+?)(?:\s+@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?))?$"
+)
+# Update: prefix, checked_char, suffix
+CB_UPDATE_RE: re.Pattern = re.compile(r"^(\s*-\s*\[)([ xX])(\].*)")
+# Matches [ ] or [x] or [X]
+CB_ANY_RE: re.Pattern = re.compile(r"\[[ xX]\]")
+CB_EMPTY_RE: re.Pattern = re.compile(r"\[ \]")
+CB_CHECKED_RE: re.Pattern = re.compile(r"\[[xX]\]")
+
+# --- Markdown Structure ---
+HR_RE: re.Pattern = re.compile(r"^(\s*[-*_]){3,}\s*$")
+BLOCKQUOTE_RE: re.Pattern = re.compile(r"^(\s*>)\s*(.*)$")
+LIST_UL_RE: re.Pattern = re.compile(r"^(\s*)([-*+])\s+(.+)$")
+LIST_OL_RE: re.Pattern = re.compile(r"^(\s*)(\d+\.)\s+(.+)$")
+TABLE_ROW_RE: re.Pattern = re.compile(r"^\s*\|.*\|\s*$")
+TABLE_SEP_RE: re.Pattern = re.compile(r"^\s*\|?[\s\-:|]+\|?\s*$")
+HEADER_ATX_RE: re.Pattern = re.compile(r"^(#+)( .+)$")
+SETEXT_RE: re.Pattern = re.compile(r"^(\s*)(={3,}|-{3,})\s*$")
+FENCED_CODE_RE: re.Pattern = re.compile(r"```(\w*)\n?([\s\S]*?)```")
+
 # --- Inline markdown-to-Pango regexes (PDF renderer) ---
 _FMI_LINK_RE: re.Pattern    = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _FMI_BOLD1_RE: re.Pattern   = re.compile(r"\*\*([^*]+)\*\*")

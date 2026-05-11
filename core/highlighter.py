@@ -6,7 +6,22 @@ from typing import Any
 
 from gi.repository import Gtk, Pango
 
-from core.utils import DEADLINE_RE, TAG_RE, WIKI_CLICK_RE
+from core.utils import (
+    BLOCKQUOTE_RE,
+    CB_CHECKED_RE,
+    CB_EMPTY_RE,
+    DEADLINE_RE,
+    FENCED_CODE_RE,
+    HEADER_ATX_RE,
+    HR_RE,
+    LIST_OL_RE,
+    LIST_UL_RE,
+    SETEXT_RE,
+    TABLE_ROW_RE,
+    TABLE_SEP_RE,
+    TAG_RE,
+    WIKI_CLICK_RE,
+)
 
 
 _LIGHT_COLORS: dict[str, str] = {
@@ -45,20 +60,18 @@ class MarkdownHighlighter:
         self.enabled = True
         self.theme_name = theme_name
 
-        # Regexes compiled once at construction.
-        # Shared patterns imported from core.utils to avoid duplication.
-        self.re_fenced_code      = re.compile(r"```(\w*)\n?([\s\S]*?)```")
-        self.re_setext_underline = re.compile(r"^(\s*)(={3,}|-{3,})\s*$")
-        self.re_list_bullet      = re.compile(r"^(\s*)([-*+])\s+")
-        self.re_hr               = re.compile(r"^(\s*[-*_]){3,}\s*$")
-        self.re_blockquote       = re.compile(r"^(\s*>)\s*(.*)$")
-        self.re_unordered        = re.compile(r"^(\s*)([-*+])\s+(.+)$")
-        self.re_ordered          = re.compile(r"^(\s*)(\d+\.)\s+(.+)$")
-        self.re_table_row        = re.compile(r"^\s*\|.*\|\s*$")
-        self.re_table_sep        = re.compile(r"^\s*\|?[\s\-:|]+\|?\s*$")
-        self.re_header           = re.compile(r"^(#+)( .+)$")
-        self.re_checkbox_empty   = re.compile(r"\[ \]")
-        self.re_checkbox_checked = re.compile(r"\[[xX]\]")   # matches both [x] and [X]
+        # Standard patterns imported from core.utils to ensure consistency.
+        self.re_fenced_code      = FENCED_CODE_RE
+        self.re_setext_underline = SETEXT_RE
+        self.re_hr               = HR_RE
+        self.re_blockquote       = BLOCKQUOTE_RE
+        self.re_unordered        = LIST_UL_RE
+        self.re_ordered          = LIST_OL_RE
+        self.re_table_row        = TABLE_ROW_RE
+        self.re_table_sep        = TABLE_SEP_RE
+        self.re_header           = HEADER_ATX_RE
+        self.re_checkbox_empty   = CB_EMPTY_RE
+        self.re_checkbox_checked = CB_CHECKED_RE
         self.re_deadline         = DEADLINE_RE
         self.re_tag              = TAG_RE
         self.re_links            = re.compile(

@@ -240,7 +240,20 @@ class NoteLifecycleManager:
                     GLib.source_remove(tid)
                     setattr(app, attr, 0)
 
-        app.notes_manager.delete_note(note_name)
+        app.notes_manager.delete_note(
+            note_name,
+            callback=lambda success, err=None: self._on_delete_complete(success, note_name, err)
+        )
+
+    def _on_delete_complete(
+        self, success: bool, note_name: str, err: str | None = None
+    ) -> None:
+        """Callback from NotesManager after an async delete finishes."""
+        if not success:
+            logger.error("Async delete failed for '%s': %s", note_name, err)
+            return
+
+        app = self.app
         app.cfg.remove_note(note_name)
         app.sidebar.maybe_exit_archive_view()
 
@@ -260,11 +273,6 @@ class NoteLifecycleManager:
     def do_delayed_sidebar_update(self) -> bool:
         """Fast debounce callback (150 ms): update the current note's sidebar row
         in-place from the buffer content, with no disk access.
-
-        Handles all five UI requirements:
-          - Req 3: first H1 typed → note appears in sidebar immediately.
-          - Req 4: H1 edited → row title updates immediately.
-          - Req 5: any content change → snippet updates immediately.
         """
         app = self.app
         app.sidebar_update_timeout_id = 0
@@ -338,25 +346,39 @@ class NoteLifecycleManager:
             return False
 
         # Req 2: rename the file if the H1 has changed.
-        # B1 fix: corrected indentation — the collision check was one level too
-        # deep, causing current_note to be updated even when rename was skipped.
         new_title = _derive_display_title(content, "")
         if new_title and new_title != app.current_note:
             collision = Path(app.notes_manager.notes_dir) / f"{new_title}.md"
-            if not collision.exists() and app.notes_manager.rename_note(
-                app.current_note, new_title
-            ):
+            if not collision.exists():
+                old_name = app.current_note
+                app.notes_manager.rename_note(old_name, new_title)
                 app.current_note = new_title
                 app.nav.update_header_ui(app.current_note, is_editor=True)
 
         # Write content under the (possibly renamed) note name.
-        app.notes_manager.save_note(app.current_note, content)
-
-        # Refresh the sidebar so the renamed row title and snippet are correct.
-        app.refresh_list(app.sidebar.search_entry.get_text())
-        app._select_sidebar_row(app.current_note)
+        saved_note = app.current_note
+        app.notes_manager.save_note(
+            saved_note,
+            content,
+            callback=lambda success, err=None, n=saved_note: self._on_save_complete(success, n, err),
+        )
 
         return False
+
+    def _on_save_complete(
+        self, success: bool, note_name: str, err: str | None = None
+    ) -> None:
+        """Callback from NotesManager after an async save finishes."""
+        if not success:
+            logger.error("Async save failed for '%s': %s", note_name, err)
+            return
+
+        app = self.app
+        # Refresh the sidebar so the renamed row title and snippet are correct.
+        app.refresh_list(app.sidebar.search_entry.get_text())
+        # Re-select the currently open note if it hasn't changed.
+        if app.current_note:
+            app._select_sidebar_row(app.current_note)
 
     # ------------------------------------------------------------------ #
     # Text-changed coordination
