@@ -2,92 +2,58 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import re
 import uuid
 import webbrowser
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import gi
-gi.require_version('Gtk', '4.0')
-gi.require_version('Adw', '1')
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk, Pango
 
 from core.utils import escape_xml, format_markdown_inline
+
+if TYPE_CHECKING:
+    from main import TokyoNotes
+
+logger = logging.getLogger(__name__)
 
 try:
     from gi.repository import PangoCairo
 except ImportError:
     PangoCairo = None
 
-if TYPE_CHECKING:
-    from typing import Any
+_ORDERED_LIST_RE: re.Pattern = re.compile(r"^\d+\.\s")
 
-_ORDERED_LIST_RE: re.Pattern = re.compile(r'^\d+\.\s')
-
-_PDF_BG_COLOR: tuple[float, float, float] = (245/255, 244/255, 237/255)
+_PDF_BG_COLOR: tuple[float, float, float] = (245 / 255, 244 / 255, 237 / 255)
 _PDF_INK_BLUE: str = "#1B365D"
-_PDF_TEXT_RGB: tuple[float, float, float] = (20/255, 20/255, 19/255)
+_PDF_TEXT_RGB: tuple[float, float, float] = (20 / 255, 20 / 255, 19 / 255)
+_PDF_LINE_HEIGHT: float = 14.0
+_PDF_MARGIN: float = 50.0
+
 
 class ActionsHandler:
-    def __init__(self, app: Any) -> None:
-        self.app: Any = app
+    """Handles clipboard, PDF export, zen mode, and other app-level actions."""
+
+    def __init__(self, app: "TokyoNotes") -> None:
+        self.app = app
         self.in_zen_mode: bool = False
 
-    def on_copy_markdown(self, button: Gtk.Button) -> None:
-        """Copies note content as markdown to the system clipboard."""
-        if not self.app.current_note:
-            return
-        start, end = self.app.buffer.get_bounds()
-        content: str = self.app.buffer.get_text(start, end, True)
-        clipboard = self.app.win.get_clipboard()
-        clipboard.set(content)
-
-    def on_insert_timestamp(self, *args: Any) -> None:
-        """Inserts current date and time into the editor."""
-        timestamp: str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        self.app.buffer.insert_at_cursor(timestamp)
-
-    def on_zen_mode(self, *args: Any) -> None:
-        """Toggles zen mode, hiding UI elements."""
-        toggle_handler = getattr(self.app, 'sidebar_toggle_handler', None)
-        
-        if self.in_zen_mode:
-            # Restore saved configuration
-            if toggle_handler:
-                self.app.sidebar_toggle.handler_block(toggle_handler)
-            
-            self.app.split_view.set_show_sidebar(self.app.cfg.get('show_sidebar'))
-            self.app.sidebar_toggle.set_active(self.app.cfg.get('show_sidebar'))
-            
-            if toggle_handler:
-                self.app.sidebar_toggle.handler_unblock(toggle_handler)
-            
-            self.app.toolbar.set_visible(self.app.cfg.get('show_toolbar'))
-            self.app.editor.status_bar.set_visible(self.app.cfg.get('show_stats'))
-            self.in_zen_mode = False
-        else:
-            # Hide UI for Zen Mode
-            if toggle_handler:
-                self.app.sidebar_toggle.handler_block(toggle_handler)
-            
-            self.app.split_view.set_show_sidebar(False)
-            self.app.sidebar_toggle.set_active(False)
-            
-            if toggle_handler:
-                self.app.sidebar_toggle.handler_unblock(toggle_handler)
-            
-            self.app.toolbar.set_visible(False)
-            self.app.editor.status_bar.set_visible(False)
-            self.in_zen_mode = True
+    # ------------------------------------------------------------------ #
+    # Clipboard
+    # ------------------------------------------------------------------ #
 
     def on_paste_clipboard(self, text_view: Gtk.TextView) -> None:
-        """Handles paste requests from clipboard."""
-        clipboard = self.app.win.get_clipboard()
-        clipboard.read_texture_async(None, self.on_paste_texture_finish)
+        self.app.win.get_clipboard().read_texture_async(
+            None, self.on_paste_texture_finish
+        )
 
-    def on_paste_texture_finish(self, clipboard: Gdk.Clipboard, result: Gio.AsyncResult) -> None:
-        """Finishes texture paste, saving it as a file."""
+    def on_paste_texture_finish(
+        self, clipboard: Gdk.Clipboard, result: Gio.AsyncResult
+    ) -> None:
         try:
             texture = clipboard.read_texture_finish(result)
             if texture:
@@ -97,155 +63,312 @@ class ActionsHandler:
                 texture.save_to_png(str(note_dir / filename))
                 self.app.buffer.insert_at_cursor(f"\n![Pasted Image]({filename})\n")
         except Exception:
-            pass
+            logger.exception("Failed to paste texture")
+            self.app.show_export_dialog(
+                "Paste Failed", "Could not paste image.", is_error=True
+            )
+
+    # ------------------------------------------------------------------ #
+    # Timestamp / Zen
+    # ------------------------------------------------------------------ #
+
+    def on_insert_timestamp(self, *args: Any) -> None:
+        """Insert the current date and time at the cursor position."""
+        self.app.buffer.insert_at_cursor(
+            datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        )
+
+    def on_zen_mode(self, *args: Any) -> None:
+        """Toggle zen mode, hiding the sidebar, toolbar, and status bar."""
+        entering_zen = not self.in_zen_mode
+        if entering_zen:
+            # Hide everything regardless of user preferences.
+            self._set_sidebar_visible(False)
+            self.app.toolbar.set_visible(False)
+            self.app.editor.status_bar.set_visible(False)
+        else:
+            # Restore from persisted preferences.
+            self._set_sidebar_visible(self.app.cfg.get("show_sidebar"))
+            self.app.toolbar.set_visible(self.app.cfg.get("show_toolbar"))
+            self.app.editor.status_bar.set_visible(self.app.cfg.get("show_stats"))
+        self.in_zen_mode = entering_zen
+
+    def _set_sidebar_visible(self, visible: bool) -> None:
+        """Show or hide the sidebar without triggering the toggle signal."""
+        handler = getattr(self.app, "sidebar_toggle_handler", None)
+        if handler:
+            self.app.sidebar_toggle.handler_block(handler)
+        self.app.split_view.set_show_sidebar(visible)
+        self.app.sidebar_toggle.set_active(visible)
+        if handler:
+            self.app.sidebar_toggle.handler_unblock(handler)
+
+    # ------------------------------------------------------------------ #
+    # PDF export
+    # ------------------------------------------------------------------ #
 
     def on_export_pdf(self, button: Gtk.Button) -> None:
-        """Exports the current note as a PDF."""
+        """Export the current note to a PDF file in ~/Downloads."""
         if not self.app.current_note:
             return
-        
+
         downloads = Path.home() / "Downloads"
         downloads.mkdir(exist_ok=True)
-        
-        safe_name = "".join(c for c in self.app.current_note if c.isalnum() or c in (' ', '-', '_')).strip()
+        safe_name = "".join(
+            c for c in self.app.current_note if c.isalnum() or c in (" ", "-", "_")
+        ).strip()
         pdf_path = downloads / f"{safe_name}.pdf"
-        
+
+        start, end = self.app.buffer.get_bounds()
+        text = self.app.buffer.get_text(start, end, True)
+        n_pages = self._count_pages(text)
+
         print_op = Gtk.PrintOperation()
-        print_op.set_n_pages(1)
+        print_op.set_n_pages(n_pages)
         print_op.set_export_filename(str(pdf_path))
         print_op.connect("draw-page", self.on_draw_page)
-        
+
         try:
             result = print_op.run(Gtk.PrintOperationAction.EXPORT, self.app.win)
             if result == Gtk.PrintOperationResult.ERROR:
-                self.app.show_export_dialog("Export Failed", "An error occurred.", is_error=True)
+                self.app.show_export_dialog(
+                    "Export Failed", "An error occurred.", is_error=True
+                )
             else:
-                self.app.show_export_dialog("Success", f"Saved to {pdf_path}", is_error=False)
+                self.app.show_export_dialog("Success", f"Saved to {pdf_path}")
         except Exception as e:
             self.app.show_export_dialog("Error", str(e), is_error=True)
 
-    def _render_line(self, cr: Any, context: Gtk.PrintContext, line: str, y: float, width: float, margin: float) -> float:
-        """Renders a single line of Markdown to PDF context."""
-        line_height = 14.0
-        stripped = line.strip()
+    def _count_pages(self, text: str) -> int:
+        """Estimate the number of A4 pages needed to render *text*.
+
+        Uses a reference page height of 841pt (A4) minus two margins,
+        and delegates line-advance logic to _line_advance so the estimate
+        matches what on_draw_page actually renders.
+        """
+        page_height = 841.0 - 2 * _PDF_MARGIN
+        y = 0.0
+        pages = 1
+        in_code_block = False
+
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                in_code_block = not in_code_block
+                continue
+            advance = 16.0 if in_code_block else self._line_advance(stripped)
+            y += advance
+            if y > page_height:
+                pages += 1
+                y = advance   # start of new page
+
+        return max(pages, 1)
+
+    def _line_advance(self, stripped: str) -> float:
+        """Return the approximate vertical advance in points for one rendered line."""
         if not stripped:
-            return y + line_height
-            
-        if stripped.startswith('# '):
-            layout = context.create_pango_layout()
-            layout.set_markup(f"<span font='36' font_weight='500' foreground='{_PDF_INK_BLUE}'>{escape_xml(stripped[2:])}</span>")
-            layout.set_width(int((width - margin * 2) * Pango.SCALE))
-            cr.move_to(margin, y)
-            PangoCairo.show_layout(cr, layout)
-            return y + 40
-            
-        elif stripped.startswith('## '):
-            layout = context.create_pango_layout()
-            layout.set_markup(f"<span font='22' font_weight='500' foreground='{_PDF_INK_BLUE}'>{escape_xml(stripped[3:])}</span>")
-            layout.set_width(int((width - margin * 2) * Pango.SCALE))
-            cr.move_to(margin, y)
-            PangoCairo.show_layout(cr, layout)
-            return y + 28
-            
-        elif stripped.startswith('### '):
-            layout = context.create_pango_layout()
-            layout.set_markup(f"<span font='16' font_weight='500' foreground='{_PDF_INK_BLUE}'>{escape_xml(stripped[4:])}</span>")
-            layout.set_width(int((width - margin * 2) * Pango.SCALE))
-            cr.move_to(margin, y)
-            PangoCairo.show_layout(cr, layout)
-            return y + 22
-            
-        elif stripped.startswith('- ') or stripped.startswith('* '):
-            layout = context.create_pango_layout()
-            markup = format_markdown_inline(stripped[2:])
-            layout.set_markup(f"<span font='10'>{markup}</span>")
-            layout.set_width(int((width - margin * 2) * Pango.SCALE))
-            cr.move_to(margin + 15, y)
-            PangoCairo.show_layout(cr, layout)
-            return y + 14
-            
-        elif _ORDERED_LIST_RE.match(stripped):
-            markup = format_markdown_inline(stripped)
-            layout = context.create_pango_layout()
-            layout.set_markup(f"<span font='10'>{markup}</span>")
-            layout.set_width(int((width - margin * 2) * Pango.SCALE))
-            cr.move_to(margin + 15, y)
-            PangoCairo.show_layout(cr, layout)
-            return y + 14
-            
-        elif stripped.startswith('>'):
-            layout = context.create_pango_layout()
-            layout.set_markup(f"<span font='10' font_style='italic' foreground='#504e49'>{escape_xml(stripped[2:])}</span>")
-            layout.set_width(int((width - margin * 2 - 20) * Pango.SCALE))
-            cr.move_to(margin + 20, y)
-            PangoCairo.show_layout(cr, layout)
-            return y + 14
-            
-        elif stripped.startswith('---') or stripped.startswith('***') or stripped.startswith('___'):
-            cr.set_source_rgb(232/255, 230/255, 220/255)
+            return _PDF_LINE_HEIGHT
+        if stripped.startswith("# "):
+            return 40.0
+        if stripped.startswith("## "):
+            return 28.0
+        if stripped.startswith("### "):
+            return 22.0
+        if (
+            stripped.startswith("- ")
+            or stripped.startswith("* ")
+            or _ORDERED_LIST_RE.match(stripped)
+        ):
+            return _PDF_LINE_HEIGHT
+        if stripped.startswith(("---", "***", "___")):
+            return _PDF_LINE_HEIGHT
+        if stripped.startswith("`") and stripped.endswith("`"):
+            return 16.0
+        return _PDF_LINE_HEIGHT
+
+    def _draw_pango(
+        self,
+        cr: Any,
+        context: Gtk.PrintContext,
+        markup: str,
+        x: float,
+        y: float,
+        width: float,
+    ) -> None:
+        """Render a Pango markup string at (x, y) into the print context."""
+        layout = context.create_pango_layout()
+        layout.set_markup(markup)
+        layout.set_width(int(width * Pango.SCALE))
+        cr.move_to(x, y)
+        PangoCairo.show_layout(cr, layout)
+
+    def _render_line(
+        self,
+        cr: Any,
+        context: Gtk.PrintContext,
+        line: str,
+        y: float,
+        width: float,
+        margin: float,
+    ) -> float:
+        """Render one markdown line and return the new y position."""
+        stripped = line.strip()
+        content_width = width - margin * 2
+
+        if not stripped:
+            return y + _PDF_LINE_HEIGHT
+
+        if stripped.startswith("# "):
+            self._draw_pango(
+                cr, context,
+                f"<span font='36' font_weight='500' foreground='{_PDF_INK_BLUE}'>"
+                f"{escape_xml(stripped[2:])}</span>",
+                margin, y, content_width,
+            )
+            return y + 40.0
+
+        if stripped.startswith("## "):
+            self._draw_pango(
+                cr, context,
+                f"<span font='22' font_weight='500' foreground='{_PDF_INK_BLUE}'>"
+                f"{escape_xml(stripped[3:])}</span>",
+                margin, y, content_width,
+            )
+            return y + 28.0
+
+        if stripped.startswith("### "):
+            self._draw_pango(
+                cr, context,
+                f"<span font='16' font_weight='500' foreground='{_PDF_INK_BLUE}'>"
+                f"{escape_xml(stripped[4:])}</span>",
+                margin, y, content_width,
+            )
+            return y + 22.0
+
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            self._draw_pango(
+                cr, context,
+                f"<span font='10'>{format_markdown_inline(stripped[2:])}</span>",
+                margin + 15, y, content_width,
+            )
+            return y + _PDF_LINE_HEIGHT
+
+        if _ORDERED_LIST_RE.match(stripped):
+            self._draw_pango(
+                cr, context,
+                f"<span font='10'>{format_markdown_inline(stripped)}</span>",
+                margin + 15, y, content_width,
+            )
+            return y + _PDF_LINE_HEIGHT
+
+        if stripped.startswith(">"):
+            self._draw_pango(
+                cr, context,
+                f"<span font='10' font_style='italic' foreground='#504e49'>"
+                f"{escape_xml(stripped.lstrip('>').lstrip())}</span>",
+                margin + 20, y, content_width - 20,
+            )
+            return y + _PDF_LINE_HEIGHT
+
+        if stripped.startswith(("---", "***", "___")):
+            cr.set_source_rgb(232 / 255, 230 / 255, 220 / 255)
             cr.set_line_width(1)
             cr.move_to(margin, y + 7)
             cr.line_to(width - margin, y + 7)
             cr.stroke()
             cr.set_source_rgb(*_PDF_TEXT_RGB)
-            return y + 14
-            
-        elif stripped.startswith('`') and stripped.endswith('`'):
-            layout = context.create_pango_layout()
-            layout.set_markup(f"<span font='9' font_family='monospace'>{escape_xml(stripped[1:-1])}</span>")
-            layout.set_width(int((width - margin * 2) * Pango.SCALE))
-            cr.move_to(margin, y)
-            PangoCairo.show_layout(cr, layout)
-            return y + 16
-            
-        else:
-            markup = format_markdown_inline(stripped)
-            layout = context.create_pango_layout()
-            layout.set_markup(f"<span font='10'>{markup}</span>")
-            layout.set_width(int((width - margin * 2) * Pango.SCALE))
-            cr.move_to(margin, y)
-            PangoCairo.show_layout(cr, layout)
-            return y + 14
+            return y + _PDF_LINE_HEIGHT
 
-    def on_draw_page(self, operation: Gtk.PrintOperation, context: Gtk.PrintContext, page_nr: int) -> None:
-        """Draws the note content onto a PDF page."""
+        if stripped.startswith("`") and stripped.endswith("`") and len(stripped) > 2:
+            self._draw_pango(
+                cr, context,
+                f"<span font='9' font_family='monospace'>"
+                f"{escape_xml(stripped[1:-1])}</span>",
+                margin, y, content_width,
+            )
+            return y + 16.0
+
+        # Tables: render as plain text rather than silently dropping the row.
+        if stripped.startswith("|"):
+            plain = " ".join(
+                cell.strip() for cell in stripped.strip("|").split("|") if cell.strip()
+            )
+            self._draw_pango(
+                cr, context,
+                f"<span font='9' font_family='monospace'>{escape_xml(plain)}</span>",
+                margin, y, content_width,
+            )
+            return y + _PDF_LINE_HEIGHT
+
+        self._draw_pango(
+            cr, context,
+            f"<span font='10'>{format_markdown_inline(stripped)}</span>",
+            margin, y, content_width,
+        )
+        return y + _PDF_LINE_HEIGHT
+
+    def on_draw_page(
+        self,
+        operation: Gtk.PrintOperation,
+        context: Gtk.PrintContext,
+        page_nr: int,
+    ) -> None:
+        """GTK draw-page callback — renders the requested page of the note."""
         if PangoCairo is None:
             return
-        
+
         cr = context.get_cairo_context()
         width = context.get_width()
         height = context.get_height()
-        
+
+        # Background
         cr.set_source_rgb(*_PDF_BG_COLOR)
         cr.paint()
-        
+        cr.set_source_rgb(*_PDF_TEXT_RGB)
+
         start, end = self.app.buffer.get_bounds()
         text = self.app.buffer.get_text(start, end, True)
-        
-        cr.set_source_rgb(*_PDF_TEXT_RGB)
-        margin = 50.0
-        y = margin
-        lines = text.split('\n')
+
+        # Skip lines that belong to earlier pages.
+        page_height = height - _PDF_MARGIN
+        y = _PDF_MARGIN
+        current_page = 0
         in_code_block = False
-        
-        for line in lines:
+
+        for line in text.split("\n"):
             stripped = line.strip()
-            if stripped.startswith('```'):
+
+            if stripped.startswith("```"):
                 in_code_block = not in_code_block
                 continue
+
             if in_code_block:
-                layout = context.create_pango_layout()
-                layout.set_markup(f"<span font='9' font_family='monospace'>{escape_xml(line)}</span>")
-                layout.set_width(int((width - margin * 2) * Pango.SCALE))
-                cr.move_to(margin, y)
-                PangoCairo.show_layout(cr, layout)
-                y += 16
+                advance = 16.0
+            else:
+                advance = self._line_advance(stripped)
+
+            # Page break?
+            if y + advance > page_height and current_page < page_nr:
+                current_page += 1
+                y = _PDF_MARGIN
+
+            if current_page < page_nr:
+                y += advance
                 continue
-            
-            if stripped.startswith('|'):
-                continue
-                
-            y = self._render_line(cr, context, line, y, width, margin)
-            
-            if y > height - margin:
+
+            if current_page > page_nr:
+                break
+
+            # Render on the correct page.
+            if in_code_block:
+                self._draw_pango(
+                    cr, context,
+                    f"<span font='9' font_family='monospace'>{escape_xml(line)}</span>",
+                    _PDF_MARGIN, y, width - _PDF_MARGIN * 2,
+                )
+                y += 16.0
+            else:
+                y = self._render_line(cr, context, line, y, width, _PDF_MARGIN)
+
+            if y > page_height:
                 break

@@ -5,42 +5,67 @@ import datetime
 from typing import Callable
 
 import gi
-gi.require_version('Gtk', '4.0')
+gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
+
 class DeadlinePicker(Gtk.Popover):
-    def __init__(self, callback: Callable[[str], None]) -> None:
+    """Calendar + optional time entry for picking a task deadline."""
+
+    def __init__(self, callback: Callable[[str | None], None]) -> None:
         super().__init__()
         self.add_css_class("deadline-picker-popover")
         self.callback = callback
-        
-        box: Gtk.Box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_margin_start(10)
         box.set_margin_end(10)
         box.set_margin_top(10)
         box.set_margin_bottom(10)
-        
-        self.calendar: Gtk.Calendar = Gtk.Calendar()
+
+        self.calendar = Gtk.Calendar()
         box.append(self.calendar)
-        
-        self.time_entry: Gtk.Entry = Gtk.Entry()
-        self.time_entry.set_placeholder_text("HH:MM")
-        self.time_entry.set_text(datetime.datetime.now().strftime("%H:%M"))
+
+        # Default to end-of-day rather than current minute — most deadlines
+        # are date-based, not time-based.
+        self.time_entry = Gtk.Entry()
+        self.time_entry.set_placeholder_text("HH:MM (optional)")
+        self.time_entry.set_text("17:00")
         box.append(self.time_entry)
-        
-        btn: Gtk.Button = Gtk.Button(label="Set Deadline")
-        btn.add_css_class("suggested-action")
-        btn.connect("clicked", self.on_set_clicked)
-        box.append(btn)
-        
+
+        # Action row: clear on the left, set on the right.
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+
+        clear_btn = Gtk.Button(label="Clear")
+        clear_btn.connect("clicked", self.on_clear_clicked)
+        btn_row.append(clear_btn)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        btn_row.append(spacer)
+
+        set_btn = Gtk.Button(label="Set Deadline")
+        set_btn.add_css_class("suggested-action")
+        set_btn.connect("clicked", self.on_set_clicked)
+        btn_row.append(set_btn)
+
+        box.append(btn_row)
         self.set_child(box)
 
     def on_set_clicked(self, btn: Gtk.Button) -> None:
-        """Sets the deadline and closes popover."""
         year = self.calendar.get_year()
-        month = self.calendar.get_month() + 1 # GTK Calendar month is 0-indexed
+        month = self.calendar.get_month() + 1  # GTK months are 0-indexed
         day = self.calendar.get_day()
         date_str = f"{year}-{month:02d}-{day:02d}"
-        time_str = self.time_entry.get_text()
-        self.callback(f"{date_str} {time_str}")
+        time_str = self.time_entry.get_text().strip()
+        if time_str and time_str != "17:00":
+            self.callback(f"{date_str} {time_str}")
+        else:
+            # If time is the default or blank, store date-only.
+            self.callback(date_str)
+        self.popdown()
+
+    def on_clear_clicked(self, btn: Gtk.Button) -> None:
+        """Remove the deadline entirely."""
+        self.callback(None)
         self.popdown()

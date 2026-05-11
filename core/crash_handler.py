@@ -1,0 +1,82 @@
+"""Crash handler — catches unhandled exceptions and writes structured reports.
+
+Install once at startup via install(app). After that, any Python exception
+that reaches the top of the call stack (rather than being caught inside a
+GTK signal callback) will be logged, saved to disk, and shown to the user
+as a non-fatal dialog where possible.
+"""
+from __future__ import annotations
+
+import datetime
+import logging
+import sys
+import traceback
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from main import TokyoNotes
+
+logger = logging.getLogger(__name__)
+
+_CRASH_DIR = Path.home() / ".local" / "share" / "tokyo-notes" / "crashes"
+
+
+def _write_crash_report(exc_type: type, exc_value: Exception, exc_tb: Any) -> Path:
+    """Serialise the exception to a timestamped file and return its path."""
+    _CRASH_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    crash_path = _CRASH_DIR / f"crash_{timestamp}.txt"
+
+    report_lines = [
+        f"Tokyo Notes crash report — {datetime.datetime.now().isoformat()}",
+        "=" * 60,
+        "",
+        *traceback.format_exception(exc_type, exc_value, exc_tb),
+    ]
+    try:
+        crash_path.write_text("\n".join(report_lines), encoding="utf-8")
+    except OSError as e:
+        logger.error("Could not write crash report: %s", e)
+
+    return crash_path
+
+
+def install(app: "TokyoNotes") -> None:
+    """Replace sys.excepthook with one that logs, saves, and surfaces crashes."""
+    original_hook = sys.excepthook
+
+    def _hook(exc_type: type, exc_value: Exception, exc_tb: Any) -> None:
+        # Always log the full traceback.
+        logger.critical(
+            "Unhandled exception",
+            exc_info=(exc_type, exc_value, exc_tb),
+        )
+
+        crash_path = _write_crash_report(exc_type, exc_value, exc_tb)
+
+        # Show a dialog if the main window exists and we're on the GTK thread.
+        # Importing Adw here avoids a circular import at module level.
+        try:
+            import gi
+            gi.require_version("Adw", "1")
+            from gi.repository import Adw
+
+            win = getattr(app, "win", None)
+            if win is not None:
+                dialog = Adw.MessageDialog(
+                    transient_for=win,
+                    heading="Unexpected Error",
+                    body=(
+                        f"{exc_type.__name__}: {exc_value}\n\n"
+                        f"A crash report has been saved to:\n{crash_path}"
+                    ),
+                )
+                dialog.add_response("ok", "OK")
+                dialog.present()
+        except Exception:
+            pass  # Never let the crash handler itself crash
+
+        original_hook(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _hook

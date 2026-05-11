@@ -9,7 +9,7 @@ A minimal GTK4 Markdown note-taking app.
 - **Thematic Animations**: "Sakura Celebration" particle effect when completing tasks in Dashboard.
 - **Archive System**: Keep your workspace clean by archiving finished notes.
 - **Knowledge Graph**: Visualize and navigate connections between your notes.
-- **Exporting**: Save notes as PDF or copy raw Markdown to the clipboard instantly.
+- **Exporting**: Save notes as PDF or copy raw Markdown.
 - **Themes**: Multiple themes including Tokyo Night, Nord, and Cyberpunk 2077.
 - **Full-Text Search**: Find notes by title or keyword content.
 

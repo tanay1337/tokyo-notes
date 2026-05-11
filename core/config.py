@@ -2,66 +2,139 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
-if TYPE_CHECKING:
-    pass
+from gi.repository import GLib
 
-CONFIG_DEFAULTS: dict[str, Any] = {
-    'notes_folder': str(
-        Path.home() / "Documents" / "TokyoNotes"
-        if (Path.home() / "Documents").exists()
-        else "notes"
-    ),
-    'show_sidebar': True,
-    'show_toolbar': True,
-    'show_stats': False,
-    'sakura_effect': True,
-    'mcp_server_enabled': False,
-    'mcp_server_port': 8999,
-    'theme': 'tokyo-night',
+logger = logging.getLogger(__name__)
+
+# Keys and their types are fixed — update _DEFAULTS and _migrate together.
+_DEFAULTS: dict[str, Any] = {
+    "notes_folder":      None,   # resolved lazily in __init__
+    "show_sidebar":      True,
+    "show_toolbar":      True,
+    "show_stats":        False,
+    "sakura_effect":     True,
+    "mcp_server_enabled": False,
+    "mcp_server_port":   8999,
+    "theme":             "tokyo-night",
 }
 
+# How long to wait after the last set() call before flushing to disk (ms).
+_DEBOUNCE_MS = 2_000
+
+
+def _default_notes_folder() -> str:
+    """Return the platform-appropriate default notes directory.
+
+    Called once during ConfigManager.__init__ so we don't stat the
+    filesystem at import time.
+    """
+    docs = Path.home() / "Documents"
+    return str(docs / "TokyoNotes" if docs.exists() else Path("notes"))
+
+
 class ConfigManager:
+    """Persists app preferences, pinned notes, and archived notes to ~/.config.
+
+    General settings (self.data) are written with a 2-second debounce so that
+    rapid calls to set() during theme switching or autosave do not cause a
+    burst of synchronous disk writes on the GTK main thread.
+
+    Pinned and archived note sets are written immediately on every change
+    because each change is user-intentional and infrequent.
+    """
+
     def __init__(self) -> None:
         self.config_dir: Path = Path.home() / ".config" / "tokyo-notes"
         self.config_path: Path = self.config_dir / "tokyo-notes.json"
         self.pinned_path: Path = self.config_dir / "pinned.json"
         self.archive_path: Path = self.config_dir / "archived.json"
 
-        self.data: dict[str, Any] = self._load_json(self.config_path, CONFIG_DEFAULTS)
+        self.data: dict[str, Any] = self._load_json(self.config_path, dict(_DEFAULTS))
+        # Resolve the notes folder default here, not at module level.
+        if not self.data.get("notes_folder"):
+            self.data["notes_folder"] = _default_notes_folder()
+
         self.pinned: set[str] = set(self._load_json(self.pinned_path, []))
         self.archived: set[str] = set(self._load_json(self.archive_path, []))
 
-    def _load_json(self, path: Path, default: dict[str, Any] | list[str]) -> Any:
+        # Debounce state — managed exclusively by set() and _flush().
+        self._dirty: bool = False
+        self._flush_timer: int = 0
+
+    # ------------------------------------------------------------------ #
+    # JSON helpers
+    # ------------------------------------------------------------------ #
+
+    def _load_json(self, path: Path, default: dict | list) -> Any:
         if path.exists():
             try:
                 return json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                pass
-        
-        if isinstance(default, dict):
-            return dict(default)
-        return default
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning("Could not read %s: %s", path, e)
+        return dict(default) if isinstance(default, dict) else default
 
-    def _save_json(self, path: Path, data: dict[str, Any] | set[str] | list[str]) -> None:
+    def _save_json(self, path: Path, data: dict | set | list) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        # Convert sets to sorted lists for deterministic JSON
-        save_data: Any = sorted(list(data)) if isinstance(data, set) else data
+        save_data: Any = sorted(data) if isinstance(data, set) else data
         try:
-            path.write_text(json.dumps(save_data), encoding="utf-8")
-        except OSError:
-            pass
+            path.write_text(json.dumps(save_data, indent=2), encoding="utf-8")
+        except OSError as e:
+            logger.warning("Could not save %s: %s", path, e)
+
+    # ------------------------------------------------------------------ #
+    # General settings — debounced writes
+    # ------------------------------------------------------------------ #
 
     def get(self, key: str, fallback: Any = None) -> Any:
-        return self.data.get(key, CONFIG_DEFAULTS.get(key, fallback))
+        return self.data.get(key, _DEFAULTS.get(key, fallback))
 
     def set(self, key: str, value: Any) -> None:
-        self.data[key] = value
-        self._save_json(self.config_path, self.data)
+        """Update *key* in memory and schedule a debounced flush to disk.
 
-    # --- Pinned ---
+        If the stored value is already equal to *value*, the call is a no-op —
+        no dirty flag is set and no timer is scheduled. This prevents spurious
+        flushes from callers (such as apply_theme on startup) that call set()
+        with the value that is already persisted.
+        """
+        if self.data.get(key) == value:
+            return
+        self.data[key] = value
+        self._dirty = True
+        if self._flush_timer > 0:
+            GLib.source_remove(self._flush_timer)
+        self._flush_timer = GLib.timeout_add(_DEBOUNCE_MS, self._flush)
+
+    def _flush(self) -> bool:
+        """GLib timeout callback: write data to disk if it has changed."""
+        self._flush_timer = 0
+        if self._dirty:
+            self._save_json(self.config_path, self.data)
+            self._dirty = False
+            logger.debug("Config flushed to disk")
+        return False  # do not reschedule
+
+    def flush_immediate(self) -> None:
+        """Write any pending changes to disk right now.
+
+        Call before app shutdown to ensure nothing is lost if the debounce
+        timer has not yet fired.
+        """
+        if self._flush_timer > 0:
+            GLib.source_remove(self._flush_timer)
+            self._flush_timer = 0
+        if self._dirty:
+            self._save_json(self.config_path, self.data)
+            self._dirty = False
+            logger.debug("Config flushed immediately (shutdown)")
+
+    # ------------------------------------------------------------------ #
+    # Pinned notes — immediate writes
+    # ------------------------------------------------------------------ #
+
     def pin(self, note_name: str) -> None:
         if note_name not in self.pinned:
             self.pinned.add(note_name)
@@ -75,7 +148,10 @@ class ConfigManager:
     def is_pinned(self, note_name: str) -> bool:
         return note_name in self.pinned
 
-    # --- Archived ---
+    # ------------------------------------------------------------------ #
+    # Archived notes — immediate writes
+    # ------------------------------------------------------------------ #
+
     def toggle_archive(self, note_name: str) -> None:
         if note_name in self.archived:
             self.archived.discard(note_name)
@@ -87,10 +163,12 @@ class ConfigManager:
         return note_name in self.archived
 
     def remove_note(self, note_name: str) -> None:
-        """Cleanup pinned and archived lists when a note is deleted."""
-        if note_name in self.pinned:
-            self.pinned.discard(note_name)
+        """Remove a deleted note from pinned and archived sets."""
+        changed_pinned = note_name in self.pinned
+        changed_archived = note_name in self.archived
+        self.pinned.discard(note_name)
+        self.archived.discard(note_name)
+        if changed_pinned:
             self._save_json(self.pinned_path, self.pinned)
-        if note_name in self.archived:
-            self.archived.discard(note_name)
+        if changed_archived:
             self._save_json(self.archive_path, self.archived)

@@ -1,22 +1,25 @@
 """Storage management for note file operations and caching."""
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
-from core.utils import get_snippet
+from core.utils import H1_TITLE_RE, get_snippet  # noqa: F401 – H1_TITLE_RE re-exported
 
-if TYPE_CHECKING:
-    pass
+logger = logging.getLogger(__name__)
+
 
 class NotesManager:
-    # Compile regex patterns once at class level
+    """Manages reading, writing, caching and querying of markdown note files."""
+
+    # Compiled at class level — shared across all instances.
     _CB_EXTRACT_RE: re.Pattern = re.compile(
-        r'^(\s*)-\s*\[([ x])\]\s*(.+?)(?:\s+@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?))?\s*$'
+        r"^(\s*)-\s*\[([ xX])\]\s*(.+?)(?:\s+@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?))?$"
     )
-    _CB_UPDATE_RE: re.Pattern = re.compile(r'^(\s*-\s*\[)([ x])(\].*)$')
-    _LINK_RE: re.Pattern = re.compile(r'\[\[([^\]]+)\]\]')
+    _CB_UPDATE_RE: re.Pattern = re.compile(r"^(\s*-\s*\[)([ xX])(\].*)")
+    _LINK_RE: re.Pattern = re.compile(r"\[\[([^\]]+)\]\]")
 
     def __init__(self, notes_dir: str | Path = "notes") -> None:
         self.notes_dir: Path = Path(notes_dir)
@@ -24,126 +27,171 @@ class NotesManager:
         self._content_cache: dict[str, dict[str, Any]] = {}
         self._metadata_cache: dict[str, dict[str, Any]] = {}
         self._mtime_cache: dict[str, float] = {}
+        self._cleanup_stale_temps()
 
-    def get_notes(self, search_text: str = "", archived_notes: set[str] | None = None) -> list[str]:
-        """Returns a list of all .md files in the notes directory, sorted by modification time."""
+    def _cleanup_stale_temps(self) -> None:
+        """Remove any .*.tmp files left by a previous crashed write."""
+        for stale in self.notes_dir.glob(".*.tmp"):
+            try:
+                stale.unlink()
+                logger.warning("Removed stale temp file: %s", stale)
+            except OSError as e:
+                logger.warning("Could not remove stale temp file %s: %s", stale, e)
+
+    # ------------------------------------------------------------------ #
+    # Querying
+    # ------------------------------------------------------------------ #
+
+    def get_notes(self, search_text: str = "") -> list[str]:
+        """Return all note stems sorted by modification time (newest first).
+
+        If *search_text* is given, only notes whose name or content contains
+        the string (case-insensitive) are returned.
+        """
         entries = [(p, p.stat()) for p in self.notes_dir.glob("*.md")]
         entries.sort(key=lambda x: x[1].st_mtime, reverse=True)
-        
-        # Pre-warm the mtime cache
+
         for p, st in entries:
             self._mtime_cache[p.stem] = st.st_mtime
 
         note_names: list[str] = [p.stem for p, _ in entries]
-        
-        # Filter archived
-        if archived_notes is not None:
-            note_names = [n for n in note_names if n not in archived_notes]
 
         if not search_text:
             return note_names
-            
-        search_text_lower = search_text.lower()
-        filtered_names: list[str] = []
+
+        search_lower = search_text.lower()
+        filtered: list[str] = []
         for name in note_names:
-            if search_text_lower in name.lower():
-                filtered_names.append(name)
+            if search_lower in name.lower():
+                filtered.append(name)
                 continue
-            
-            content = self.read_note(name).lower()
-            if search_text_lower in content:
-                filtered_names.append(name)
-                
-        return filtered_names
+            if search_lower in self.read_note(name).lower():
+                filtered.append(name)
+        return filtered
+
+    # ------------------------------------------------------------------ #
+    # Reading
+    # ------------------------------------------------------------------ #
 
     def read_note(self, name: str) -> str:
-        """Reads the content of a note by its name with caching."""
+        """Return the content of *name*.md, served from cache when still fresh.
+
+        Always performs a stat() call to detect external edits — the mtime
+        cache is only used to avoid redundant reads within the same get_notes()
+        call cycle, not to skip the freshness check entirely.
+        """
         note_path = self.notes_dir / f"{name}.md"
         if not note_path.exists():
             return ""
-        
-        mtime = self._mtime_cache.get(name) or note_path.stat().st_mtime
+
+        current_mtime = note_path.stat().st_mtime
+        self._mtime_cache[name] = current_mtime
+
         cached = self._content_cache.get(name)
-        if cached and cached['mtime'] == mtime:
-            return cached['content']
-            
+        if cached and cached["mtime"] == current_mtime:
+            return cached["content"]
+
         content = note_path.read_text(encoding="utf-8")
-        self._content_cache[name] = {'content': content, 'mtime': mtime}
-        self._mtime_cache[name] = mtime
+        self._content_cache[name] = {"content": content, "mtime": current_mtime}
         return content
 
     def get_metadata(self, name: str) -> dict[str, Any]:
-        """Returns metadata for a note (snippet, links, checkboxes, mtime) with caching."""
+        """Return cached metadata dict for *name* (snippet, links, checkboxes, mtime)."""
         note_path = self.notes_dir / f"{name}.md"
         if not note_path.exists():
             return {"snippet": "", "links": [], "checkboxes": [], "mtime": 0}
-            
-        mtime = self._mtime_cache.get(name) or note_path.stat().st_mtime
+
+        current_mtime = note_path.stat().st_mtime
+        self._mtime_cache[name] = current_mtime
+
         cached_meta = self._metadata_cache.get(name)
-        
-        if cached_meta and cached_meta['mtime'] == mtime:
+        if cached_meta and cached_meta["mtime"] == current_mtime:
             return cached_meta
-            
-        # If cache miss or outdated, regenerate metadata.
-        # Avoids a double read_note if content is already cached.
+
         cached_content = self._content_cache.get(name)
-        content = (cached_content['content']
-                   if cached_content and cached_content['mtime'] == mtime
-                   else self.read_note(name))
-        
+        content = (
+            cached_content["content"]
+            if cached_content and cached_content["mtime"] == current_mtime
+            else self.read_note(name)
+        )
+
         metadata = {
             "snippet": get_snippet(content),
             "links": self._LINK_RE.findall(content),
             "checkboxes": self._extract_checkboxes(name, content),
-            "mtime": mtime
+            "mtime": current_mtime,
         }
         self._metadata_cache[name] = metadata
         return metadata
 
-    def _extract_checkboxes(self, note_name: str, content: str) -> list[dict[str, Any]]:
-        checkboxes: list[dict[str, Any]] = []
-        lines = content.split('\n')
-        for line_num, line in enumerate(lines, 1):
-            match = self._CB_EXTRACT_RE.match(line)
-            if match:
-                checked = match.group(2) == 'x'
-                text = match.group(3).strip()
-                deadline = match.group(4)
-                checkboxes.append({
-                    'note': note_name,
-                    'text': text,
-                    'checked': checked,
-                    'line': line_num,
-                    'deadline': deadline
-                })
-        return checkboxes
+    def get_all_checkboxes(self, exclude: set[str] | None = None) -> list[dict[str, Any]]:
+        """Return every checkbox from every non-excluded note."""
+        result: list[dict[str, Any]] = []
+        for note_name in self.get_notes():
+            if exclude and note_name in exclude:
+                continue
+            result.extend(self.get_metadata(note_name).get("checkboxes", []))
+        return result
 
-    def save_note(self, name: str, content: str) -> None:
-        """Saves content to a note file and updates cache."""
-        note_path = self.notes_dir / f"{name}.md"
-        note_path.write_text(content, encoding="utf-8")
-        mtime = note_path.stat().st_mtime
-        self._content_cache[name] = {'content': content, 'mtime': mtime}
-        # Update metadata cache too
-        self._metadata_cache[name] = {
-            "snippet": get_snippet(content),
-            "links": self._LINK_RE.findall(content),
-            "checkboxes": self._extract_checkboxes(name, content),
-            "mtime": mtime
-        }
+    # ------------------------------------------------------------------ #
+    # Writing
+    # ------------------------------------------------------------------ #
 
-    def create_note(self, name: str = "Untitled") -> str:
-        """Returns a unique name for a new note, but does not create it on disk yet."""
+    def reserve_name(self, name: str = "Untitled") -> str:
+        """Return a unique note stem without touching the filesystem.
+
+        The name is only reserved in memory — no file is created until
+        the user types content and the first save fires.
+        """
         base_name = name
         counter = 1
         while (self.notes_dir / f"{name}.md").exists():
             name = f"{base_name} {counter}"
             counter += 1
-        
         return name
 
+    def create_note(self, name: str = "Untitled", content: str = "") -> str:
+        """Create a note file with given name and content, returning the stem.
+
+        Intended for the MCP server and other callers that supply content
+        up front. Uses the same atomic write as save_note.
+        """
+        base_name = name
+        counter = 1
+        while (self.notes_dir / f"{name}.md").exists():
+            name = f"{base_name} {counter}"
+            counter += 1
+        self.save_note(name, content)
+        return name
+
+    def save_note(self, name: str, content: str) -> None:
+        """Write *content* to *name*.md using an atomic write-then-rename.
+
+        The content is first written to a hidden temp file (.name.tmp) in the
+        same directory. Once the write is complete, the temp file is renamed
+        over the destination. On POSIX systems os.replace() (which Path.replace
+        uses internally) is atomic, so the destination is never partially
+        written — it transitions instantly from the old version to the new one.
+
+        If the write fails, the temp file is deleted and the exception is
+        re-raised so the caller can handle it.
+        """
+        note_path = self.notes_dir / f"{name}.md"
+        tmp_path = self.notes_dir / f".{name}.tmp"
+        try:
+            tmp_path.write_text(content, encoding="utf-8")
+            tmp_path.replace(note_path)
+        except OSError:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+        mtime = note_path.stat().st_mtime
+        self._content_cache[name] = {"content": content, "mtime": mtime}
+        self._mtime_cache[name] = mtime
+        self._metadata_cache.pop(name, None)
+
     def delete_note(self, name: str) -> None:
-        """Deletes a note file."""
+        """Delete *name*.md and purge it from all caches."""
         note_path = self.notes_dir / f"{name}.md"
         if note_path.exists():
             note_path.unlink()
@@ -152,50 +200,64 @@ class NotesManager:
         self._mtime_cache.pop(name, None)
 
     def rename_note(self, old_name: str, new_name: str) -> bool:
-        """Renames a note file."""
+        """Rename *old_name*.md to *new_name*.md. Returns True on success."""
         old_path = self.notes_dir / f"{old_name}.md"
         new_path = self.notes_dir / f"{new_name}.md"
         if old_path.exists() and not new_path.exists():
             old_path.rename(new_path)
-            # Invalidate caches
             self._content_cache.pop(old_name, None)
             self._metadata_cache.pop(old_name, None)
             self._mtime_cache.pop(old_name, None)
             return True
         return False
 
-    def get_all_checkboxes(self, exclude: set[str] | None = None) -> list[dict[str, Any]]:
-        """Returns all checkboxes from all notes grouped by note, optionally excluding some."""
-        all_checkboxes: list[dict[str, Any]] = []
-        for note_name in self.get_notes():
-            if exclude and note_name in exclude:
-                continue
-            metadata = self.get_metadata(note_name)
-            all_checkboxes.extend(metadata.get('checkboxes', []))
-        return all_checkboxes
+    # ------------------------------------------------------------------ #
+    # Checkbox / deadline helpers
+    # ------------------------------------------------------------------ #
+
+    def _extract_checkboxes(self, note_name: str, content: str) -> list[dict[str, Any]]:
+        checkboxes: list[dict[str, Any]] = []
+        for line_num, line in enumerate(content.split("\n"), 1):
+            match = self._CB_EXTRACT_RE.match(line)
+            if match:
+                checkboxes.append({
+                    "note":     note_name,
+                    "text":     match.group(3).strip(),
+                    "checked":  match.group(2).lower() == "x",
+                    "line":     line_num,
+                    "deadline": match.group(4),
+                })
+        return checkboxes
 
     def update_checkbox(self, note_name: str, line_num: int, checked: bool) -> bool:
-        """Updates a checkbox state in a note."""
+        """Toggle the checked state on the checkbox at *line_num* (1-based)."""
         content = self.read_note(note_name)
-        lines = content.split('\n')
+        lines = content.split("\n")
         if 0 < line_num <= len(lines):
             match = self._CB_UPDATE_RE.match(lines[line_num - 1])
             if match:
-                lines[line_num - 1] = f"{match.group(1)}{'x' if checked else ' '}{match.group(3)}"
-                self.save_note(note_name, '\n'.join(lines))
+                lines[line_num - 1] = (
+                    f"{match.group(1)}{'x' if checked else ' '}{match.group(3)}"
+                )
+                self.save_note(note_name, "\n".join(lines))
                 return True
         return False
 
-    def update_deadline(self, note_name: str, line_num: int, new_deadline: str | None) -> bool:
-        """Updates a checkbox deadline in a note, replacing any existing deadline."""
+    def update_deadline(
+        self, note_name: str, line_num: int, new_deadline: str | None
+    ) -> bool:
+        """Replace (or remove) the @deadline tag on the checkbox at *line_num*."""
         content = self.read_note(note_name)
-        lines = content.split('\n')
+        lines = content.split("\n")
         if 0 < line_num <= len(lines):
-            line = lines[line_num - 1]
-            # Match existing checkbox line and remove any existing deadline.
-            prefix = re.sub(r'\s*@\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?.*$', '', line)
-            new_line = f"{prefix.rstrip()} @{new_deadline}" if new_deadline else prefix.rstrip()
-            lines[line_num - 1] = new_line
-            self.save_note(note_name, '\n'.join(lines))
+            prefix = re.sub(
+                r"\s*@\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?.*$",
+                "",
+                lines[line_num - 1],
+            )
+            lines[line_num - 1] = (
+                f"{prefix.rstrip()} @{new_deadline}" if new_deadline else prefix.rstrip()
+            )
+            self.save_note(note_name, "\n".join(lines))
             return True
         return False

@@ -11,7 +11,7 @@ button, .toolbar-btn, .theme-card, .sidebar-label, .sidebar-snippet {
 window {
     background-color: @bg_color;
     color: @fg_color;
-    font-family: .apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Inter", "Segoe UI", "Roboto", "Sans-Serif";
+    font-family: "Inter", "Segoe UI", "Roboto", Sans;
 }
 
 headerbar {
@@ -34,9 +34,7 @@ headerbar {
     font-size: 8pt;
     color: @fg_color;
     opacity: 0.5;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* Ellipsis is handled programmatically via Pango.EllipsizeMode */
 }
 
 list {
@@ -353,4 +351,29 @@ popover > contents {
 .empty-state-label {
     font-size: 11pt;
     color: @fg_color;
+}
+
+/* Dimmed note chip in dashboard rows */
+.dim-chip {
+    opacity: 0.5;
+    font-size: 7pt;
+}
+
+/* Active footer nav button */
+.dashboard-footer-btn.active {
+    background-color: @accent_color;
+    color: @selected_fg_color;
+}
+
+/* Toolbar group separator */
+.toolbar separator {
+    margin: 4px 2px;
+    min-height: 18px;
+}
+
+/* Show Completed toggle pill */
+button.pill {
+    border-radius: 20px;
+    padding: 2px 10px;
+    font-size: 9pt;
 }

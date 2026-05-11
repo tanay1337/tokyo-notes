@@ -1,17 +1,15 @@
-"""Keyboard shortcut management for Tokyo Notes."""
+"""Global keyboard shortcut registration."""
 from __future__ import annotations
 
-from typing import Callable, TYPE_CHECKING
+from typing import Callable
 
 import gi
-gi.require_version('Gtk', '4.0')
-gi.require_version('Adw', '1')
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
 from gi.repository import Gtk
 
 from core.utils import get_accel
 
-if TYPE_CHECKING:
-    pass
 
 def setup_shortcuts(
     win: Gtk.ApplicationWindow,
@@ -23,69 +21,45 @@ def setup_shortcuts(
     on_delete: Callable[[], None],
     on_timestamp: Callable[[], None],
     on_zen_mode: Callable[[], None],
-    quit_app: Callable[[], None]
+    quit_app: Callable[[], None],
+    on_help: Callable[[], None] | None = None,
+    on_pin: Callable[[], None] | None = None,
+    on_archive: Callable[[], None] | None = None,
+    on_settings: Callable[[], None] | None = None,
 ) -> None:
-    """Sets up global keyboard shortcuts for the main application window.
-    
-    Args:
-        win: Main application window.
-        on_new_note: Callback for Ctrl+N (New Note).
-        on_dashboard: Callback for Ctrl+D (Dashboard).
-        on_graph: Callback for Ctrl+G (Graph View).
-        on_search: Callback for Ctrl+F (Search).
-        on_escape: Callback for Escape (Dismiss/Back).
-        on_delete: Callback for Delete (Delete Note).
-        on_timestamp: Callback for Shift+T (Insert Timestamp).
-        on_zen_mode: Callback for Shift+Z (Zen Mode).
-        quit_app: Callback for Ctrl+Q (Quit).
-    """
+    # Ctrl+N  new note          Ctrl+D  dashboard         Ctrl+G  graph
+    # Ctrl+F  search (×2=clear) Ctrl+Q  quit              Ctrl+H  help
+    # Ctrl+Shift+T  timestamp   Ctrl+Shift+Z  zen mode
+    # Ctrl+Shift+P  pin note    Ctrl+Shift+A  archive note
+    # Ctrl+Shift+S  settings
+    # Escape  back / clear      Delete  delete note
     controller = Gtk.ShortcutController()
     controller.set_scope(Gtk.ShortcutScope.GLOBAL)
 
-    # Delete
-    controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string("Delete"),
-        Gtk.CallbackAction.new(lambda *args: on_delete() or True)
-    ))
-    # Quit
-    controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string(get_accel("q")),
-        Gtk.CallbackAction.new(lambda *args: quit_app() or True)
-    ))
-    # New Note
-    controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string(get_accel("n")),
-        Gtk.CallbackAction.new(lambda *args: on_new_note() or True)
-    ))
-    # Toggle Dashboard
-    controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string(get_accel("d")),
-        Gtk.CallbackAction.new(lambda *args: on_dashboard() or True)
-    ))
-    # Toggle Graph
-    controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string(get_accel("g")),
-        Gtk.CallbackAction.new(lambda *args: on_graph() or True)
-    ))
-    # Focus Search
-    controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string(get_accel("f")),
-        Gtk.CallbackAction.new(lambda *args: on_search() or True)
-    ))
-    # Insert Timestamp
-    controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string(get_accel("<Shift>t")),
-        Gtk.CallbackAction.new(lambda *args: on_timestamp() or True)
-    ))
-    # Zen Mode
-    controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string(get_accel("<Shift>z")),
-        Gtk.CallbackAction.new(lambda *args: on_zen_mode() or True)
-    ))
-    # Escape
-    controller.add_shortcut(Gtk.Shortcut.new(
-        Gtk.ShortcutTrigger.parse_string("Escape"),
-        Gtk.CallbackAction.new(lambda *args: on_escape() or True)
-    ))
-    win.add_controller(controller)
+    bindings: list[tuple[str, Callable]] = [
+        ("Delete",              on_delete),
+        (get_accel("q"),        quit_app),
+        (get_accel("n"),        on_new_note),
+        (get_accel("d"),        on_dashboard),
+        (get_accel("g"),        on_graph),
+        (get_accel("f"),        on_search),
+        (get_accel("<Shift>t"), on_timestamp),
+        (get_accel("<Shift>z"), on_zen_mode),
+        ("Escape",              on_escape),
+    ]
+    if on_help:
+        bindings.append((get_accel("h"), on_help))
+    if on_pin:
+        bindings.append((get_accel("<Shift>p"), on_pin))
+    if on_archive:
+        bindings.append((get_accel("<Shift>a"), on_archive))
+    if on_settings:
+        bindings.append((get_accel("<Shift>s"), on_settings))
 
+    for trigger_str, callback in bindings:
+        controller.add_shortcut(Gtk.Shortcut.new(
+            Gtk.ShortcutTrigger.parse_string(trigger_str),
+            Gtk.CallbackAction.new(lambda *_, cb=callback: cb() or True),
+        ))
+
+    win.add_controller(controller)
