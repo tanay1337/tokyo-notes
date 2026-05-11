@@ -152,8 +152,6 @@ class NavigationController:
                     "show_toolbar": app.cfg.get("show_toolbar"),
                     "show_stats": app.cfg.get("show_stats"),
                     "sakura_effect": app.cfg.get("sakura_effect"),
-                    "mcp_server_enabled": app.cfg.get("mcp_server_enabled"),
-                    "mcp_server_port": app.cfg.get("mcp_server_port"),
                     "theme": app.cfg.get("theme"),
                 },
             )

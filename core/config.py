@@ -17,8 +17,6 @@ _DEFAULTS: dict[str, Any] = {
     "show_toolbar":      True,
     "show_stats":        False,
     "sakura_effect":     True,
-    "mcp_server_enabled": False,
-    "mcp_server_port":   8999,
     "theme":             "tokyo-night",
 }
 

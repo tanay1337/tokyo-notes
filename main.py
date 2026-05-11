@@ -23,7 +23,6 @@ from core.startup_checks import validate_notes_folder
 from core.storage import NotesManager
 from core.theme_manager import ThemeManager
 from core.window_manager import WindowManager
-from mcp_server import run_mcp_server
 from ui.click_dispatcher import ClickDispatcher
 from ui.deadline_picker import DeadlinePicker
 from ui.editor import Editor
@@ -63,10 +62,6 @@ class TokyoNotes(Adw.Application):
         self.search_timeout_id: int = 0
         self.changed_handler_id: int = 0
         self.last_cursor_line: int = -1
-
-        if self.cfg.get("mcp_server_enabled", False):
-            port = self.cfg.get("mcp_server_port", 8999)
-            threading.Thread(target=run_mcp_server, args=(port,), daemon=True).start()
 
         install_crash_handler(self)
         self._setup_actions()

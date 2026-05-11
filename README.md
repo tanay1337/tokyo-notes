@@ -51,27 +51,5 @@ python3 main.py
 - **Lists**: Press `Enter` on a list item to automatically continue the list. Press `Enter` twice to discontinue the lists. 
 - **Task Markers**: Press `Enter` on a task `- [ ]` to create a new unchecked task.
 
-## AI Integration (MCP Bridge)
-Tokyo Notes can act as a "knowledge base" for local AI agents, allowing them to search, read, and manage your notes directly.
-
-### Enabling the AI Bridge
-1. Open **Settings** within the Tokyo Notes application.
-2. Scroll to the **AI & Automation** section.
-3. Toggle **AI Bridge (MCP)** to **ON**.
-4. (Optional) Set your preferred port (default is `8999`).
-5. **Restart Tokyo Notes** to initialize the bridge.
-
-### Connecting to your AI Agent
-Once enabled, your notes are accessible at: `http://127.0.0.1:8999/sse`
-
-- **For AnythingLLM / Open WebUI**: Use the **OpenAI-compatible** tool URL: `http://127.0.0.1:8999/v1/tools`
-- **For MCP-native clients (e.g., Claude Desktop)**: Use the SSE endpoint: `http://127.0.0.1:8999/sse`
-
-### What your AI can do
-- **Query**: "What are the action items in my 'Project X' note?"
-- **Manage Tasks**: "Mark the task on line 5 as done in my 'Groceries' note."
-- **Append**: "Add a summary to the end of my 'Daily Log' note."
-- **Create**: "Create a new note titled 'Meeting Notes' with the content: [summary]."
-
 ## License
 [MIT License](LICENSE)

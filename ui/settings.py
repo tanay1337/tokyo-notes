@@ -20,7 +20,7 @@ _THEMES: list[dict[str, str]] = [
 
 
 class SettingsView(Gtk.Box):
-    """Preferences panel: folder, toggles, MCP port, and theme selection."""
+    """Preferences panel: folder, toggles, and theme selection."""
 
     def __init__(
         self,
@@ -89,29 +89,6 @@ class SettingsView(Gtk.Box):
             initial_values.get("show_stats", False),
             "show_stats",
         ))
-
-        # ---- AI ----
-        ai_group = Adw.PreferencesGroup(title="AI")
-        content.append(ai_group)
-
-        ai_group.add(self._make_switch_row(
-            "AI Bridge (MCP)",
-            "Allow AI agents to read and search your notes",
-            initial_values.get("mcp_server_enabled", False),
-            "mcp_server_enabled",
-        ))
-
-        self.port_row = Adw.ActionRow(
-            title="Bridge Port",
-            subtitle="Port for the AI connection (default 8999)",
-        )
-        self.port_entry = Gtk.Entry()
-        self.port_entry.set_text(str(initial_values.get("mcp_server_port", 8999)))
-        self.port_entry.set_valign(Gtk.Align.CENTER)
-        self.port_entry.set_width_chars(6)
-        self.port_entry.connect("changed", self.on_port_changed)
-        self.port_row.add_suffix(self.port_entry)
-        ai_group.add(self.port_row)
 
         # ---- Themes ----
         theme_group = Adw.PreferencesGroup(title="Themes")
@@ -215,11 +192,6 @@ class SettingsView(Gtk.Box):
     # Event handlers
     # ------------------------------------------------------------------ #
 
-    def on_port_changed(self, entry: Gtk.Entry) -> None:
-        text = entry.get_text()
-        if text.isdigit():
-            self.on_config_changed("mcp_server_port", int(text))
-
     def on_select_folder_clicked(self, button: Gtk.Button) -> None:
         self.on_select_folder_callback(button)
 
@@ -238,8 +210,6 @@ class SettingsView(Gtk.Box):
             "show_toolbar":       True,
             "show_stats":         False,
             "sakura_effect":      True,
-            "mcp_server_enabled": False,
-            "mcp_server_port":    8999,
             "theme":              "tokyo-night",
         }
         for key, value in defaults.items():

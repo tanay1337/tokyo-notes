@@ -153,8 +153,8 @@ class NotesManager:
     def create_note(self, name: str = "Untitled", content: str = "") -> str:
         """Create a note file with given name and content, returning the stem.
 
-        Intended for the MCP server and other callers that supply content
-        up front. Uses the same atomic write as save_note.
+        Intended for callers that supply content up front.
+ Uses the same atomic write as save_note.
         """
         base_name = name
         counter = 1
