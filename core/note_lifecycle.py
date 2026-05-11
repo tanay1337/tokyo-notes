@@ -115,6 +115,11 @@ class NoteLifecycleManager:
 
             app.buffer.handler_block(app.changed_handler_id)
             app.buffer.set_text(content)
+
+            # Simple fade-in effect: reset opacity and animate back up.
+            app.text_view.set_opacity(0.0)
+            GLib.timeout_add(50, lambda: (app.text_view.set_opacity(1.0), False)[1])
+
             app.content_stack.set_visible_child_name("editor")
             # Scroll to the top of the note so position is always consistent.
             start_iter = app.buffer.get_start_iter()
@@ -123,6 +128,7 @@ class NoteLifecycleManager:
 
             if app.highlighter:
                 app.highlighter.highlight(start_line=0, end_line=30)
+
 
             app.buffer.handler_unblock(app.changed_handler_id)
 
