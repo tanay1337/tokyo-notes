@@ -28,6 +28,7 @@ from ui.deadline_picker import DeadlinePicker
 from ui.editor import Editor
 from ui.sakura_overlay import SakuraOverlay
 from ui.sidebar import Sidebar
+from core.utils import CB_ANY_RE
 from ui.toolbar import build_toolbar
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,8 @@ class TokyoNotes(Adw.Application):
         self.search_timeout_id: int = 0
         self.changed_handler_id: int = 0
         self.last_cursor_line: int = -1
+        self._has_images: bool = False
+        self.split_view: object = None  # set in do_activate
 
         install_crash_handler(self)
         self._setup_actions()
@@ -73,7 +76,6 @@ class TokyoNotes(Adw.Application):
     def do_shutdown(self) -> None:
         """Flush any pending config writes and note saves before the process exits."""
         self.cfg.flush_immediate()
-        self.notes_manager.wait_until_empty()
         logger.info("Tokyo Notes shutting down")
         # PyGObject's Gio.Application.do_shutdown() takes no arguments beyond self.
         Adw.Application.do_shutdown(self)
@@ -117,7 +119,7 @@ class TokyoNotes(Adw.Application):
     # Folder selection
     # ------------------------------------------------------------------ #
 
-    def on_select_folder(self, button) -> None:
+    def on_select_folder(self, _button=None) -> None:
         dialog = Gtk.FileDialog()
         dialog.set_title("Select Notes Folder")
         if Path(self.notes_folder).exists():
@@ -147,6 +149,7 @@ class TokyoNotes(Adw.Application):
             self.settings_view.update_folder_path(new_folder)
 
         self.current_note = None
+        self._has_images = False
         self.buffer.handler_block(self.changed_handler_id)
         self.buffer.set_text("")
         self.buffer.handler_unblock(self.changed_handler_id)
@@ -171,8 +174,9 @@ class TokyoNotes(Adw.Application):
         self.split_view = Adw.OverlaySplitView()
         self.win.set_content(self.split_view)
 
-        # Build the toggle button before the sidebar so the header bar wiring
-        # can reference it; connect the toggled signal after the sidebar exists.
+        # Build the toggle button before the sidebar so _build_content_header
+        # can pack it; connect its "toggled" signal after the sidebar exists.
+        # Ordering matters: sidebar_toggle → sidebar → content_header → editor area.
         self.sidebar_toggle = Gtk.ToggleButton(icon_name="sidebar-show-symbolic")
         self.sidebar_toggle.set_active(self.cfg.get("show_sidebar"))
 
@@ -379,8 +383,9 @@ class TokyoNotes(Adw.Application):
         if not note_name:
             return
 
+        # Safe actions first, destructive action last in its own section
+        # so the pointer is never sitting on Delete when the menu opens.
         menu = Gio.Menu()
-        menu.append("Delete", f"app.delete::{note_name}")
         if note_name in self.cfg.pinned:
             menu.append("Unpin", f"app.unpin::{note_name}")
         else:
@@ -389,10 +394,21 @@ class TokyoNotes(Adw.Application):
             "Unarchive" if is_archived else "Archive",
             f"app.archive::{note_name}",
         )
+        danger = Gio.Menu()
+        danger.append("Delete", f"app.delete::{note_name}")
+        menu.append_section(None, danger)
 
         popover = Gtk.PopoverMenu.new_from_model(menu)
         popover.set_parent(row)
-        popover.set_pointing_to(Gdk.Rectangle(x=x, y=y, width=1, height=1))
+        # Anchor below the row so the menu drops down and the pointer
+        # is not on any item when the menu first appears.
+        row_rect = Gdk.Rectangle()
+        row_rect.x      = 0
+        row_rect.y      = row.get_height()
+        row_rect.width  = row.get_allocated_width()
+        row_rect.height = 1
+        popover.set_pointing_to(row_rect)
+        popover.set_position(Gtk.PositionType.BOTTOM)
         popover.popup()
 
     def _select_sidebar_row(self, note_name: str) -> bool:
@@ -485,33 +501,45 @@ class TokyoNotes(Adw.Application):
         return True
 
     def show_shortcuts_dialog(self) -> bool:
-        """Show a keyboard shortcuts reference dialog (Ctrl+H)."""
-        dialog = Adw.MessageDialog(
-            transient_for=self.win,
-            heading="Keyboard Shortcuts",
-            body=(
-                "Ctrl+N           New note\n"
-                "Ctrl+D           Dashboard\n"
-                "Ctrl+G           Knowledge graph\n"
-                "Ctrl+F           Search  (press again to clear)\n"
-                "Ctrl+H           This help dialog\n"
-                "Ctrl+Q           Quit\n"
-                "Escape           Back to editor / clear search\n"
-                "Delete           Delete selected note\n"
-                "Ctrl+Shift+P     Pin / unpin note\n"
-                "Ctrl+Shift+A     Archive / unarchive note\n"
-                "Ctrl+Shift+S     Settings\n"
-                "Ctrl+Shift+T     Insert timestamp\n"
-                "Ctrl+Shift+Z     Zen mode\n"
-                "\n"
-                "In editor:\n"
-                "[[               Open note link picker\n"
-                "@                Open deadline picker\n"
-                "Enter            Continue list / task list"
-            ),
-        )
-        dialog.add_response("ok", "OK")
-        dialog.present()
+        """Show the keyboard shortcuts window (Ctrl+H)."""
+        win = Gtk.ShortcutsWindow(transient_for=self.win, modal=True)
+
+        section = Gtk.ShortcutsSection(visible=True)
+
+        def _group(title: str, shortcuts: list[tuple[str, str]]) -> Gtk.ShortcutsGroup:
+            group = Gtk.ShortcutsGroup(title=title, visible=True)
+            for accel, desc in shortcuts:
+                item = Gtk.ShortcutsShortcut(
+                    accelerator=accel, title=desc, visible=True
+                )
+                group.append(item)
+            return group
+
+        section.append(_group("Navigation", [
+            ("<Primary>n", "New note"),
+            ("<Primary>d", "Dashboard"),
+            ("<Primary>g", "Knowledge graph"),
+            ("<Primary>f", "Search  (press again to clear)"),
+            ("<Primary>h", "This shortcuts window"),
+            ("<Primary><Shift>s", "Settings"),
+            ("Escape", "Back to editor / clear search"),
+        ]))
+        section.append(_group("Notes", [
+            ("Delete", "Delete selected note"),
+            ("<Primary><Shift>p", "Pin / unpin note"),
+            ("<Primary><Shift>a", "Archive / unarchive note"),
+            ("<Primary><Shift>t", "Insert timestamp"),
+            ("<Primary><Shift>z", "Zen mode"),
+            ("<Primary>q", "Quit"),
+        ]))
+        section.append(_group("Editor", [
+            ("bracketleft bracketleft", "Open note link picker  ( [[ )"),
+            ("at", "Open deadline picker  ( @ )"),
+            ("Return", "Continue list or task on new line"),
+        ]))
+
+        win.append(section)
+        win.present()
         return True
 
     # ------------------------------------------------------------------ #
@@ -519,17 +547,23 @@ class TokyoNotes(Adw.Application):
     # ------------------------------------------------------------------ #
 
     def show_export_dialog(self, title: str, body: str, is_error: bool = False) -> None:
-        dialog = Adw.MessageDialog(transient_for=self.win, heading=title, body=body)
-        dialog.add_response("ok", "OK")
-        if is_error:
-            dialog.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.present()
+        # Use AlertDialog (Adw >= 1.5) when available, else MessageDialog.
+        # Errors use default (neutral) button appearance — destructive style
+        # is reserved for actions that destroy data, not for error messages.
+        try:
+            dialog = Adw.AlertDialog(heading=title, body=body)
+            dialog.add_response("ok", "OK")
+            dialog.present(self.win)
+        except AttributeError:
+            dialog = Adw.MessageDialog(transient_for=self.win, heading=title, body=body)
+            dialog.add_response("ok", "OK")
+            dialog.present()
 
     # ------------------------------------------------------------------ #
     # Cursor / click
     # ------------------------------------------------------------------ #
 
-    def on_cursor_moved(self, buffer: Gtk.TextBuffer, pspec: object) -> None:
+    def on_cursor_moved(self, buffer: Gtk.TextBuffer, _pspec: object) -> None:
         if (
             not self.highlighter
             or self.is_loading
@@ -540,7 +574,6 @@ class TokyoNotes(Adw.Application):
         cursor_line = cursor_iter.get_line()
         if cursor_line == self.last_cursor_line:
             return
-        self.buffer.handler_block(self.changed_handler_id)
         if self.last_cursor_line != -1:
             self.highlighter.highlight(
                 start_line=self.last_cursor_line,
@@ -551,7 +584,6 @@ class TokyoNotes(Adw.Application):
             end_line=cursor_line + 1,
             cursor_line=cursor_line,
         )
-        self.buffer.handler_unblock(self.changed_handler_id)
         self.last_cursor_line = cursor_line
 
     def on_click_pressed(
@@ -577,21 +609,19 @@ class TokyoNotes(Adw.Application):
             return False
         cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
         cursor_line = cursor_iter.get_line()
-        self.buffer.handler_block(self.changed_handler_id)
         self.highlighter.highlight(cursor_line=cursor_line)
-        self.buffer.handler_unblock(self.changed_handler_id)
         self.last_cursor_line = cursor_line
         return False
 
     def do_delayed_highlight(self) -> bool:
+        """Fired by the 100 ms debounce timer after text changes."""
         self.highlight_timeout_id = 0
-        self.update_highlighting()
+        self._do_highlight()
         return False
 
     def do_delayed_images(self) -> bool:
         self.image_timeout_id = 0
-        start, end = self.buffer.get_bounds()
-        if "![" in self.buffer.get_text(start, end, False):
+        if self._has_images:
             self.editor.update_images(Path(self.notes_manager.notes_dir).resolve())
         return False
 
@@ -634,7 +664,6 @@ class TokyoNotes(Adw.Application):
         Called after update_checkbox writes the new state to disk so that the
         buffer stays in sync without triggering the debounced save again.
         """
-        import re as _re
         success, line_start = self.buffer.get_iter_at_line(line_num - 1)
         if not success:
             return
@@ -642,8 +671,7 @@ class TokyoNotes(Adw.Application):
         if not line_end.ends_line():
             line_end.forward_to_line_end()
         line_text = self.buffer.get_text(line_start, line_end, False)
-        new_text = _re.sub(
-            r"\[[ xX]\]",
+        new_text = CB_ANY_RE.sub(
             "[x]" if checked else "[ ]",
             line_text,
             count=1,
@@ -683,7 +711,7 @@ class TokyoNotes(Adw.Application):
         self,
         note_name: str | None,
         line_num: int | None,
-        deadline: str,
+        deadline: str | None,
     ) -> None:
         if not note_name or not line_num:
             return
@@ -692,16 +720,20 @@ class TokyoNotes(Adw.Application):
             self.nav.refresh_dashboard(self.dashboard_view.active_filter)
         self.refresh_list(self.sidebar.search_entry.get_text())
         if self.current_note == note_name:
-            self._update_deadline_line_in_buffer(note_name, line_num)
+            # Re-read just the updated line from cache (no full disk read).
+            content = self.notes_manager.read_note(note_name)
+            lines = content.split("\n")
+            if 0 < line_num <= len(lines):
+                self._update_deadline_line_in_buffer(line_num, lines[line_num - 1])
 
-    def _update_deadline_line_in_buffer(self, note_name: str, line_num: int) -> None:
+    def _update_deadline_line_in_buffer(self, line_num: int, new_line: str) -> None:
+        """Replace the deadline line in the editor buffer in-place."""
         success, start_iter = self.buffer.get_iter_at_line(line_num - 1)
         if not success:
             return
         end_iter = start_iter.copy()
         if not end_iter.ends_line():
             end_iter.forward_to_line_end()
-        new_line = self.notes_manager.read_note(note_name).split("\n")[line_num - 1]
         self.buffer.handler_block(self.changed_handler_id)
         self.buffer.delete(start_iter, end_iter)
         self.buffer.insert(start_iter, new_line)
@@ -715,24 +747,16 @@ if __name__ == "__main__":
 
     lock = InstanceLock()
     if not lock.acquire():
-        # A second instance started — show a minimal error and exit.
-        import gi
-        gi.require_version("Gtk", "4.0")
-        gi.require_version("Adw", "1")
-        from gi.repository import Adw as _Adw
-        _app = _Adw.Application(application_id="com.example.TokyoNotes.Lock")
-        def _on_activate(_app):
-            dialog = _Adw.MessageDialog(
-                heading="Tokyo Notes is already running",
-                body="Only one instance can run at a time.",
-            )
-            dialog.add_response("ok", "OK")
-            dialog.connect("response", lambda *_: _app.quit())
-            dialog.present()
-        _app.connect("activate", _on_activate)
-        _app.run(sys.argv)
-        lock.release()
-        sys.exit(0)
+        # Another instance is already running — print a clear message and exit.
+        # We avoid spinning up a second GTK application loop here since the
+        # overhead outweighs the benefit of a GUI dialog that the user may
+        # not even see (e.g. when launched from a script or file manager).
+        print(
+            "Tokyo Notes is already running. "
+            "Check your taskbar or system tray.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     try:
         app = TokyoNotes()

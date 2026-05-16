@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, Gio, Gtk, Pango
 
 from core.utils import escape_xml, format_markdown_inline
 
@@ -47,9 +47,20 @@ class ActionsHandler:
     # ------------------------------------------------------------------ #
 
     def on_paste_clipboard(self, text_view: Gtk.TextView) -> None:
-        self.app.win.get_clipboard().read_texture_async(
-            None, self.on_paste_texture_finish
+        """Intercept paste to handle image data; let GTK handle plain text natively.
+
+        Only attempts an async texture read when the clipboard actually advertises
+        image content. For plain-text pastes this is a no-op so GTK's default
+        TextView handler inserts the text without any error dialogs.
+        """
+        clipboard = self.app.win.get_clipboard()
+        formats = clipboard.get_formats()
+        has_image = any(
+            formats.contain_mime_type(mime)
+            for mime in ("image/png", "image/jpeg", "image/webp", "image/gif")
         )
+        if has_image:
+            clipboard.read_texture_async(None, self.on_paste_texture_finish)
 
     def on_paste_texture_finish(
         self, clipboard: Gdk.Clipboard, result: Gio.AsyncResult
@@ -57,13 +68,16 @@ class ActionsHandler:
         try:
             texture = clipboard.read_texture_finish(result)
             if texture:
-                img_id = str(uuid.uuid4())
+                img_id   = str(uuid.uuid4())
                 filename = f"pasted_{img_id}.png"
                 note_dir = Path(self.app.notes_manager.notes_dir)
                 texture.save_to_png(str(note_dir / filename))
                 self.app.buffer.insert_at_cursor(f"\n![Pasted Image]({filename})\n")
+        except GLib.GError as e:
+            # Expected when clipboard content changes between request and callback.
+            logger.warning("Image paste skipped: %s", e.message)
         except Exception:
-            logger.exception("Failed to paste texture")
+            logger.exception("Failed to paste image")
             self.app.show_export_dialog(
                 "Paste Failed", "Could not paste image.", is_error=True
             )
