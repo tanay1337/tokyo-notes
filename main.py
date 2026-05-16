@@ -538,7 +538,7 @@ class TokyoNotes(Adw.Application):
             ("Return", "Continue list or task on new line"),
         ]))
 
-        win.append(section)
+        win.add_section(section)
         win.present()
         return True
 
@@ -765,3 +765,4 @@ if __name__ == "__main__":
         lock.release()
 
     sys.exit(exit_code)
+
