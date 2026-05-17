@@ -39,11 +39,12 @@ class TokyoNotes(Adw.Application):
         super().__init__(application_id="com.example.TokyoNotes", **kwargs)
         self.base_dir = Path(__file__).parent
 
-        # Subsystem managers (order matters — cfg must come before notes_manager)
+        # Services (explicit, testable)
         self.cfg = ConfigManager()
         self.notes_folder: str = self.cfg.get("notes_folder")
         self.notes_manager = NotesManager(notes_dir=self.notes_folder)
 
+        # Subsystem managers — order matters for startup
         self.window_manager = WindowManager(self)
         self.theme_manager = ThemeManager(self)
         self.click_dispatcher = ClickDispatcher(self)
@@ -69,9 +70,7 @@ class TokyoNotes(Adw.Application):
         install_crash_handler(self)
         self._setup_actions()
 
-    # ------------------------------------------------------------------ #
     # App lifecycle
-    # ------------------------------------------------------------------ #
 
     def do_shutdown(self) -> None:
         """Flush any pending config writes and note saves before the process exits."""
@@ -80,9 +79,7 @@ class TokyoNotes(Adw.Application):
         # PyGObject's Gio.Application.do_shutdown() takes no arguments beyond self.
         Adw.Application.do_shutdown(self)
 
-    # ------------------------------------------------------------------ #
     # GIO actions
-    # ------------------------------------------------------------------ #
 
     def _setup_actions(self) -> None:
         for name, handler in (
@@ -115,9 +112,7 @@ class TokyoNotes(Adw.Application):
         self.cfg.unpin(parameter.get_string())
         self.refresh_list(self.sidebar.search_entry.get_text())
 
-    # ------------------------------------------------------------------ #
     # Folder selection
-    # ------------------------------------------------------------------ #
 
     def on_select_folder(self, _button=None) -> None:
         dialog = Gtk.FileDialog()
@@ -156,9 +151,7 @@ class TokyoNotes(Adw.Application):
         self.win.set_title("Tokyo Notes")
         self.refresh_list()
 
-    # ------------------------------------------------------------------ #
     # Activation / window construction
-    # ------------------------------------------------------------------ #
 
     def do_activate(self) -> None:
         # If the window already exists (second activation via D-Bus / instance
@@ -311,9 +304,7 @@ class TokyoNotes(Adw.Application):
         self.overlay.add_overlay(self.sakura_overlay)
         return self.overlay
 
-    # ------------------------------------------------------------------ #
     # Settings / theme
-    # ------------------------------------------------------------------ #
 
     def on_settings_config_changed(self, key: str, value: Any) -> None:
         self.cfg.set(key, value)
@@ -333,9 +324,7 @@ class TokyoNotes(Adw.Application):
                 self.win.add_css_class("dark-theme")
                 self.win.remove_css_class("light-theme")
 
-    # ------------------------------------------------------------------ #
     # Formatting
-    # ------------------------------------------------------------------ #
 
     def apply_format(self, btn, prefix: str, suffix: str) -> None:
         if self.buffer.get_has_selection():
@@ -356,9 +345,7 @@ class TokyoNotes(Adw.Application):
                 self.buffer.place_cursor(cursor_iter)
         self.text_view.grab_focus()
 
-    # ------------------------------------------------------------------ #
     # Note list / sidebar
-    # ------------------------------------------------------------------ #
 
     def refresh_list(self, filter_text: str = "") -> None:
         all_notes = self.notes_manager.get_notes(filter_text)
@@ -426,17 +413,17 @@ class TokyoNotes(Adw.Application):
                 row = row.get_next_sibling()
         return False
 
-    # ------------------------------------------------------------------ #
     # Save helpers
-    # ------------------------------------------------------------------ #
 
     def _flush_pending_save(self) -> None:
-        """Write buffered changes to disk immediately before switching notes.
-
-        Also cancels the sidebar-update timer so a stale callback cannot
-        corrupt the row for the next note.
-        """
-        for attr in ("rename_timeout_id", "sidebar_update_timeout_id"):
+        """Write buffered changes to disk and cancel all pending timeouts."""
+        for attr in (
+            "rename_timeout_id",
+            "sidebar_update_timeout_id",
+            "highlight_timeout_id",
+            "image_timeout_id",
+            "search_timeout_id",
+        ):
             tid = getattr(self, attr)
             if tid > 0:
                 GLib.source_remove(tid)
@@ -449,15 +436,13 @@ class TokyoNotes(Adw.Application):
                 self.notes_manager.save_note(self.current_note, content)
 
     def _reschedule(self, timeout_attr: str, delay_ms: int, callback: Callable) -> None:
-        """Cancel any pending GLib timeout stored in *timeout_attr* and reschedule."""
+        """Cancel any pending GLib timeout and schedule a fresh one."""
         current_id = getattr(self, timeout_attr)
         if current_id > 0:
             GLib.source_remove(current_id)
         setattr(self, timeout_attr, GLib.timeout_add(delay_ms, callback))
 
-    # ------------------------------------------------------------------ #
     # Search
-    # ------------------------------------------------------------------ #
 
     def on_search_changed(self, entry: Gtk.SearchEntry) -> None:
         self.search.on_search_changed(entry)
@@ -542,9 +527,7 @@ class TokyoNotes(Adw.Application):
         win.present()
         return True
 
-    # ------------------------------------------------------------------ #
     # Dialogs
-    # ------------------------------------------------------------------ #
 
     def show_export_dialog(self, title: str, body: str, is_error: bool = False) -> None:
         # Use AlertDialog (Adw >= 1.5) when available, else MessageDialog.
@@ -559,9 +542,7 @@ class TokyoNotes(Adw.Application):
             dialog.add_response("ok", "OK")
             dialog.present()
 
-    # ------------------------------------------------------------------ #
     # Cursor / click
-    # ------------------------------------------------------------------ #
 
     def on_cursor_moved(self, buffer: Gtk.TextBuffer, _pspec: object) -> None:
         if (
@@ -591,9 +572,7 @@ class TokyoNotes(Adw.Application):
     ) -> None:
         self.click_dispatcher.handle_click(x, y)
 
-    # ------------------------------------------------------------------ #
     # Highlighting
-    # ------------------------------------------------------------------ #
 
     def update_highlighting(self, immediate: bool = False) -> None:
         if immediate:
@@ -614,9 +593,20 @@ class TokyoNotes(Adw.Application):
         return False
 
     def do_delayed_highlight(self) -> bool:
-        """Fired by the 100 ms debounce timer after text changes."""
+        """Re-highlight only the current line and neighbours (incremental)."""
         self.highlight_timeout_id = 0
-        self._do_highlight()
+        if not self.highlighter or self.content_stack.get_visible_child_name() != "editor":
+            return False
+        cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+        cursor_line = cursor_iter.get_line()
+        # Re-highlight current line ±1 to catch setext / list continuation effects.
+        total = self.buffer.get_line_count()
+        start_line = max(0, cursor_line - 1)
+        end_line = min(total - 1, cursor_line + 1)
+        self.buffer.handler_block(self.changed_handler_id)
+        self.highlighter.highlight_line_range(start_line, end_line, cursor_line=cursor_line)
+        self.buffer.handler_unblock(self.changed_handler_id)
+        self.last_cursor_line = cursor_line
         return False
 
     def do_delayed_images(self) -> bool:
@@ -625,9 +615,7 @@ class TokyoNotes(Adw.Application):
             self.editor.update_images(Path(self.notes_manager.notes_dir).resolve())
         return False
 
-    # ------------------------------------------------------------------ #
     # Dashboard callbacks
-    # ------------------------------------------------------------------ #
 
     def on_dashboard_item_selected(
         self, listbox: Gtk.ListBox, row: Gtk.ListBoxRow
@@ -686,9 +674,7 @@ class TokyoNotes(Adw.Application):
             self.buffer.insert(insert_iter, new_text)
         self.buffer.handler_unblock(self.changed_handler_id)
 
-    # ------------------------------------------------------------------ #
     # Deadline picker
-    # ------------------------------------------------------------------ #
 
     def handle_deadline_click(
         self,

@@ -97,24 +97,29 @@ class SakuraOverlay(Gtk.DrawingArea):
         if not self.is_animating:
             return False
         
-        t = frame_clock.get_frame_time() / 1_000_000.0  # → seconds
-        if self.start_time is None:
-            self.start_time = t
+        try:
+            t = frame_clock.get_frame_time() / 1_000_000.0  # → seconds
+            if self.start_time is None:
+                self.start_time = t
+                
+            width = self.get_width()
+            height = self.get_height()
             
-        width = self.get_width()
-        height = self.get_height()
-        
-        # Update petals
-        self.petals = [p for p in self.petals if p.update(width, height, t)]
-        
-        # Check if duration is up and no more petals
-        if t - self.start_time > self.duration and not self.petals:
-            self.is_animating = False
+            # Update petals
+            self.petals = [p for p in self.petals if p.update(width, height, t)]
+            
+            # Check if duration is up and no more petals
+            if t - self.start_time > self.duration and not self.petals:
+                self.is_animating = False
+                self.queue_draw()
+                return False
+                
             self.queue_draw()
+            return True
+        except Exception:
+            # Prevent tick callback from getting stuck if drawing fails.
+            self.is_animating = False
             return False
-            
-        self.queue_draw()
-        return True
 
     def on_draw(self, area: Gtk.DrawingArea, cr: cairo.Context, width: int, height: int) -> None:
         """Draws petals on canvas."""

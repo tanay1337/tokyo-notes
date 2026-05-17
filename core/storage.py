@@ -49,9 +49,7 @@ class NotesManager:
             except OSError:
                 pass
 
-    # ------------------------------------------------------------------ #
     # Querying
-    # ------------------------------------------------------------------ #
 
     def get_notes(self, search_text: str = "") -> list[str]:
         """Return all note stems sorted by mtime (newest first).
@@ -83,9 +81,7 @@ class NotesManager:
                 filtered.append(name)
         return filtered
 
-    # ------------------------------------------------------------------ #
     # Reading
-    # ------------------------------------------------------------------ #
 
     def read_note(self, name: str) -> str:
         """Return content of *name*.md from cache or disk.
@@ -107,7 +103,7 @@ class NotesManager:
         if scan_fresh and cached and cached["mtime"] == cached_mtime:
             return cached["content"]
 
-        # Slow path: stat to detect external edits.
+        # Slow path: stat to detect external edits (lock released only after read).
         current_mtime = note_path.stat().st_mtime
         with self._lock:
             self._mtime_cache[name] = current_mtime
@@ -167,9 +163,7 @@ class NotesManager:
             result.extend(self.get_metadata(name).get("checkboxes", []))
         return result
 
-    # ------------------------------------------------------------------ #
     # Writing (synchronous, atomic)
-    # ------------------------------------------------------------------ #
 
     def reserve_name(self, name: str = "Untitled") -> str:
         base = name
@@ -226,9 +220,7 @@ class NotesManager:
             self._mtime_cache.pop(old_name, None)
         return True
 
-    # ------------------------------------------------------------------ #
     # Checkbox / deadline helpers
-    # ------------------------------------------------------------------ #
 
     def _extract_checkboxes(self, note_name: str, content: str) -> list[dict[str, Any]]:
         boxes: list[dict[str, Any]] = []

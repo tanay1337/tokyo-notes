@@ -63,9 +63,7 @@ class ConfigManager:
         self._dirty: bool = False
         self._flush_timer: int = 0
 
-    # ------------------------------------------------------------------ #
     # JSON helpers
-    # ------------------------------------------------------------------ #
 
     def _load_json(self, path: Path, default: dict | list) -> Any:
         if path.exists():
@@ -76,16 +74,17 @@ class ConfigManager:
         return dict(default) if isinstance(default, dict) else default
 
     def _save_json(self, path: Path, data: dict | set | list) -> None:
+        """Atomic JSON write — write temp then rename to avoid corruption on crash."""
         self.config_dir.mkdir(parents=True, exist_ok=True)
         save_data: Any = sorted(data) if isinstance(data, set) else data
+        tmp = path.with_suffix(path.suffix + ".tmp")
         try:
-            path.write_text(json.dumps(save_data, indent=2), encoding="utf-8")
+            tmp.write_text(json.dumps(save_data, indent=2), encoding="utf-8")
+            tmp.replace(path)
         except OSError as e:
             logger.warning("Could not save %s: %s", path, e)
 
-    # ------------------------------------------------------------------ #
     # General settings — debounced writes
-    # ------------------------------------------------------------------ #
 
     def get(self, key: str, fallback: Any = None) -> Any:
         return self.data.get(key, _DEFAULTS.get(key, fallback))
@@ -129,9 +128,7 @@ class ConfigManager:
             self._dirty = False
             logger.debug("Config flushed immediately (shutdown)")
 
-    # ------------------------------------------------------------------ #
     # Pinned notes — immediate writes
-    # ------------------------------------------------------------------ #
 
     def pin(self, note_name: str) -> None:
         if note_name not in self.pinned:
@@ -146,9 +143,7 @@ class ConfigManager:
     def is_pinned(self, note_name: str) -> bool:
         return note_name in self.pinned
 
-    # ------------------------------------------------------------------ #
     # Archived notes — immediate writes
-    # ------------------------------------------------------------------ #
 
     def toggle_archive(self, note_name: str) -> None:
         if note_name in self.archived:

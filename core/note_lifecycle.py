@@ -6,11 +6,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
-from core.utils import H1_TITLE_RE, get_snippet
+from core.services import build_stats, derive_display_title, patch_sidebar_row, update_note_title
+from core.utils import get_snippet
 
 if TYPE_CHECKING:
     from main import TokyoNotes
@@ -23,8 +25,7 @@ def _clean_title(raw: str) -> str:
 
 
 def _derive_display_title(content: str, fallback: str) -> str:
-    m = H1_TITLE_RE.search(content)
-    return (_clean_title(m.group(1)) if m else None) or fallback
+    return derive_display_title(content, fallback)
 
 
 class NoteLifecycleManager:
@@ -33,9 +34,7 @@ class NoteLifecycleManager:
     def __init__(self, app: "TokyoNotes") -> None:
         self.app = app
 
-    # ------------------------------------------------------------------ #
     # Startup
-    # ------------------------------------------------------------------ #
 
     def initial_load(self) -> bool:
         app = self.app
@@ -53,9 +52,7 @@ class NoteLifecycleManager:
             self.on_new_note(None)
         return False
 
-    # ------------------------------------------------------------------ #
     # Create
-    # ------------------------------------------------------------------ #
 
     def on_new_note_global(self, *args: Any) -> bool:
         self.on_new_note(None)
@@ -75,9 +72,7 @@ class NoteLifecycleManager:
         app.content_stack.set_visible_child_name("editor")
         app.text_view.grab_focus()
 
-    # ------------------------------------------------------------------ #
     # Open / select
-    # ------------------------------------------------------------------ #
 
     def on_note_selected(self, listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         app = self.app
@@ -100,20 +95,20 @@ class NoteLifecycleManager:
             app.buffer.set_text(content)
             app.content_stack.set_visible_child_name("editor")
 
-            # Scroll to top so position is always consistent on load.
+            # Scroll to top for consistent load position.
             start = app.buffer.get_start_iter()
             app.buffer.place_cursor(start)
             app.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
 
-            # Highlight first 30 lines synchronously so text is readable instantly.
             if app.highlighter:
                 app.highlighter.highlight(start_line=0, end_line=30)
             app.buffer.handler_unblock(app.changed_handler_id)
 
-            # Highlight remaining lines in background chunks (50 lines per idle tick)
-            # so the editor is interactive immediately.
+            if hasattr(app, "_pending_highlight_id") and app._pending_highlight_id:
+                GLib.source_remove(app._pending_highlight_id)
+                app._pending_highlight_id = 0
             if app.highlighter and app.buffer.get_line_count() > 30:
-                GLib.idle_add(
+                app._pending_highlight_id = GLib.idle_add(
                     self._highlight_chunk,
                     app.current_note,
                     30,
@@ -129,10 +124,6 @@ class NoteLifecycleManager:
             app.is_loading = False
 
     def _highlight_chunk(self, expected_note: str, start_line: int) -> bool:
-        """Highlight a 50-line chunk and reschedule for the next chunk.
-
-        Bails out if the user has navigated away — no wasted work.
-        """
         app = self.app
         if not app.highlighter or app.current_note != expected_note:
             return False
@@ -145,9 +136,7 @@ class NoteLifecycleManager:
             GLib.idle_add(self._highlight_chunk, expected_note, end_line)
         return False
 
-    # ------------------------------------------------------------------ #
     # Navigate
-    # ------------------------------------------------------------------ #
 
     def on_link_clicked(self, note_name: str) -> None:
         self.app.content_stack.set_visible_child_name("editor")
@@ -171,9 +160,7 @@ class NoteLifecycleManager:
         app.buffer.delete_mark(mark)
         return False
 
-    # ------------------------------------------------------------------ #
     # Delete
-    # ------------------------------------------------------------------ #
 
     def on_delete_shortcut(self) -> bool:
         app = self.app
@@ -201,9 +188,6 @@ class NoteLifecycleManager:
             )
             dialog.add_response("cancel", "Cancel")
             dialog.add_response("delete", "Delete")
-            # set_response_appearance is deprecated in Adw >= 1.5 but still
-            # functional; this is the safe cross-version approach until we
-            # can depend on AlertDialog universally.
             try:
                 dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
             except Exception:
@@ -238,28 +222,27 @@ class NoteLifecycleManager:
             app.win.set_title("Tokyo Notes")
         app.refresh_list(app.sidebar.search_entry.get_text())
 
-    # ------------------------------------------------------------------ #
-    # Live sidebar update (150 ms, no disk I/O)
-    # ------------------------------------------------------------------ #
+    # Live sidebar update (150 ms debounce)
 
     def _update_sidebar_and_stats(self) -> bool:
         """Fast debounce callback: update sidebar row and status bar in-place."""
         app = self.app
         app.sidebar_update_timeout_id = 0
-        if not app.current_note:
+        current = app.current_note
+        if not current:
             return False
 
         start, end = app.buffer.get_bounds()
         content = app.buffer.get_text(start, end, True)
-        display_title = _derive_display_title(content, app.current_note)
+        display_title = derive_display_title(content, current)
         snippet = get_snippet(content)
 
         row_found = False
         for lb in (app.sidebar.main_list, app.sidebar.archive_list):
             child = lb.get_first_child()
             while child:
-                if getattr(child, "note_name", None) == app.current_note:
-                    self._patch_row(child, display_title, snippet)
+                if getattr(child, "note_name", None) == current:
+                    patch_sidebar_row(child, title=display_title, snippet=snippet)
                     row_found = True
                     break
                 child = child.get_next_sibling()
@@ -268,25 +251,14 @@ class NoteLifecycleManager:
 
         if not row_found and content.strip():
             app.refresh_list(app.sidebar.search_entry.get_text())
-            app._select_sidebar_row(app.current_note)
+            app._select_sidebar_row(current)
 
         if app.editor.status_bar.get_visible():
-            self._update_stats(content)
+            app.editor.stats_label.set_label(build_stats(content))
 
         return False
 
-    @staticmethod
-    def _patch_row(row: Gtk.ListBoxRow, title: str, snippet: str) -> None:
-        tl = getattr(row, "title_label", None)
-        sl = getattr(row, "snippet_label", None)
-        if tl is not None:
-            tl.set_label(title)
-        if sl is not None:
-            sl.set_label(snippet)
-
-    # ------------------------------------------------------------------ #
     # Save / rename (1 000 ms debounce)
-    # ------------------------------------------------------------------ #
 
     def do_delayed_save(self) -> bool:
         app = self.app
@@ -297,41 +269,37 @@ class NoteLifecycleManager:
         start, end = app.buffer.get_bounds()
         content = app.buffer.get_text(start, end, True)
 
-        # Never write an empty note.
         if not content.strip():
             return False
 
-        # Rename if H1 changed — synchronous so save goes to the right path.
         old_name = app.current_note
-        new_title = _derive_display_title(content, "")
-        if new_title and new_title != old_name:
-            collision = Path(app.notes_manager.notes_dir) / f"{new_title}.md"
-            if not collision.exists() and app.notes_manager.rename_note(old_name, new_title):
-                app.current_note = new_title
-                app.nav.update_header_ui(app.current_note, is_editor=True)
+        new_name, did_rename = update_note_title(
+            old_name=old_name,
+            content=content,
+            notes_manager=app.notes_manager,
+        )
+
+        if did_rename:
+            app.current_note = new_name
+            app.nav.update_header_ui(new_name, is_editor=True)
 
         app.notes_manager.save_note(app.current_note, content)
 
-        # Only rebuild the sidebar list when the note was actually renamed.
-        if app.current_note != old_name:
-            app.refresh_list(app.sidebar.search_entry.get_text())
-            app._select_sidebar_row(app.current_note)
+        # Rebuild the sidebar list so the new / renamed note appears.
+        app.refresh_list(app.sidebar.search_entry.get_text())
+        app._select_sidebar_row(app.current_note)
 
         return False
 
-    # ------------------------------------------------------------------ #
     # Text-changed coordination
-    # ------------------------------------------------------------------ #
 
     def on_text_changed(self, buffer: Gtk.TextBuffer) -> None:
         app = self.app
         if app.is_loading or not app.current_note or app.editor.is_updating_images:
             return
-        app._reschedule("sidebar_update_timeout_id", 150,  self._update_sidebar_and_stats)
-        app._reschedule("highlight_timeout_id",      100,  app.do_delayed_highlight)
-        # Only schedule image refresh if images are (or were just) present.
+        app._reschedule("sidebar_update_timeout_id", 150, self._update_sidebar_and_stats)
+        app._reschedule("highlight_timeout_id", 100, app.do_delayed_highlight)
         if not app._has_images:
-            # Cheap check: GTK buffer keeps char count; get one line via iter.
             cursor = app.buffer.get_iter_at_mark(app.buffer.get_insert())
             cursor.set_line_offset(0)
             end_of_line = cursor.copy()
@@ -341,13 +309,9 @@ class NoteLifecycleManager:
                 app._has_images = True
         if app._has_images:
             app._reschedule("image_timeout_id", 2000, app.do_delayed_images)
-        app._reschedule("rename_timeout_id",         1000, self.do_delayed_save)
+        app._reschedule("rename_timeout_id", 1000, self.do_delayed_save)
 
     def _update_stats(self, content: str) -> None:
         app = self.app
-        char_count = app.buffer.get_char_count()
-        word_count = len(content.split())
-        read_time  = max(1, word_count // 200)
-        app.editor.stats_label.set_label(
-            f"{word_count:,} words · {read_time} min read"
-        )
+        app.editor.stats_label.set_label(build_stats(content))
+

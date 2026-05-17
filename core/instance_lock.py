@@ -58,11 +58,15 @@ class InstanceLock:
             return
         try:
             import fcntl
-            fcntl.flock(self._lock_file, fcntl.LOCK_UN)
+            if not getattr(self._lock_file, "closed", False):
+                fcntl.flock(self._lock_file, fcntl.LOCK_UN)
         except (ImportError, OSError):
             pass
         finally:
-            self._lock_file.close()
+            try:
+                self._lock_file.close()
+            except OSError:
+                pass
             self._lock_file = None
             _LOCK_PATH.unlink(missing_ok=True)
             logger.debug("Instance lock released")

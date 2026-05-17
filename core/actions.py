@@ -5,7 +5,6 @@ import datetime
 import logging
 import re
 import uuid
-import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -42,17 +41,9 @@ class ActionsHandler:
         self.app = app
         self.in_zen_mode: bool = False
 
-    # ------------------------------------------------------------------ #
     # Clipboard
-    # ------------------------------------------------------------------ #
 
     def on_paste_clipboard(self, text_view: Gtk.TextView) -> None:
-        """Intercept paste to handle image data; let GTK handle plain text natively.
-
-        Only attempts an async texture read when the clipboard actually advertises
-        image content. For plain-text pastes this is a no-op so GTK's default
-        TextView handler inserts the text without any error dialogs.
-        """
         clipboard = self.app.win.get_clipboard()
         formats = clipboard.get_formats()
         has_image = any(
@@ -67,13 +58,20 @@ class ActionsHandler:
     ) -> None:
         try:
             texture = clipboard.read_texture_finish(result)
-            if texture:
-                img_id   = str(uuid.uuid4())
-                filename = f"pasted_{img_id}.png"
-                note_dir = Path(self.app.notes_manager.notes_dir)
-                texture.save_to_png(str(note_dir / filename))
-                self.app.buffer.insert_at_cursor(f"\n![Pasted Image]({filename})\n")
-        except GLib.GError as e:
+            if not texture:
+                return
+            note_dir = Path(self.app.notes_manager.notes_dir).resolve()
+            if not note_dir.exists() or not note_dir.is_dir():
+                logger.error("Invalid notes directory: %s", note_dir)
+                self.app.show_export_dialog(
+                    "Paste Failed", "Notes directory is invalid.", is_error=True
+                )
+                return
+            img_id = str(uuid.uuid4())
+            filename = f"pasted_{img_id}.png"
+            texture.save_to_png(str(note_dir / filename))
+            self.app.buffer.insert_at_cursor(f"\n![Pasted Image]({filename})\n")
+        except GLib.Error as e:
             # Expected when clipboard content changes between request and callback.
             logger.warning("Image paste skipped: %s", e.message)
         except Exception:
@@ -82,9 +80,7 @@ class ActionsHandler:
                 "Paste Failed", "Could not paste image.", is_error=True
             )
 
-    # ------------------------------------------------------------------ #
     # Timestamp / Zen
-    # ------------------------------------------------------------------ #
 
     def on_insert_timestamp(self, *args: Any) -> None:
         """Insert the current date and time at the cursor position."""
@@ -117,9 +113,7 @@ class ActionsHandler:
         if handler:
             self.app.sidebar_toggle.handler_unblock(handler)
 
-    # ------------------------------------------------------------------ #
     # PDF export
-    # ------------------------------------------------------------------ #
 
     def on_export_pdf(self, button: Gtk.Button) -> None:
         """Export the current note to a PDF file in ~/Downloads."""
@@ -153,33 +147,8 @@ class ActionsHandler:
         except Exception as e:
             self.app.show_export_dialog("Error", str(e), is_error=True)
 
-    def _count_pages(self, text: str) -> int:
-        """Estimate the number of A4 pages needed to render *text*.
-
-        Uses a reference page height of 841pt (A4) minus two margins,
-        and delegates line-advance logic to _line_advance so the estimate
-        matches what on_draw_page actually renders.
-        """
-        page_height = 841.0 - 2 * _PDF_MARGIN
-        y = 0.0
-        pages = 1
-        in_code_block = False
-
-        for line in text.split("\n"):
-            stripped = line.strip()
-            if stripped.startswith("```"):
-                in_code_block = not in_code_block
-                continue
-            advance = 16.0 if in_code_block else self._line_advance(stripped)
-            y += advance
-            if y > page_height:
-                pages += 1
-                y = advance   # start of new page
-
-        return max(pages, 1)
-
     def _line_advance(self, stripped: str) -> float:
-        """Return the approximate vertical advance in points for one rendered line."""
+        """Vertical advance in points for *stripped* on a PDF page."""
         if not stripped:
             return _PDF_LINE_HEIGHT
         if stripped.startswith("# "):
@@ -192,13 +161,34 @@ class ActionsHandler:
             stripped.startswith("- ")
             or stripped.startswith("* ")
             or _ORDERED_LIST_RE.match(stripped)
+            or stripped.startswith(("---", "***", "___"))
         ):
             return _PDF_LINE_HEIGHT
-        if stripped.startswith(("---", "***", "___")):
-            return _PDF_LINE_HEIGHT
-        if stripped.startswith("`") and stripped.endswith("`"):
+        if stripped.startswith("`") and stripped.endswith("`") and len(stripped) > 2:
             return 16.0
         return _PDF_LINE_HEIGHT
+
+    def _pdf_line_info(self, line: str, stripped: str, in_code_block: bool) -> tuple[float, bool]:
+        """Return (advance, new_in_code_block) for *line* given current block state."""
+        if stripped.startswith("```"):
+            return (0.0, not in_code_block)
+        if in_code_block:
+            return (16.0, in_code_block)
+        return (self._line_advance(stripped), in_code_block)
+
+    def _count_pages(self, text: str) -> int:
+        page_height = 841.0 - 2 * _PDF_MARGIN
+        y = 0.0
+        pages = 1
+        in_code_block = False
+        for line in text.split("\n"):
+            stripped = line.strip()
+            advance, in_code_block = self._pdf_line_info(line, stripped, in_code_block)
+            y += advance
+            if y > page_height:
+                pages += 1
+                y = advance
+        return max(pages, 1)
 
     def _draw_pango(
         self,
@@ -351,17 +341,8 @@ class ActionsHandler:
 
         for line in text.split("\n"):
             stripped = line.strip()
+            advance, in_code_block = self._pdf_line_info(line, stripped, in_code_block)
 
-            if stripped.startswith("```"):
-                in_code_block = not in_code_block
-                continue
-
-            if in_code_block:
-                advance = 16.0
-            else:
-                advance = self._line_advance(stripped)
-
-            # Page break?
             if y + advance > page_height and current_page < page_nr:
                 current_page += 1
                 y = _PDF_MARGIN
@@ -373,14 +354,13 @@ class ActionsHandler:
             if current_page > page_nr:
                 break
 
-            # Render on the correct page.
             if in_code_block:
                 self._draw_pango(
                     cr, context,
                     f"<span font='9' font_family='monospace'>{escape_xml(line)}</span>",
                     _PDF_MARGIN, y, width - _PDF_MARGIN * 2,
                 )
-                y += 16.0
+                y += advance
             else:
                 y = self._render_line(cr, context, line, y, width, _PDF_MARGIN)
 

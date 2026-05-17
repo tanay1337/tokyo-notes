@@ -25,17 +25,13 @@ class NavigationController:
     def __init__(self, app: "TokyoNotes") -> None:
         self.app = app
 
-    # ------------------------------------------------------------------ #
     # Sidebar archive toggle
-    # ------------------------------------------------------------------ #
 
     def on_archived_clicked(self, btn: Gtk.Button) -> None:
         """Toggle between main and archive list in the sidebar."""
         self.app.sidebar.toggle_archive_view()
 
-    # ------------------------------------------------------------------ #
     # Dashboard
-    # ------------------------------------------------------------------ #
 
     def on_dashboard_clicked(self, button: Gtk.Button | None = None) -> None:
         """Switch to the dashboard view, lazily creating it on first access."""
@@ -114,9 +110,7 @@ class NavigationController:
             return "week"
         return "all"
 
-    # ------------------------------------------------------------------ #
     # Graph
-    # ------------------------------------------------------------------ #
 
     def on_graph_clicked(self) -> None:
         """Switch to the knowledge graph view, lazily creating it on first access."""
@@ -135,9 +129,7 @@ class NavigationController:
         self.update_header_ui("Knowledge Graph", is_editor=False)
         app.sidebar.set_active_view("graph")
 
-    # ------------------------------------------------------------------ #
     # Settings
-    # ------------------------------------------------------------------ #
 
     def on_settings_clicked(self, btn: Gtk.Button | None = None) -> None:
         """Switch to the settings view, lazily creating it on first access."""
@@ -161,9 +153,7 @@ class NavigationController:
         self.update_header_ui("Settings", is_editor=False)
         app.sidebar.set_active_view("settings")
 
-    # ------------------------------------------------------------------ #
     # Escape / back
-    # ------------------------------------------------------------------ #
 
     def on_escape_shortcut(self) -> bool:
         """Return to the editor from any secondary view, or clear search."""
@@ -183,9 +173,7 @@ class NavigationController:
             return True
         return False
 
-    # ------------------------------------------------------------------ #
     # Header
-    # ------------------------------------------------------------------ #
 
     def update_header_ui(self, title: str, is_editor: bool = True) -> None:
         """Update the content-area header bar title and button visibility."""

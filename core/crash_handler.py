@@ -21,6 +21,14 @@ logger = logging.getLogger(__name__)
 
 _CRASH_DIR = Path.home() / ".local" / "share" / "tokyo-notes" / "crashes"
 
+# Eagerly import gi so that if the *runtime* environment is broken we fail
+# early (at import time) rather than inside the excepthook where any error
+# would be silently swallowed.
+try:
+    import gi  # noqa: F401  (imported for side-effect, version not needed)
+except ImportError:
+    gi = None  # type: ignore[misc]
+
 
 def _write_crash_report(exc_type: type, exc_value: Exception, exc_tb: Any) -> Path:
     """Serialise the exception to a timestamped file and return its path."""
@@ -56,24 +64,26 @@ def install(app: "TokyoNotes") -> None:
         crash_path = _write_crash_report(exc_type, exc_value, exc_tb)
 
         # Show a dialog if the main window exists and we're on the GTK thread.
-        # Importing Adw here avoids a circular import at module level.
+        # gi was imported at module level; if it failed, this block is skipped.
         try:
-            import gi
-            gi.require_version("Adw", "1")
-            from gi.repository import Adw
-
-            win = getattr(app, "win", None)
-            if win is not None:
-                dialog = Adw.MessageDialog(
-                    transient_for=win,
-                    heading="Unexpected Error",
-                    body=(
-                        f"{exc_type.__name__}: {exc_value}\n\n"
-                        f"A crash report has been saved to:\n{crash_path}"
-                    ),
-                )
-                dialog.add_response("ok", "OK")
-                dialog.present()
+            if gi is None:
+                win = None
+            else:
+                import gi as _gi
+                _gi.require_version("Adw", "1")
+                from gi.repository import Adw
+                win = getattr(app, "win", None)
+                if win is not None:
+                    dialog = Adw.MessageDialog(
+                        transient_for=win,
+                        heading="Unexpected Error",
+                        body=(
+                            f"{exc_type.__name__}: {exc_value}\n\n"
+                            f"A crash report has been saved to:\n{crash_path}"
+                        ),
+                    )
+                    dialog.add_response("ok", "OK")
+                    dialog.present()
         except Exception:
             pass  # Never let the crash handler itself crash
 

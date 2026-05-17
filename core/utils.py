@@ -12,11 +12,9 @@ from gi.repository import Gtk
 
 IS_MAC: bool = sys.platform == "darwin"
 
-# ---------------------------------------------------------------------------
 # Shared regex patterns
 # Centralised here so highlighter.py, click_dispatcher.py, and storage.py
 # all derive from the same definitions rather than duplicating them.
-# ---------------------------------------------------------------------------
 
 # Matches the first H1 heading line in a markdown document.
 H1_TITLE_RE: re.Pattern = re.compile(r"^#\s*(.+)$", re.MULTILINE)
@@ -66,9 +64,7 @@ _FMI_CODE_RE: re.Pattern    = re.compile(r"`([^`]+)`")
 _FMI_STRIKE_RE: re.Pattern  = re.compile(r"~~([^~]+)~~")
 
 
-# ---------------------------------------------------------------------------
 # Text helpers
-# ---------------------------------------------------------------------------
 
 def get_snippet(content: str, length: int = 50) -> str:
     """Return a short plain-text snippet of *content* for sidebar display."""

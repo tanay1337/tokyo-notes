@@ -67,6 +67,7 @@ class MarkdownHighlighter:
         self.re_blockquote       = BLOCKQUOTE_RE
         self.re_unordered        = LIST_UL_RE
         self.re_ordered          = LIST_OL_RE
+        self.re_list_bullet      = LIST_UL_RE
         self.re_table_row        = TABLE_ROW_RE
         self.re_table_sep        = TABLE_SEP_RE
         self.re_header           = HEADER_ATX_RE
@@ -148,9 +149,7 @@ class MarkdownHighlighter:
         self.setup_tags()
         self.highlight()
 
-    # ------------------------------------------------------------------ #
-    # Iter helpers
-    # ------------------------------------------------------------------ #
+    # StatementBuffer returns (success, iter) -- unpack the iter.
 
     def get_iter_at_line(self, line: int) -> Gtk.TextIter:
         result = self.buffer.get_iter_at_line(line)
@@ -160,9 +159,7 @@ class MarkdownHighlighter:
         result = self.buffer.get_iter_at_offset(offset)
         return result[1] if isinstance(result, tuple) else result
 
-    # ------------------------------------------------------------------ #
     # Code-block membership helpers
-    # ------------------------------------------------------------------ #
 
     def _code_block_line_set(self) -> set[int]:
         """Return the set of 0-based line numbers that fall inside a fenced code block.
@@ -194,9 +191,7 @@ class MarkdownHighlighter:
         self._code_block_stamp = cache_key
         return result
 
-    # ------------------------------------------------------------------ #
     # Main highlight pass
-    # ------------------------------------------------------------------ #
 
     def highlight(
         self,
@@ -440,9 +435,7 @@ class MarkdownHighlighter:
 
             line_start_offset += len(line) + 1
 
-    # ------------------------------------------------------------------ #
     # Helpers
-    # ------------------------------------------------------------------ #
 
     def _inline(
         self,
@@ -471,6 +464,134 @@ class MarkdownHighlighter:
         end_iter = start_iter.copy()
         end_iter.forward_chars(end_offset - start_offset)
         self.buffer.apply_tag_by_name(tag_name, start_iter, end_iter)
+
+    def _tag_for_line(self, md_line) -> str | None:
+        """Return the GTK text tag name for a markdown line kind."""
+        return {
+            "h1": "h1",
+            "h2": "h2",
+            "h3": "h3",
+            "h4": "h4",
+            "hr": "hr",
+            "blockquote": "blockquote",
+            "ul": "list_bullet",
+            "ol": "list_number",
+            "table_row": "table_row",
+            "table_sep": "table_sep",
+            "code_block": "code_block",
+        }.get(md_line.kind)
+
+    def _apply_line_tags(self, line_start_offset, line_end_offset, line, md_line, is_cursor=False):
+        """Apply tags for a single parsed markdown line."""
+        # Structural tag
+        tag_name = self._tag_for_line(md_line)
+        if tag_name:
+            self.apply_tag(tag_name, line_start_offset, line_end_offset)
+
+        # Lists: also tag the bullet/number separately
+        if md_line.kind in ("ul", "ol") and md_line.marker:
+            self.apply_tag(
+                "list_bullet" if md_line.kind == "ul" else "list_number",
+                line_start_offset + md_line.indent,
+                line_start_offset + md_line.indent + len(md_line.marker),
+            )
+
+        # Checkboxes
+        cb_re = self.re_checkbox_empty
+        for m in cb_re.finditer(line):
+            self.apply_tag("checkbox_empty", line_start_offset + m.start(), line_start_offset + m.end())
+        cb_re = self.re_checkbox_checked
+        for m in cb_re.finditer(line):
+            self.apply_tag("checkbox_checked", line_start_offset + m.start(), line_start_offset + m.end())
+
+        # Inline patterns
+        self._inline(self.re_bold1, "bold", line, line_start_offset, is_cursor)
+        self._inline(self.re_bold2, "bold", line, line_start_offset, is_cursor)
+        self._inline(self.re_italic1, "italic", line, line_start_offset, is_cursor, single=True)
+        self._inline(self.re_italic2, "italic", line, line_start_offset, is_cursor, single=True)
+        self._inline(self.re_code, "code", line, line_start_offset, is_cursor)
+        self._inline(self.re_strikethrough, "strikethrough", line, line_start_offset, is_cursor)
+
+        # Links and images
+        for m in self.re_links.finditer(line):
+            fs = line_start_offset + m.start()
+            fe = line_start_offset + m.end()
+            if m.group(1):  # [[wiki link]]
+                self.apply_tag("internal-link", fs, fe)
+                if not is_cursor:
+                    self.apply_tag("invisible", fs, fs + 2)
+                    self.apply_tag("invisible", fe - 2, fe)
+            else:
+                if m.group(2):  # ![image](...)
+                    self.apply_tag("image", fs, fe)
+                else:  # [text](url)
+                    text_s = fs + 1
+                    text_e = text_s + len(m.group(3))
+                    self.apply_tag("external-link", text_s, text_e)
+                    brackets = "dim" if is_cursor else "invisible"
+                    self.apply_tag(brackets, fs, text_s)
+                    self.apply_tag(brackets, text_e, fe)
+
+        # Deadlines and tags
+        for m in self.re_deadline.finditer(line):
+            self.apply_tag("deadline", line_start_offset + m.start(), line_start_offset + m.end())
+        for m in self.re_tag.finditer(line):
+            self.apply_tag("tag", line_start_offset + m.start(), line_start_offset + m.end())
+
+        # Autolinks
+        for m in self.re_autolink.finditer(line):
+            self.apply_tag("autolink",
+                           line_start_offset + m.start(),
+                           line_start_offset + m.end())
+            self.apply_tag("invisible",
+                           line_start_offset + m.start(),
+                           line_start_offset + m.start() + 1)
+            self.apply_tag("invisible",
+                           line_start_offset + m.end() - 1,
+                           line_start_offset + m.end())
+
+        # Inline HTML
+        for m in self.re_html.finditer(line):
+            content = m.group(0)
+            is_autolink = "http" in content or ("@" in content and "<" in content)
+            if not is_autolink and not content.startswith(("<!", "<?")):
+                self.apply_tag("inline_html",
+                               line_start_offset + m.start(),
+                               line_start_offset + m.end())
+
+        # Hard line breaks
+        if line.rstrip().endswith("\\"):
+            self.apply_tag("line_break",
+                           line_start_offset + len(line.rstrip()),
+                           line_end_offset)
+
+    # Incremental highlighter: only re-tag a single line range
+
+    def highlight_line_range(self, start_line: int, end_line: int, cursor_line: int | None = None):
+        """Re-apply tags for lines from start_line to end_line (inclusive)."""
+        from markdown.tokenizer import LineTokenizer
+        tokenizer = LineTokenizer()
+        in_block = False
+        for line_num in range(start_line, end_line + 1):
+            it = self.get_iter_at_line(line_num)
+            it_end = it.copy()
+            if not it_end.ends_line():
+                it_end.forward_to_line_end()
+            line = self.buffer.get_text(it, it_end, True)
+            line_start = it.get_offset()
+            line_end = it_end.get_offset()
+
+            # Clear existing tags on this line
+            self.buffer.remove_all_tags(it, it_end)
+
+            md, in_block = tokenizer.tokenize(line, in_fence=in_block)
+
+            if md.kind == "code_block":
+                self.apply_tag("code_block", line_start, line_end)
+                continue
+
+            # Apply tags using the same logic as highlight() but line-local
+            self._apply_line_tags(line_start, line_end, line, md, is_cursor=(line_num == cursor_line))
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled

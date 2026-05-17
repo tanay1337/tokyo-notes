@@ -14,8 +14,6 @@ _REPULSION   = 8_000.0   # node-node repulsion constant
 _ATTRACTION  = 0.06      # edge spring constant
 _DAMPING     = 0.85      # velocity damping per step
 _STEPS       = 120       # simulation steps before display
-_NODE_R      = 10        # node circle radius in canvas pixels
-_PREVIEW_MS  = 400       # ms before navigating on node click
 
 
 class GraphView(Gtk.Box):
@@ -31,47 +29,47 @@ class GraphView(Gtk.Box):
         self.on_node_clicked = on_node_clicked
         self.nodes: list[str] = list(graph_data.keys())
 
-        # Positions in graph-space (not canvas-space).
+        # Positions in graph-space (not canvas-space)
         self._pos: dict[str, list[float]] = {}
         self._vel: dict[str, list[float]] = {}
 
-        # Viewport state.
+        # Viewport state
         self._scale: float = 1.0
         self._offset: list[float] = [0.0, 0.0]
         self._drag_start: tuple[float, float] | None = None
         self._offset_start: list[float] = [0.0, 0.0]
 
-        # Hovered / selected node for preview panel.
+        # Hovered / selected node for preview panel
         self._hovered: str | None = None
         self._pending_navigate: int = 0  # GLib source id
+        self._sim_id: int = 0  # GLib source id for force simulation
 
         self.canvas = Gtk.DrawingArea()
         self.canvas.set_draw_func(self._on_draw)
         self.canvas.set_vexpand(True)
         self.canvas.set_hexpand(True)
-        # Pre-allocate a Pango layout for node labels so _on_draw doesn't
-        # allocate a new object on every repaint (every scroll/zoom/resize).
-        self._label_layout: object = None  # created lazily on first draw
+        self._label_layout: object = None
+        self.connect("unrealize", self._on_unrealize)
 
-        # Scroll → zoom.
+        # Scroll -> zoom
         scroll = Gtk.EventControllerScroll.new(
             Gtk.EventControllerScrollFlags.VERTICAL
         )
         scroll.connect("scroll", self._on_scroll)
         self.canvas.add_controller(scroll)
 
-        # Click → navigate (with short preview delay).
+        # Click -> navigate (with short preview delay)
         click = Gtk.GestureClick.new()
         click.connect("pressed", self._on_press)
         self.canvas.add_controller(click)
 
-        # Drag → pan.
-        drag = Gtk.GestureDrag.new()
+        # Drag -> pan
+        drag = Gtk.GestureDrag()
         drag.connect("drag-begin", self._on_drag_begin)
         drag.connect("drag-update", self._on_drag_update)
         self.canvas.add_controller(drag)
 
-        # Instruction label.
+        # Instruction label
         hint = Gtk.Label(label="Scroll to zoom · Drag to pan · Click a node to open")
         hint.add_css_class("dim-label")
         hint.set_margin_bottom(4)
@@ -81,9 +79,7 @@ class GraphView(Gtk.Box):
 
         self._layout_nodes()
 
-    # ------------------------------------------------------------------ #
     # Data
-    # ------------------------------------------------------------------ #
 
     def update_data(self, new_data: dict[str, list[str]]) -> None:
         self.graph_data = new_data
@@ -91,9 +87,7 @@ class GraphView(Gtk.Box):
         self._layout_nodes()
         self.canvas.queue_draw()
 
-    # ------------------------------------------------------------------ #
     # Force-directed layout
-    # ------------------------------------------------------------------ #
 
     def _layout_nodes(self) -> None:
         """Compute a stable force-directed layout."""
@@ -101,62 +95,82 @@ class GraphView(Gtk.Box):
             self._pos = {}
             return
 
-        rng = random.Random(42)  # deterministic seed for reproducibility
+        rng = random.Random(42)
         n = len(self.nodes)
-        # Spread initial positions on a circle so forces converge cleanly.
         for i, node in enumerate(self.nodes):
             angle = 2 * math.pi * i / n
             self._pos[node] = [300 * math.cos(angle), 300 * math.sin(angle)]
             self._vel[node] = [rng.uniform(-0.1, 0.1), rng.uniform(-0.1, 0.1)]
 
-        for _ in range(_STEPS):
-            forces: dict[str, list[float]] = {n: [0.0, 0.0] for n in self.nodes}
+        self._run_simulation(0)
 
-            # Repulsion between every pair.
-            for i, a in enumerate(self.nodes):
-                for b in self.nodes[i + 1:]:
-                    dx = self._pos[a][0] - self._pos[b][0]
-                    dy = self._pos[a][1] - self._pos[b][1]
-                    dist2 = max(dx * dx + dy * dy, 1.0)
-                    dist = math.sqrt(dist2)
-                    f = _REPULSION / dist2
-                    fx, fy = f * dx / dist, f * dy / dist
-                    forces[a][0] += fx
-                    forces[a][1] += fy
-                    forces[b][0] -= fx
-                    forces[b][1] -= fy
+    def _run_simulation(self, step: int) -> None:
+        """Run one chunk of the force simulation (10 steps per idle tick)."""
+        if not hasattr(self, "_sim_id"):
+            return  # widget destroyed
+        chunk = 10
+        end = min(step + chunk, _STEPS)
+        for _ in range(step, end):
+            self._simulation_step()
+        if end < _STEPS:
+            self._sim_id = GLib.idle_add(self._run_simulation, end)
+        else:
+            self._sim_id = 0
+            self._centre_layout()
 
-            # Attraction along edges.
-            for node, targets in self.graph_data.items():
-                if node not in self._pos:
+    def _on_unrealize(self, widget: Gtk.Widget) -> None:
+        if self._pending_navigate:
+            GLib.source_remove(self._pending_navigate)
+            self._pending_navigate = 0
+        if self._sim_id:
+            GLib.source_remove(self._sim_id)
+            self._sim_id = 0
+
+    def _simulation_step(self) -> None:
+        forces: dict[str, list[float]] = {n: [0.0, 0.0] for n in self.nodes}
+
+        for i, a in enumerate(self.nodes):
+            for b in self.nodes[i + 1 :]:
+                dx = self._pos[a][0] - self._pos[b][0]
+                dy = self._pos[a][1] - self._pos[b][1]
+                dist2 = max(dx * dx + dy * dy, 1.0)
+                dist = math.sqrt(dist2)
+                f = _REPULSION / dist2
+                fx, fy = f * dx / dist, f * dy / dist
+                forces[a][0] += fx
+                forces[a][1] += fy
+                forces[b][0] -= fx
+                forces[b][1] -= fy
+
+        for node, targets in self.graph_data.items():
+            if node not in self._pos:
+                continue
+            for t in targets:
+                if t not in self._pos:
                     continue
-                for t in targets:
-                    if t not in self._pos:
-                        continue
-                    dx = self._pos[t][0] - self._pos[node][0]
-                    dy = self._pos[t][1] - self._pos[node][1]
-                    forces[node][0] += _ATTRACTION * dx
-                    forces[node][1] += _ATTRACTION * dy
-                    forces[t][0]    -= _ATTRACTION * dx
-                    forces[t][1]    -= _ATTRACTION * dy
+                dx = self._pos[t][0] - self._pos[node][0]
+                dy = self._pos[t][1] - self._pos[node][1]
+                forces[node][0] += _ATTRACTION * dx
+                forces[node][1] += _ATTRACTION * dy
+                forces[t][0]    -= _ATTRACTION * dx
+                forces[t][1]    -= _ATTRACTION * dy
 
-            for node in self.nodes:
-                self._vel[node][0] = (self._vel[node][0] + forces[node][0]) * _DAMPING
-                self._vel[node][1] = (self._vel[node][1] + forces[node][1]) * _DAMPING
-                self._pos[node][0] += self._vel[node][0]
-                self._pos[node][1] += self._vel[node][1]
+        for node in self.nodes:
+            self._vel[node][0] = (self._vel[node][0] + forces[node][0]) * _DAMPING
+            self._vel[node][1] = (self._vel[node][1] + forces[node][1]) * _DAMPING
+            self._pos[node][0] += self._vel[node][0]
+            self._pos[node][1] += self._vel[node][1]
 
-        # Centre the layout around (0, 0).
+    def _centre_layout(self) -> None:
         if self.nodes:
             cx = sum(self._pos[n][0] for n in self.nodes) / len(self.nodes)
             cy = sum(self._pos[n][1] for n in self.nodes) / len(self.nodes)
             for n in self.nodes:
                 self._pos[n][0] -= cx
                 self._pos[n][1] -= cy
+        self.canvas.queue_draw()
 
-    # ------------------------------------------------------------------ #
     # Coordinate helpers
-    # ------------------------------------------------------------------ #
 
     def _graph_to_canvas(self, gx: float, gy: float, w: int, h: int) -> tuple[float, float]:
         return (
@@ -170,9 +184,7 @@ class GraphView(Gtk.Box):
             (cy - h / 2 - self._offset[1]) / self._scale,
         )
 
-    # ------------------------------------------------------------------ #
     # Drawing
-    # ------------------------------------------------------------------ #
 
     def _on_draw(
         self, area: Gtk.DrawingArea, cr, width: int, height: int
@@ -200,7 +212,7 @@ class GraphView(Gtk.Box):
             if n in self._pos
         }
 
-        # Edges.
+        # Edges
         cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.25)
         cr.set_line_width(1.5)
         for node, targets in self.graph_data.items():
@@ -215,10 +227,10 @@ class GraphView(Gtk.Box):
                 cr.line_to(x2, y2)
                 cr.stroke()
 
-                # Arrowhead.
+                # Arrowhead
                 angle = math.atan2(y2 - y1, x2 - x1)
-                ax = x2 - (_NODE_R + 2) * math.cos(angle)
-                ay = y2 - (_NODE_R + 2) * math.sin(angle)
+                ax = x2 - (10 + 2) * math.cos(angle)
+                ay = y2 - (10 + 2) * math.sin(angle)
                 hl, ha = 8, math.pi / 6
                 cr.move_to(ax, ay)
                 cr.line_to(ax - hl * math.cos(angle - ha), ay - hl * math.sin(angle - ha))
@@ -226,9 +238,7 @@ class GraphView(Gtk.Box):
                 cr.line_to(ax - hl * math.cos(angle + ha), ay - hl * math.sin(angle + ha))
                 cr.stroke()
 
-        # Nodes.
-        # Reuse the cached layout — only create it once (or when the Cairo
-        # context changes, which PangoCairo.create_layout detects internally).
+        # Nodes
         if self._label_layout is None:
             self._label_layout = PangoCairo.create_layout(cr)
             self._label_layout.set_font_description(
@@ -238,7 +248,7 @@ class GraphView(Gtk.Box):
 
         for node, (x, y) in positions.items():
             is_hovered = node == self._hovered
-            r = _NODE_R * (1.4 if is_hovered else 1.0)
+            r = 10 * (1.4 if is_hovered else 1.0)
 
             if is_hovered:
                 cr.set_source_rgba(sel.red, sel.green, sel.blue, 0.4)
@@ -254,9 +264,7 @@ class GraphView(Gtk.Box):
             cr.move_to(x + r + 4, y - 6)
             PangoCairo.show_layout(cr, layout)
 
-    # ------------------------------------------------------------------ #
     # Interaction
-    # ------------------------------------------------------------------ #
 
     def _node_at(self, cx: float, cy: float) -> str | None:
         w = self.canvas.get_width()
@@ -265,9 +273,7 @@ class GraphView(Gtk.Box):
             if node not in self._pos:
                 continue
             nx, ny = self._graph_to_canvas(self._pos[node][0], self._pos[node][1], w, h)
-            # 1.8× the visual radius gives a generous touch/click target,
-            # matching platform HIG recommendations for small interactive elements.
-            if math.hypot(nx - cx, ny - cy) < _NODE_R * 1.8:
+            if math.hypot(nx - cx, ny - cy) < 10 * 1.8:
                 return node
         return None
 
@@ -277,13 +283,12 @@ class GraphView(Gtk.Box):
         node = self._node_at(x, y)
         if not node:
             return
-        # Short delay so user sees the hover highlight before navigating.
         if self._pending_navigate:
             GLib.source_remove(self._pending_navigate)
         self._hovered = node
         self.canvas.queue_draw()
         self._pending_navigate = GLib.timeout_add(
-            _PREVIEW_MS, self._do_navigate, node
+            400, self._do_navigate, node
         )
 
     def _do_navigate(self, node: str) -> bool:
@@ -304,13 +309,13 @@ class GraphView(Gtk.Box):
         return True
 
     def _on_drag_begin(
-        self, gesture: Gtk.GestureDrag, x: float, y: float
+        self, gesture: Gtk.EventControllerDrag, x: float, y: float
     ) -> None:
         self._drag_start = (x, y)
         self._offset_start = list(self._offset)
 
     def _on_drag_update(
-        self, gesture: Gtk.GestureDrag, dx: float, dy: float
+        self, gesture: Gtk.EventControllerDrag, dx: float, dy: float
     ) -> None:
         self._offset[0] = self._offset_start[0] + dx
         self._offset[1] = self._offset_start[1] + dy

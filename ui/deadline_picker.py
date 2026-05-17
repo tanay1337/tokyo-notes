@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import re
 from typing import Callable
 
 import gi
@@ -56,12 +57,19 @@ class DeadlinePicker(Gtk.Popover):
         year = self.calendar.get_year()
         month = self.calendar.get_month() + 1  # GTK months are 0-indexed
         day = self.calendar.get_day()
-        date_str = f"{year}-{month:02d}-{day:02d}"
+        try:
+            dt = datetime.date(year, month, day)
+        except ValueError:
+            # Invalid date (e.g., Feb 31); ignore the click.
+            return
+        date_str = dt.isoformat()
         time_str = self.time_entry.get_text().strip()
-        if time_str and time_str != "17:00":
+        if re.fullmatch(r"\d{2}:\d{2}", time_str):
             self.callback(f"{date_str} {time_str}")
+        elif time_str and time_str != "17:00":
+            # Malformed time: store date-only as best-effort.
+            self.callback(date_str)
         else:
-            # If time is the default or blank, store date-only.
             self.callback(date_str)
         self.popdown()
 

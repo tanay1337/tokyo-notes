@@ -50,7 +50,6 @@ class SettingsView(Gtk.Box):
         content.set_margin_start(20)
         content.set_margin_end(20)
 
-        # ---- General ----
         general_group = Adw.PreferencesGroup(title="General")
         content.append(general_group)
 
@@ -73,7 +72,6 @@ class SettingsView(Gtk.Box):
             "sakura_effect",
         ))
 
-        # ---- Toolbars ----
         toolbar_group = Adw.PreferencesGroup(title="Editor")
         content.append(toolbar_group)
 
@@ -90,7 +88,6 @@ class SettingsView(Gtk.Box):
             "show_stats",
         ))
 
-        # ---- Themes ----
         theme_group = Adw.PreferencesGroup(title="Themes")
         content.append(theme_group)
 
@@ -129,7 +126,6 @@ class SettingsView(Gtk.Box):
         theme_box.append(theme_stack)
         theme_group.add(theme_box)
 
-        # ---- Danger zone ----
         danger_group = Adw.PreferencesGroup(title="Reset")
         content.append(danger_group)
 
@@ -148,9 +144,7 @@ class SettingsView(Gtk.Box):
         scrolled.set_child(clamp)
         self.append(scrolled)
 
-    # ------------------------------------------------------------------ #
     # Widget factories
-    # ------------------------------------------------------------------ #
 
     def _make_switch_row(
         self, title: str, subtitle: str, active: bool, config_key: str
@@ -188,9 +182,7 @@ class SettingsView(Gtk.Box):
 
         return row
 
-    # ------------------------------------------------------------------ #
     # Event handlers
-    # ------------------------------------------------------------------ #
 
     def on_select_folder_clicked(self, button: Gtk.Button) -> None:
         self.on_select_folder_callback(button)

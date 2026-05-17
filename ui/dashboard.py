@@ -32,7 +32,6 @@ class Dashboard(Gtk.Box):
         self.on_row_click = on_row_click
         self.on_empty = on_empty
 
-        # ---- Filter bar ----
         filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         filter_box.add_css_class("toolbar")
         filter_box.set_halign(Gtk.Align.CENTER)
@@ -56,7 +55,6 @@ class Dashboard(Gtk.Box):
         self.active_filter: str = default_filter
         self.update_active_filter(default_filter)
 
-        # ---- Task list ----
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         scrolled.set_hexpand(True)
@@ -66,9 +64,7 @@ class Dashboard(Gtk.Box):
         scrolled.set_child(self.dashboard_list)
         self.append(scrolled)
 
-    # ------------------------------------------------------------------ #
     # Filter controls
-    # ------------------------------------------------------------------ #
 
     def on_filter_clicked(self, btn: Gtk.Button, filter_type: str) -> None:
         self.update_active_filter(filter_type)
@@ -86,9 +82,7 @@ class Dashboard(Gtk.Box):
         self.show_completed = btn.get_active()
         self.refresh_callback(self.active_filter)
 
-    # ------------------------------------------------------------------ #
     # Population
-    # ------------------------------------------------------------------ #
 
     def populate(self, checkboxes: list[dict[str, Any]], filter_type: str) -> int:
         """Clear and repopulate the list for *filter_type*. Returns visible item count."""
@@ -113,9 +107,8 @@ class Dashboard(Gtk.Box):
     def _filter(
         self, checkboxes: list[dict[str, Any]], filter_type: str
     ) -> list[dict[str, Any]]:
-        today = datetime.date.today()
-        today_str = today.isoformat()
-        next_week_str = (today + datetime.timedelta(days=7)).isoformat()
+        _TODAY = datetime.date.today().isoformat()
+        _NEXT_WEEK = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
 
         if self.show_completed:
             pool = checkboxes
@@ -125,12 +118,12 @@ class Dashboard(Gtk.Box):
         if filter_type == "today":
             return [
                 cb for cb in pool
-                if (cb.get("deadline") or "").startswith(today_str)
+                if (cb.get("deadline") or "").startswith(_TODAY)
             ]
         if filter_type == "week":
             return [
                 cb for cb in pool
-                if cb.get("deadline") and cb["deadline"] <= next_week_str
+                if cb.get("deadline") and cb["deadline"] <= _NEXT_WEEK
             ]
         return pool
 
@@ -162,9 +155,7 @@ class Dashboard(Gtk.Box):
             for cb in items_without:
                 self.dashboard_list.append(self._make_row(cb))
 
-    # ------------------------------------------------------------------ #
     # Row builders
-    # ------------------------------------------------------------------ #
 
     def _make_date_header(
         self, date_str: str | None, label: str | None = None

@@ -37,7 +37,6 @@ class Sidebar(Gtk.Box):
         self.app = app
         self.add_css_class("sidebar")
 
-        # ---- Header ----
         sidebar_header = Adw.HeaderBar()
         sidebar_header.set_title_widget(Gtk.Label(label="Tokyo Notes"))
         new_btn = Gtk.Button(icon_name="document-new-symbolic")
@@ -45,13 +44,11 @@ class Sidebar(Gtk.Box):
         sidebar_header.pack_start(new_btn)
         self.append(sidebar_header)
 
-        # ---- Search ----
         self.search_entry = Gtk.SearchEntry(placeholder_text="Search notes…")
         self.search_entry.connect("search-changed", self.on_search_changed)
         self.search_entry.connect("stop-search", lambda _: self.app.refresh_list())
         self.append(self.search_entry)
 
-        # ---- Note lists ----
         self.stack = Gtk.Stack()
         self.stack.set_vexpand(True)
         self.main_list = Gtk.ListBox()
@@ -62,7 +59,6 @@ class Sidebar(Gtk.Box):
         scrolled.set_child(self.stack)
         self.append(scrolled)
 
-        # ---- Footer ----
         footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         footer.set_margin_start(10)
         footer.set_margin_end(10)
@@ -97,16 +93,12 @@ class Sidebar(Gtk.Box):
             "graph":     self._graph_btn,
         }
 
-    # ------------------------------------------------------------------ #
     # Search
-    # ------------------------------------------------------------------ #
 
     def on_search_changed(self, entry: Gtk.SearchEntry) -> None:
         self.app.search.on_search_changed(entry)
 
-    # ------------------------------------------------------------------ #
     # Active-view indicator
-    # ------------------------------------------------------------------ #
 
     def set_active_view(self, view: str) -> None:
         """Highlight the footer button matching *view*; clear all others."""
@@ -116,9 +108,7 @@ class Sidebar(Gtk.Box):
             else:
                 btn.remove_css_class("active")
 
-    # ------------------------------------------------------------------ #
     # Archive helpers
-    # ------------------------------------------------------------------ #
 
     def maybe_exit_archive_view(self) -> None:
         if (
@@ -142,9 +132,7 @@ class Sidebar(Gtk.Box):
         self.app.split_view.set_show_sidebar(visible)
         self.app.cfg.set("show_sidebar", visible)
 
-    # ------------------------------------------------------------------ #
     # Populate
-    # ------------------------------------------------------------------ #
 
     def populate(
         self,
@@ -189,9 +177,7 @@ class Sidebar(Gtk.Box):
 
         self.archived_nav_btn.set_sensitive(bool(archived_notes))
 
-    # ------------------------------------------------------------------ #
     # Internal helpers
-    # ------------------------------------------------------------------ #
 
     def _clear(self, lb: Gtk.ListBox) -> None:
         while (child := lb.get_first_child()):
@@ -234,17 +220,19 @@ class Sidebar(Gtk.Box):
         box.append(snippet)
 
         row.set_child(box)
-        row.note_name   = note_name
-        row.title_label  = label
+        row.note_name = note_name
+        row.title_label = label
         row.snippet_label = snippet
 
-        # Hover-preload: warm the cache so clicking feels instant.
+        # Hover-preload using a weakref so the row can be GCed.
+        import weakref
+        _app_ref = weakref.ref(self.app)
         hover = Gtk.EventControllerMotion()
-        hover.connect(
-            "enter",
-            lambda *_, n=note_name: self.app.notes_manager.read_note(n),
-        )
-        row.add_controller(hover)
+        def _on_hover_enter(*_):
+            app = _app_ref()
+            if app is not None:
+                app.notes_manager.read_note(note_name)
+        hover.connect("enter", _on_hover_enter)
 
         if on_right_click:
             gesture = Gtk.GestureClick(button=3)

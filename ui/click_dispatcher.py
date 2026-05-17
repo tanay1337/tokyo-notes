@@ -1,6 +1,7 @@
 """Click dispatcher — maps editor clicks to wiki links, URLs, tags, and deadlines."""
 from __future__ import annotations
 
+import re
 import webbrowser
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,15 @@ _CLICK_PATTERNS: list[tuple[str, Any]] = [
     ("tag",      TAG_RE),
     ("deadline", DEADLINE_RE),
 ]
+
+# Whitelist of URL schemes that may be opened in the user's browser.
+_SAFE_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+
+
+def _is_safe_url(url: str) -> bool:
+    """Return True only for http(s) URLs to prevent malicious links."""
+    scheme = url.split(":", 1)[0].lower()
+    return scheme in _SAFE_SCHEMES
 
 
 class ClickDispatcher:
@@ -76,13 +86,15 @@ class ClickDispatcher:
 
         elif kind == "mdlink":
             url = match.group(3)
-            if url.startswith("http"):
+            if _is_safe_url(url):
                 webbrowser.open_new_tab(url)
             else:
                 app.lifecycle.on_link_clicked(url.rsplit(".", 1)[0])
 
         elif kind == "url":
-            webbrowser.open_new_tab(match.group(0))
+            url = match.group(0)
+            if _is_safe_url(url):
+                webbrowser.open_new_tab(url)
 
         elif kind == "tag":
             app.sidebar.search_entry.set_text(match.group(0))
