@@ -181,6 +181,8 @@ class Dashboard(Gtk.Box):
         row.add_css_class("calendar-row")
         row.checkbox_data = cb
         row.set_selectable(False)
+        if cb["checked"]:
+            row.add_css_class("task-completed-row")
 
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
@@ -194,6 +196,8 @@ class Dashboard(Gtk.Box):
         if time_str:
             time_label = Gtk.Label(label=time_str)
             time_label.add_css_class("time-column")
+            if cb["checked"]:
+                time_label.add_css_class("task-completed")
             deadline_gesture = Gtk.GestureClick.new()
             deadline_gesture.connect(
                 "pressed", lambda *a, _cb=cb: self.on_deadline_click(_cb, a[2], a[3])
@@ -212,12 +216,16 @@ class Dashboard(Gtk.Box):
         checkbox.handler_block(handler_id)
         checkbox.set_active(cb["checked"])
         checkbox.handler_unblock(handler_id)
+        if cb["checked"]:
+            checkbox.add_css_class("task-completed")
         box.append(checkbox)
 
         # Task text — ellipsise long text instead of clipping.
         text_label = Gtk.Label(label=cb["text"], xalign=0)
         text_label.set_hexpand(True)
         text_label.set_ellipsize(Pango.EllipsizeMode.END)
+        if cb["checked"]:
+            text_label.add_css_class("task-completed")
         box.append(text_label)
 
         # Note chip — double-click navigates to the source note.

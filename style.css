@@ -359,6 +359,17 @@ popover > contents {
     font-size: 7pt;
 }
 
+/* Dimmed completed task text in dashboard */
+.task-completed {
+    opacity: 0.5;
+    text-decoration: line-through;
+}
+
+/* Completed task row — dim the left accent border */
+.task-completed-row {
+    border-left-color: alpha(@accent_color, 0.3);
+}
+
 /* Active footer nav button */
 .dashboard-footer-btn.active {
     background-color: @accent_color;
