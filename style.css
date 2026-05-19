@@ -67,8 +67,17 @@ textview text {
 }
 
 .toolbar button.active {
-    background-color: @accent_color;
+    background-color: @selection_color;
     color: @selected_fg_color;
+}
+
+button.filter-btn.active {
+    background-color: @selection_color;
+    color: @selected_fg_color;
+}
+
+.filter-btn {
+    padding: 2px 10px;
 }
 
 .toolbar {
@@ -370,8 +379,8 @@ popover > contents {
 }
 
 /* Active footer nav button */
-.dashboard-footer-btn.active {
-    background-color: @accent_color;
+button.dashboard-footer-btn.active {
+    background-color: @selection_color;
     color: @selected_fg_color;
 }
 

@@ -45,6 +45,7 @@ class Dashboard(Gtk.Box):
         self.buttons: dict[str, Gtk.Button] = {}
         for label in ("Today", "Week", "All"):
             btn = Gtk.Button(label=label)
+            btn.add_css_class("filter-btn")
             btn.connect("clicked", self.on_filter_clicked, label.lower())
             filter_box.append(btn)
             self.buttons[label.lower()] = btn
