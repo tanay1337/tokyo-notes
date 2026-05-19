@@ -44,6 +44,7 @@ class NavigationController:
                 self.on_dashboard_empty,
                 self.refresh_dashboard,
                 lambda: app.cfg.get("show_completed", True),
+                lambda: app.cfg.get("show_progress_rings", True),
                 default_filter="today",
             )
             app.dashboard_list = app.dashboard_view.dashboard_list
@@ -146,6 +147,7 @@ class NavigationController:
                     "sakura_effect": app.cfg.get("sakura_effect"),
                     "theme": app.cfg.get("theme"),
                     "show_completed": app.cfg.get("show_completed", True),
+                    "show_progress_rings": app.cfg.get("show_progress_rings", True),
                 },
             )
             app.content_stack.add_named(app.settings_view, "settings")

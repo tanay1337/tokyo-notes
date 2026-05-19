@@ -74,7 +74,7 @@ textview text {
 .toolbar {
     background-color: @bg_color;
     border-bottom: 1px solid @border_color;
-    padding: 5px;
+    padding: 12px 5px 8px 5px;
 }
 
 .toolbar-btn {
@@ -165,7 +165,6 @@ text {
     font-weight: bold;
     font-size: 11pt;
     color: @deadline_color;
-    padding: 15px 10px 5px 10px;
 }
 
 .note-chip {

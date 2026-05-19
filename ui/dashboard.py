@@ -9,6 +9,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Pango
 
+from ui.progress_ring import ProgressRing
+
 
 class Dashboard(Gtk.Box):
     """Filterable task list built from checkbox metadata across all notes."""
@@ -21,6 +23,7 @@ class Dashboard(Gtk.Box):
         on_empty: Callable[[str], Any],
         refresh_callback: Callable[[str], Any],
         get_show_completed: Callable[[], bool],
+        get_show_progress_rings: Callable[[], bool],
         default_filter: str = "today",
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -32,6 +35,8 @@ class Dashboard(Gtk.Box):
         self.on_row_click = on_row_click
         self.on_empty = on_empty
         self.get_show_completed = get_show_completed
+        self.get_show_progress_rings = get_show_progress_rings
+        self._prev_stats: dict[str, tuple[int, int]] = {}
 
         filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         filter_box.add_css_class("toolbar")
@@ -85,7 +90,7 @@ class Dashboard(Gtk.Box):
             return 0
 
         if filter_type in ("week", "all"):
-            self._populate_grouped(filtered, include_misc=(filter_type == "all"))
+            self._populate_grouped(filtered, include_misc=(filter_type == "all"), show_year=(filter_type == "all"))
         else:
             self._populate_flat(filtered)
 
@@ -119,11 +124,23 @@ class Dashboard(Gtk.Box):
         return pool
 
     def _populate_flat(self, items: list[dict[str, Any]]) -> None:
+        completed = sum(1 for cb in items if cb["checked"])
+        total = len(items)
+        today_key = datetime.date.today().isoformat()
+        if total > 0:
+            today = datetime.date.today().strftime("%A, %B %d")
+            prev = self._prev_stats.get(today_key, (0, 0))
+            animate = (completed, total) != prev
+            self.dashboard_list.append(
+                self._make_date_header(None, label=today, progress=(completed, total), show_year=False, animate=animate)
+            )
+            self._prev_stats[today_key] = (completed, total)
         for cb in sorted(items, key=lambda x: x.get("deadline") or ""):
             self.dashboard_list.append(self._make_row(cb))
 
     def _populate_grouped(
-        self, items: list[dict[str, Any]], include_misc: bool = False
+        self, items: list[dict[str, Any]], include_misc: bool = False,
+        show_year: bool = False,
     ) -> None:
         items_with = sorted(
             [cb for cb in items if cb.get("deadline")],
@@ -131,38 +148,74 @@ class Dashboard(Gtk.Box):
         )
         items_without = [cb for cb in items if not cb.get("deadline")]
 
+        date_stats: dict[str, tuple[int, int]] = {}
+        for cb in items_with:
+            date_str = cb["deadline"].split(" ")[0]
+            if date_str not in date_stats:
+                date_stats[date_str] = (0, 0)
+            c, t = date_stats[date_str]
+            date_stats[date_str] = (c + (1 if cb["checked"] else 0), t + 1)
+
         current_date: str | None = None
         for cb in items_with:
             date_str = cb["deadline"].split(" ")[0]
             if date_str != current_date:
                 current_date = date_str
-                self.dashboard_list.append(self._make_date_header(date_str))
+                prev = self._prev_stats.get(date_str, (0, 0))
+                animate = date_stats[date_str] != prev
+                self.dashboard_list.append(
+                    self._make_date_header(date_str, progress=date_stats[date_str], show_year=show_year, animate=animate)
+                )
             self.dashboard_list.append(self._make_row(cb))
 
         if include_misc and items_without:
+            nd_completed = sum(1 for cb in items_without if cb["checked"])
+            nd_total = len(items_without)
+            nd_key = "no_deadline"
+            nd_stats = (nd_completed, nd_total)
+            prev = self._prev_stats.get(nd_key, (0, 0))
+            animate = nd_stats != prev
             self.dashboard_list.append(
-                self._make_date_header(None, label="No Deadline")
+                self._make_date_header(None, label="No Deadline", progress=nd_stats, show_year=False, animate=animate)
             )
+            date_stats[nd_key] = nd_stats
             for cb in items_without:
                 self.dashboard_list.append(self._make_row(cb))
+
+        self._prev_stats = date_stats
 
     # Row builders
 
     def _make_date_header(
-        self, date_str: str | None, label: str | None = None
+        self, date_str: str | None, label: str | None = None,
+        progress: tuple[int, int] | None = None,
+        show_year: bool = False,
+        animate: bool = True,
     ) -> Gtk.ListBoxRow:
         if label is None:
             try:
                 dt = datetime.datetime.strptime(date_str or "", "%Y-%m-%d")
-                # Always include year so Dec 31 vs Jan 1 is unambiguous.
-                label = dt.strftime("%A, %B %d, %Y")
+                label = dt.strftime("%A, %B %d, %Y" if show_year else "%A, %B %d")
             except ValueError:
                 label = date_str or ""
 
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        box.set_margin_top(15)
+        box.set_margin_bottom(5)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+
+        if progress is not None and self.get_show_progress_rings():
+            ring = ProgressRing()
+            ring.set_progress(progress[0], progress[1], animate=animate)
+            box.append(ring)
+
         lbl = Gtk.Label(label=label, xalign=0)
         lbl.add_css_class("day-header")
+        box.append(lbl)
+
         row = Gtk.ListBoxRow()
-        row.set_child(lbl)
+        row.set_child(box)
         row.set_selectable(False)
         return row
 

@@ -97,6 +97,12 @@ class SettingsView(Gtk.Box):
             initial_values.get("show_completed", True),
             "show_completed",
         ))
+        dashboard_group.add(self._make_switch_row(
+            "Progress Indicators",
+            "Show completion rings on date headers",
+            initial_values.get("show_progress_rings", True),
+            "show_progress_rings",
+        ))
 
         theme_group = Adw.PreferencesGroup(title="Themes")
         content.append(theme_group)
@@ -209,11 +215,12 @@ class SettingsView(Gtk.Box):
     def on_reset_clicked(self, button: Gtk.Button) -> None:
         """Reset all settings to their default values and confirm visually."""
         defaults = {
-            "show_toolbar":       True,
-            "show_stats":         False,
-            "sakura_effect":      True,
-            "show_completed":     True,
-            "theme":              "tokyo-night",
+            "show_toolbar":        True,
+            "show_stats":          False,
+            "sakura_effect":       True,
+            "show_completed":      True,
+            "show_progress_rings": True,
+            "theme":               "tokyo-night",
         }
         for key, value in defaults.items():
             self.on_config_changed(key, value)
