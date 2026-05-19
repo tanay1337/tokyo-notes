@@ -176,6 +176,13 @@ text {
     color: @deadline_color;
 }
 
+.disclosure-triangle {
+    color: @fg_color;
+    opacity: 0.5;
+    font-size: 9pt;
+    min-width: 14px;
+}
+
 .note-chip {
     background-color: @selection_color;
     color: @fg_color;

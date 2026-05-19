@@ -37,6 +37,8 @@ class Dashboard(Gtk.Box):
         self.get_show_completed = get_show_completed
         self.get_show_progress_rings = get_show_progress_rings
         self._prev_stats: dict[str, tuple[int, int]] = {}
+        self._collapsed: set[str] = set()
+        self._date_rows: dict[str, list[Gtk.ListBoxRow]] = {}
 
         filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         filter_box.add_css_class("toolbar")
@@ -133,7 +135,7 @@ class Dashboard(Gtk.Box):
             prev = self._prev_stats.get(today_key, (0, 0))
             animate = (completed, total) != prev
             self.dashboard_list.append(
-                self._make_date_header(None, label=today, progress=(completed, total), show_year=False, animate=animate)
+                self._make_date_header(None, label=today, progress=(completed, total), show_year=False, animate=animate, show_disclosure=False)
             )
             self._prev_stats[today_key] = (completed, total)
         for cb in sorted(items, key=lambda x: x.get("deadline") or ""):
@@ -157,17 +159,27 @@ class Dashboard(Gtk.Box):
             c, t = date_stats[date_str]
             date_stats[date_str] = (c + (1 if cb["checked"] else 0), t + 1)
 
+        self._date_rows.clear()
         current_date: str | None = None
         for cb in items_with:
             date_str = cb["deadline"].split(" ")[0]
             if date_str != current_date:
                 current_date = date_str
+                is_collapsed = date_str in self._collapsed
                 prev = self._prev_stats.get(date_str, (0, 0))
                 animate = date_stats[date_str] != prev
-                self.dashboard_list.append(
-                    self._make_date_header(date_str, progress=date_stats[date_str], show_year=show_year, animate=animate)
+                header_row = self._make_date_header(
+                    date_str, progress=date_stats[date_str],
+                    show_year=show_year, animate=animate,
+                    collapsed=is_collapsed,
                 )
-            self.dashboard_list.append(self._make_row(cb))
+                self.dashboard_list.append(header_row)
+                self._date_rows[date_str] = []
+            task_row = self._make_row(cb)
+            self.dashboard_list.append(task_row)
+            self._date_rows[date_str].append(task_row)
+            if is_collapsed:
+                task_row.set_visible(False)
 
         if include_misc and items_without:
             nd_completed = sum(1 for cb in items_without if cb["checked"])
@@ -176,12 +188,20 @@ class Dashboard(Gtk.Box):
             nd_stats = (nd_completed, nd_total)
             prev = self._prev_stats.get(nd_key, (0, 0))
             animate = nd_stats != prev
-            self.dashboard_list.append(
-                self._make_date_header(None, label="No Deadline", progress=nd_stats, show_year=False, animate=animate)
+            is_collapsed = nd_key in self._collapsed
+            header_row = self._make_date_header(
+                None, label="No Deadline", progress=nd_stats,
+                show_year=False, animate=animate,
+                collapsed=is_collapsed,
             )
-            date_stats[nd_key] = nd_stats
+            self.dashboard_list.append(header_row)
+            self._date_rows[nd_key] = []
             for cb in items_without:
-                self.dashboard_list.append(self._make_row(cb))
+                task_row = self._make_row(cb)
+                self.dashboard_list.append(task_row)
+                self._date_rows[nd_key].append(task_row)
+                if is_collapsed:
+                    task_row.set_visible(False)
 
         self._prev_stats = date_stats
 
@@ -192,6 +212,8 @@ class Dashboard(Gtk.Box):
         progress: tuple[int, int] | None = None,
         show_year: bool = False,
         animate: bool = True,
+        collapsed: bool = False,
+        show_disclosure: bool = True,
     ) -> Gtk.ListBoxRow:
         if label is None:
             try:
@@ -206,6 +228,11 @@ class Dashboard(Gtk.Box):
         box.set_margin_start(10)
         box.set_margin_end(10)
 
+        if show_disclosure:
+            triangle = Gtk.Label(label="▼" if not collapsed else "▶")
+            triangle.add_css_class("disclosure-triangle")
+            box.append(triangle)
+
         if progress is not None and self.get_show_progress_rings():
             ring = ProgressRing()
             ring.set_progress(progress[0], progress[1], animate=animate)
@@ -215,10 +242,27 @@ class Dashboard(Gtk.Box):
         lbl.add_css_class("day-header")
         box.append(lbl)
 
+        if show_disclosure:
+            gesture = Gtk.GestureClick.new()
+            gesture.connect("pressed", lambda *a, _d=date_str or "no_deadline", _t=triangle: self._toggle_date(_d, _t))
+            box.add_controller(gesture)
+
         row = Gtk.ListBoxRow()
         row.set_child(box)
         row.set_selectable(False)
         return row
+
+    def _toggle_date(self, date_key: str, triangle: Gtk.Label) -> None:
+        if date_key in self._collapsed:
+            self._collapsed.discard(date_key)
+            triangle.set_label("▼")
+            for task_row in self._date_rows.get(date_key, []):
+                task_row.set_visible(True)
+        else:
+            self._collapsed.add(date_key)
+            triangle.set_label("▶")
+            for task_row in self._date_rows.get(date_key, []):
+                task_row.set_visible(False)
 
     def _make_row(self, cb: dict[str, Any]) -> Gtk.ListBoxRow:
         """Build a single task row for *cb*."""
