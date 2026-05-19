@@ -88,6 +88,16 @@ class SettingsView(Gtk.Box):
             "show_stats",
         ))
 
+        dashboard_group = Adw.PreferencesGroup(title="Dashboard")
+        content.append(dashboard_group)
+
+        dashboard_group.add(self._make_switch_row(
+            "Show Completed Tasks",
+            "Include completed tasks in the dashboard",
+            initial_values.get("show_completed", True),
+            "show_completed",
+        ))
+
         theme_group = Adw.PreferencesGroup(title="Themes")
         content.append(theme_group)
 
@@ -202,6 +212,7 @@ class SettingsView(Gtk.Box):
             "show_toolbar":       True,
             "show_stats":         False,
             "sakura_effect":      True,
+            "show_completed":     True,
             "theme":              "tokyo-night",
         }
         for key, value in defaults.items():

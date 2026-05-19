@@ -312,6 +312,8 @@ class TokyoNotes(Adw.Application):
             self.toolbar.set_visible(value)
         elif key == "show_stats":
             self.editor.status_bar.set_visible(value)
+        elif key == "show_completed" and self.dashboard_view is not None:
+            self.nav.refresh_dashboard(self.dashboard_view.active_filter)
 
     def apply_theme(self, theme_name: str) -> None:
         self.theme_manager.apply_theme(theme_name)

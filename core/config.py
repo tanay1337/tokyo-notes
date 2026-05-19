@@ -18,6 +18,7 @@ _DEFAULTS: dict[str, Any] = {
     "show_stats":        False,
     "sakura_effect":     True,
     "theme":             "tokyo-night",
+    "show_completed":    True,
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).

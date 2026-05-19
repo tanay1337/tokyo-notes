@@ -381,10 +381,3 @@ popover > contents {
     margin: 4px 2px;
     min-height: 18px;
 }
-
-/* Show Completed toggle pill */
-button.pill {
-    border-radius: 20px;
-    padding: 2px 10px;
-    font-size: 9pt;
-}

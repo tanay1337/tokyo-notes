@@ -43,6 +43,7 @@ class NavigationController:
                 app.lifecycle.handle_row_click,
                 self.on_dashboard_empty,
                 self.refresh_dashboard,
+                lambda: app.cfg.get("show_completed", True),
                 default_filter="today",
             )
             app.dashboard_list = app.dashboard_view.dashboard_list
@@ -144,6 +145,7 @@ class NavigationController:
                     "show_stats": app.cfg.get("show_stats"),
                     "sakura_effect": app.cfg.get("sakura_effect"),
                     "theme": app.cfg.get("theme"),
+                    "show_completed": app.cfg.get("show_completed", True),
                 },
             )
             app.content_stack.add_named(app.settings_view, "settings")

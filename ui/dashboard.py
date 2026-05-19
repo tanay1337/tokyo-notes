@@ -20,6 +20,7 @@ class Dashboard(Gtk.Box):
         on_row_click: Callable[[Any, int, float, float, Any], Any],
         on_empty: Callable[[str], Any],
         refresh_callback: Callable[[str], Any],
+        get_show_completed: Callable[[], bool],
         default_filter: str = "today",
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -30,6 +31,7 @@ class Dashboard(Gtk.Box):
         self.on_deadline_click = on_deadline_click
         self.on_row_click = on_row_click
         self.on_empty = on_empty
+        self.get_show_completed = get_show_completed
 
         filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         filter_box.add_css_class("toolbar")
@@ -41,13 +43,6 @@ class Dashboard(Gtk.Box):
             btn.connect("clicked", self.on_filter_clicked, label.lower())
             filter_box.append(btn)
             self.buttons[label.lower()] = btn
-
-        # Completed toggle
-        self.show_completed = False
-        self.completed_btn = Gtk.ToggleButton(label="Show Completed")
-        self.completed_btn.add_css_class("pill")
-        self.completed_btn.connect("toggled", self._on_completed_toggled)
-        filter_box.append(self.completed_btn)
 
         self.append(filter_box)
 
@@ -78,10 +73,6 @@ class Dashboard(Gtk.Box):
             else:
                 btn.remove_css_class("active")
 
-    def _on_completed_toggled(self, btn: Gtk.ToggleButton) -> None:
-        self.show_completed = btn.get_active()
-        self.refresh_callback(self.active_filter)
-
     # Population
 
     def populate(self, checkboxes: list[dict[str, Any]], filter_type: str) -> int:
@@ -110,7 +101,7 @@ class Dashboard(Gtk.Box):
         _TODAY = datetime.date.today().isoformat()
         _NEXT_WEEK = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
 
-        if self.show_completed:
+        if self.get_show_completed():
             pool = checkboxes
         else:
             pool = [cb for cb in checkboxes if not cb["checked"]]
