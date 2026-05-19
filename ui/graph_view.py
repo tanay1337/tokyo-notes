@@ -44,6 +44,7 @@ class GraphView(Gtk.Box):
         self._drag_start: tuple[float, float] | None = None
         self._offset_start: list[float] = [0.0, 0.0]
         self._fit_anim_id: int = 0
+        self._first_layout: bool = True
 
         # Hovered / selected node for preview panel
         self._hovered: str | None = None
@@ -202,10 +203,13 @@ class GraphView(Gtk.Box):
                 self._pos[n][0] -= cx
                 self._pos[n][1] -= cy
         self.canvas.queue_draw()
+        if self._first_layout:
+            self._first_layout = False
+            GLib.idle_add(self._on_fit_clicked, None)
 
     # Fit-to-view
 
-    def _on_fit_clicked(self, btn: Gtk.Button) -> None:
+    def _on_fit_clicked(self, btn: Gtk.Button | None = None) -> None:
         if not self.nodes or not self._pos:
             return
         w = self.canvas.get_width()
@@ -297,6 +301,85 @@ class GraphView(Gtk.Box):
             if n in self._pos
         }
 
+        if self._label_layout is None:
+            self._label_layout = PangoCairo.create_layout(cr)
+            self._label_layout.set_font_description(
+                Pango.FontDescription.from_string("Sans 9")
+            )
+        layout = self._label_layout
+
+        # Compute label bounding boxes for collision detection
+        label_bboxes: dict[str, tuple[float, float, float, float]] = {}
+        node_radii: dict[str, float] = {}
+        sorted_nodes = sorted(self.nodes, key=lambda n: self._degrees.get(n, 0), reverse=True)
+        for node in sorted_nodes:
+            if node not in positions:
+                continue
+            x, y = positions[node]
+            r = self._node_radius(node)
+            node_radii[node] = r
+            layout.set_text(node, -1)
+            lw, lh = layout.get_pixel_size()
+            lx = x + r + 4
+            ly = y - lh / 2
+            label_bboxes[node] = (lx, ly, lw, lh)
+
+        # Resolve collisions: try alternative positions
+        label_offsets: dict[str, tuple[float, float]] = {}
+        label_visible: dict[str, bool] = {}
+        for node in sorted_nodes:
+            if node not in label_bboxes:
+                continue
+            x, y = positions[node]
+            r = node_radii[node]
+            lx, ly, lw, lh = label_bboxes[node]
+            ox, oy = 0.0, 0.0
+            visible = True
+
+            if self._scale < 0.5 and self._degrees.get(node, 0) < 2:
+                visible = False
+            else:
+                candidates = [
+                    (0.0, 0.0),           # right (default)
+                    (0.0, -lh - r - 4),   # above
+                    (0.0, lh + r + 4),    # below
+                    (-lw - r - 8, 0.0),   # left
+                ]
+                for dx, dy in candidates:
+                    test_lx = lx + dx
+                    test_ly = ly + dy
+                    test_bbox = (test_lx, test_ly, lw, lh)
+                    collision = False
+                    for other in sorted_nodes:
+                        if other == node or other not in label_bboxes:
+                            continue
+                        other_x, other_y = positions[other]
+                        other_r = node_radii.get(other, 10)
+                        # Check against other node's circle
+                        cx = test_lx + lw / 2
+                        cy = test_ly + lh / 2
+                        if math.hypot(cx - other_x, cy - other_y) < other_r + 4:
+                            collision = True
+                            break
+                        # Check against other label's bbox
+                        if other in label_offsets:
+                            odx, ody = label_offsets[other]
+                            olx, oly, olw, olh = label_bboxes[other]
+                            olx += odx
+                            oly += ody
+                            if not (test_lx + lw < olx or olx + olw < test_lx or
+                                    test_ly + lh < oly or oly + olh < test_ly):
+                                collision = True
+                                break
+                    if not collision:
+                        ox, oy = dx, dy
+                        break
+                else:
+                    visible = False
+
+            label_offsets[node] = (ox, oy)
+            label_visible[node] = visible
+
         has_hover = self._hovered is not None
 
         # Edges
@@ -338,13 +421,6 @@ class GraphView(Gtk.Box):
                 cr.stroke()
 
         # Nodes
-        if self._label_layout is None:
-            self._label_layout = PangoCairo.create_layout(cr)
-            self._label_layout.set_font_description(
-                Pango.FontDescription.from_string("Sans 9")
-            )
-        layout = self._label_layout
-
         for node, (x, y) in positions.items():
             is_hovered = node == self._hovered
             r = self._node_radius(node)
@@ -368,11 +444,18 @@ class GraphView(Gtk.Box):
             cr.arc(x, y, r * (1.3 if is_hovered else 1.0), 0, 2 * math.pi)
             cr.fill()
 
-            label_alpha = 0.2 if (has_hover and node not in self._connected and not is_hovered) else 1.0
-            cr.set_source_rgba(fg.red, fg.green, fg.blue, label_alpha)
-            layout.set_text(node, -1)
-            cr.move_to(x + r + 4, y - 6)
-            PangoCairo.show_layout(cr, layout)
+            label_alpha = 0.0
+            if label_visible.get(node, False):
+                if has_hover and node not in self._connected and not is_hovered:
+                    label_alpha = 0.2
+                else:
+                    label_alpha = 1.0
+            if label_alpha > 0:
+                ox, oy = label_offsets.get(node, (0.0, 0.0))
+                cr.set_source_rgba(fg.red, fg.green, fg.blue, label_alpha)
+                layout.set_text(node, -1)
+                cr.move_to(x + r + 4 + ox, y - 6 + oy)
+                PangoCairo.show_layout(cr, layout)
 
     # Interaction
 

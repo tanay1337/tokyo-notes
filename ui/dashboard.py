@@ -52,6 +52,14 @@ class Dashboard(Gtk.Box):
             filter_box.append(btn)
             self.buttons[label.lower()] = btn
 
+        shortcut_ctrl = Gtk.ShortcutController()
+        shortcut_ctrl.set_scope(Gtk.ShortcutScope.MANAGED)
+        for key, filter_type in (("1", "today"), ("2", "week"), ("3", "all")):
+            trigger = Gtk.ShortcutTrigger.parse_string(f"<Primary>{key}")
+            action = Gtk.CallbackAction.new(lambda *_a, ft=filter_type: self._activate_filter(ft))
+            shortcut_ctrl.add_shortcut(Gtk.Shortcut(trigger=trigger, action=action))
+        self.add_controller(shortcut_ctrl)
+
         self.append(filter_box)
 
         self.active_filter: str = default_filter
@@ -80,6 +88,11 @@ class Dashboard(Gtk.Box):
                 btn.add_css_class("active")
             else:
                 btn.remove_css_class("active")
+
+    def _activate_filter(self, filter_type: str) -> bool:
+        if self.active_filter != filter_type:
+            self.on_filter_clicked(None, filter_type)
+        return True
 
     # Population
 
