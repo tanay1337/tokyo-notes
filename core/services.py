@@ -6,6 +6,7 @@ independently.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from core.utils import H1_TITLE_RE, get_snippet as _get_snippet
@@ -13,7 +14,7 @@ from core.utils import H1_TITLE_RE, get_snippet as _get_snippet
 
 def clean_title(raw: str) -> str:
     return "".join(
-        c for c in raw.strip() if c.isalnum() or c in (" ", "-", "_")
+        c for c in raw.strip() if c.isalnum() or c in (" ", "-", "_", ".", "(", ")")
     ).strip()
 
 
@@ -34,9 +35,6 @@ def update_note_title(
     new_title = derive_display_title(content, "")
     if not new_title or new_title == old_name:
         return old_name, False
-
-    import os
-    from pathlib import Path
 
     collision = (Path(notes_manager.notes_dir) / f"{new_title}.md")
     if collision.exists():

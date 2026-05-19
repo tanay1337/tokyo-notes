@@ -15,7 +15,6 @@ class Dashboard(Gtk.Box):
 
     def __init__(
         self,
-        on_item_selected: Callable[[Any, Any], Any],
         on_checkbox_toggled: Callable[[Any, bool], Any],
         on_deadline_click: Callable[[Any, float, float], Any],
         on_row_click: Callable[[Any, int, float, float, Any], Any],
@@ -60,7 +59,8 @@ class Dashboard(Gtk.Box):
         scrolled.set_hexpand(True)
 
         self.dashboard_list = Gtk.ListBox()
-        self.dashboard_list.connect("row-selected", on_item_selected)
+        # row-selected is intentionally not connected: navigation is handled
+        # by gesture controllers on each row's chip and text widgets.
         scrolled.set_child(self.dashboard_list)
         self.append(scrolled)
 

@@ -174,11 +174,7 @@ class NotesManager:
         return name
 
     def create_note(self, name: str = "Untitled", content: str = "") -> str:
-        base = name
-        counter = 1
-        while (self.notes_dir / f"{name}.md").exists():
-            name = f"{base} {counter}"
-            counter += 1
+        name = self.reserve_name(name)
         self.save_note(name, content)
         return name
 

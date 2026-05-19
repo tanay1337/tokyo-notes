@@ -18,16 +18,6 @@ if TYPE_CHECKING:
     from main import TokyoNotes
 
 
-def _clean_title(raw: str) -> str:
-    return "".join(
-        c for c in raw.strip() if c.isalnum() or c in (" ", "-", "_")
-    ).strip()
-
-
-def _derive_display_title(content: str, fallback: str) -> str:
-    return derive_display_title(content, fallback)
-
-
 class NoteLifecycleManager:
     """Coordinates note open/create/delete/save/rename between the UI and NotesManager."""
 
@@ -310,8 +300,4 @@ class NoteLifecycleManager:
         if app._has_images:
             app._reschedule("image_timeout_id", 2000, app.do_delayed_images)
         app._reschedule("rename_timeout_id", 1000, self.do_delayed_save)
-
-    def _update_stats(self, content: str) -> None:
-        app = self.app
-        app.editor.stats_label.set_label(build_stats(content))
 

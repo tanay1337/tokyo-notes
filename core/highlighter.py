@@ -67,7 +67,6 @@ class MarkdownHighlighter:
         self.re_blockquote       = BLOCKQUOTE_RE
         self.re_unordered        = LIST_UL_RE
         self.re_ordered          = LIST_OL_RE
-        self.re_list_bullet      = LIST_UL_RE
         self.re_table_row        = TABLE_ROW_RE
         self.re_table_sep        = TABLE_SEP_RE
         self.re_header           = HEADER_ATX_RE
@@ -275,7 +274,7 @@ class MarkdownHighlighter:
                     setext
                     and prev_line.strip()
                     and not prev_line.strip().startswith("#")
-                    and not self.re_list_bullet.match(prev_line)
+                    and not self.re_unordered.match(prev_line)
                 ):
                     self.apply_tag("setext_underline", line_start_offset, line_end_offset)
                     prev_offset = line_start_offset - len(prev_line) - 1

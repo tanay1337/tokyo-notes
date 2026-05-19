@@ -128,8 +128,10 @@ class ActionsHandler:
         pdf_path = downloads / f"{safe_name}.pdf"
 
         start, end = self.app.buffer.get_bounds()
-        text = self.app.buffer.get_text(start, end, True)
-        n_pages = self._count_pages(text)
+        # Cache the text for the draw-page callbacks so they don't each
+        # re-read the buffer (one read per page was wasteful).
+        self._pdf_text: str = self.app.buffer.get_text(start, end, True)
+        n_pages = self._count_pages(self._pdf_text)
 
         print_op = Gtk.PrintOperation()
         print_op.set_n_pages(n_pages)
@@ -146,6 +148,8 @@ class ActionsHandler:
                 self.app.show_export_dialog("Success", f"Saved to {pdf_path}")
         except Exception as e:
             self.app.show_export_dialog("Error", str(e), is_error=True)
+        finally:
+            self._pdf_text = None  # release cached text
 
     def _line_advance(self, stripped: str) -> float:
         """Vertical advance in points for *stripped* on a PDF page."""
@@ -169,9 +173,15 @@ class ActionsHandler:
         return _PDF_LINE_HEIGHT
 
     def _pdf_line_info(self, line: str, stripped: str, in_code_block: bool) -> tuple[float, bool]:
-        """Return (advance, new_in_code_block) for *line* given current block state."""
+        """Return (advance, new_in_code_block) for *line* given current block state.
+
+        Fence lines (```) get a full line advance so the page-break guard fires
+        correctly for them.  Previously they had advance=0.0, which meant the
+        page counter could increment *after* the fence toggle, leaving
+        in_code_block in the wrong state for subsequent lines on a new page.
+        """
         if stripped.startswith("```"):
-            return (0.0, not in_code_block)
+            return (_PDF_LINE_HEIGHT, not in_code_block)
         if in_code_block:
             return (16.0, in_code_block)
         return (self._line_advance(stripped), in_code_block)
@@ -330,8 +340,12 @@ class ActionsHandler:
         cr.paint()
         cr.set_source_rgb(*_PDF_TEXT_RGB)
 
-        start, end = self.app.buffer.get_bounds()
-        text = self.app.buffer.get_text(start, end, True)
+        # Use the text cached by on_export_pdf to avoid re-reading the buffer
+        # once per page.  Fall back to a direct read if somehow called standalone.
+        text = getattr(self, "_pdf_text", None)
+        if text is None:
+            start, end = self.app.buffer.get_bounds()
+            text = self.app.buffer.get_text(start, end, True)
 
         # Skip lines that belong to earlier pages.
         page_height = height - _PDF_MARGIN

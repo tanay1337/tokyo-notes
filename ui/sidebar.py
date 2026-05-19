@@ -167,11 +167,15 @@ class Sidebar(Gtk.Box):
             self.main_list.append(create_empty_state_widget(msg, base_dir))
 
         for note in archived_notes:
-            fl = filter_text.lower()
-            if filter_text and fl not in note.lower() and fl not in snippet_fn(note).lower():
-                continue
+            if filter_text:
+                fl = filter_text.lower()
+                snippet = snippet_fn(note)
+                if fl not in note.lower() and fl not in snippet.lower():
+                    continue
+            else:
+                snippet = snippet_fn(note)
             self.archive_list.append(
-                self._make_row(note, snippet_fn(note), is_archived=True,
+                self._make_row(note, snippet, is_archived=True,
                                on_right_click=on_right_click, base_dir=base_dir)
             )
 
@@ -233,6 +237,7 @@ class Sidebar(Gtk.Box):
             if app is not None:
                 app.notes_manager.read_note(note_name)
         hover.connect("enter", _on_hover_enter)
+        row.add_controller(hover)
 
         if on_right_click:
             gesture = Gtk.GestureClick(button=3)

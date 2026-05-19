@@ -432,7 +432,7 @@ class TokyoNotes(Adw.Application):
         if self.current_note:
             start, end = self.buffer.get_bounds()
             content = self.buffer.get_text(start, end, True)
-            if content.strip():
+            if content:
                 self.notes_manager.save_note(self.current_note, content)
 
     def _reschedule(self, timeout_attr: str, delay_ms: int, callback: Callable) -> None:
@@ -616,12 +616,6 @@ class TokyoNotes(Adw.Application):
         return False
 
     # Dashboard callbacks
-
-    def on_dashboard_item_selected(
-        self, listbox: Gtk.ListBox, row: Gtk.ListBoxRow
-    ) -> None:
-        # Row-click gestures handle navigation; this signal is intentionally unused.
-        pass
 
     def on_dashboard_deadline_click(self, cb: dict, x: float, y: float) -> None:
         self.handle_deadline_click(x, y, cb["note"], cb["line"])

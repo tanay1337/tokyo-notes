@@ -9,7 +9,7 @@ from typing import Any, Callable
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
+from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
 
 from ui.deadline_picker import DeadlinePicker
 from ui.link_picker import LinkPicker

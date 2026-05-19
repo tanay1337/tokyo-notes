@@ -5,13 +5,19 @@ import re
 from typing import Iterator
 
 from markdown.ast import InlineSpan
+from core.utils import (
+    DEADLINE_RE,
+    MD_LINK_CLICK_RE,
+    TAG_RE,
+    WIKI_CLICK_RE,
+)
 
 _PATTERNS = [
-    (re.compile(r"\[\[([^\]]+)\]\]"), "wiki"),
-    (re.compile(r"(!?)\[([^\]]+)\]\(([^)]+)\)"), None),  # handled specially
+    (WIKI_CLICK_RE, "wiki"),
+    (MD_LINK_CLICK_RE, None),  # handled specially (img vs link)
     (re.compile(r"<([^>]+)>"), "autolink"),
-    (re.compile(r"(?<!\w)#(\w+)"), "tag"),
-    (re.compile(r"@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)"), "deadline"),
+    (TAG_RE, "tag"),
+    (DEADLINE_RE, "deadline"),
     (re.compile(r"\*\*([^*]+)\*\*"), "bold"),
     (re.compile(r"(?<!\*)\*([^*]+)\*"), "italic"),
     (re.compile(r"(?<!_)_([^_]+)_"), "italic"),

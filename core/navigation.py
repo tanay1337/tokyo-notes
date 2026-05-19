@@ -38,7 +38,6 @@ class NavigationController:
         app = self.app
         if app.dashboard_view is None:
             app.dashboard_view = Dashboard(
-                app.on_dashboard_item_selected,
                 app.on_dashboard_checkbox_toggled,
                 app.on_dashboard_deadline_click,
                 app.lifecycle.handle_row_click,

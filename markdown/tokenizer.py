@@ -5,26 +5,27 @@ import re
 from typing import Iterator
 
 from markdown.ast import MdLine
+from core.utils import (
+    BLOCKQUOTE_RE as _BLOCKQUOTE,
+    DEADLINE_RE as _DEADLINE,
+    HR_RE as _HR,
+    MD_LINK_CLICK_RE as _MD_LINK,
+    TAG_RE as _TAG,
+    TABLE_ROW_RE as _TABLE_ROW,
+    TABLE_SEP_RE as _TABLE_SEP,
+    WIKI_CLICK_RE as _WIKI,
+)
 
-# structural patterns
+# Structural patterns whose capturing groups differ from core/utils versions
+# (tokenizer needs different groups for prefix extraction).
 _HEADER_ATX = re.compile(r"^(#{1,6})\s+(.*)$")
 _HEADER_SETEXT_UNDER = re.compile(r"^(={2,}|-{2,})\s*$")
-_HR = re.compile(r"^(\s*[-*_]){3,}\s*$")
-_BLOCKQUOTE = re.compile(r"^(\s*>)\s*(.*)$")
 _LIST_UL = re.compile(r"^(\s*)([-*+])\s+(.*)$")
 _LIST_OL = re.compile(r"^(\s*)(\d+\.\s+)(.*)$")
 _CODE_FENCE = re.compile(r"^```(\w*)$")
-_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
-_TABLE_SEP = re.compile(r"^\s*\|?[\s\-:|]+\|?\s*$")
 _CHECKBOX = re.compile(r"^(\s*-\s*\[([ xX])\]\s*)(.*)$")
 
-# inline / link vectors
-_WIKI = re.compile(r"\[\[([^\]]+)\]\]")
-_MD_LINK = re.compile(r"(!?)\[([^\]]+)\]\(([^)]+)\)")
-_AUTO = re.compile(r"<([^>]+)>")
-_TAG = re.compile(r"(?<!\w)#(\w+)")
-_DEADLINE = re.compile(r"@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)")
-
+# Inline bold/italic/code/strike — not in core.utils (PDF-only there)
 _INLINE_BOLD = re.compile(r"\*\*([^*]+)\*\*")
 _INLINE_ITALIC = re.compile(r"(?<!\*)\*([^*]+)\*")
 _INLINE_ITALIC2 = re.compile(r"(?<!_)_([^_]+)_")
@@ -103,6 +104,9 @@ class DocumentTokenizer:
         self._tokenizer = LineTokenizer()
 
     def tokenize(self, lines: list[str]) -> list[MdLine]:
+        # Reset per-line state so successive calls don't bleed setext-heading
+        # detection across document boundaries.
+        self._tokenizer._prev_line = None
         in_fenced = False
         ok: list[MdLine] = []
         for line in lines:
