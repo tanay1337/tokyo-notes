@@ -27,3 +27,18 @@ class GraphManager:
                     graph[name].append(link)
 
         return graph
+
+    def get_graph_data_rich(self, archived_notes: set[str] | None = None) -> dict:
+        """Return graph data with degree info for node sizing."""
+        adjacency = self.get_graph_data(archived_notes)
+
+        degrees: dict[str, int] = {}
+        for node, links in adjacency.items():
+            in_degree = sum(1 for targets in adjacency.values() if node in targets)
+            out_degree = len(links)
+            degrees[node] = in_degree + out_degree
+
+        return {
+            "adjacency": adjacency,
+            "degrees": degrees,
+        }

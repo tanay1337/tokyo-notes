@@ -119,11 +119,11 @@ class NavigationController:
         if app.graph_manager is None:
             app.graph_manager = GraphManager(app.notes_manager)
         if app.graph_view is None:
-            graph_data = app.graph_manager.get_graph_data(app.cfg.archived)
+            graph_data = app.graph_manager.get_graph_data_rich(app.cfg.archived)
             app.graph_view = GraphView(graph_data, app.lifecycle.on_link_clicked)
             app.content_stack.add_named(app.graph_view, "graph")
         else:
-            graph_data = app.graph_manager.get_graph_data(app.cfg.archived)
+            graph_data = app.graph_manager.get_graph_data_rich(app.cfg.archived)
 
         app.graph_view.update_data(graph_data)
         app.content_stack.set_visible_child_name("graph")
