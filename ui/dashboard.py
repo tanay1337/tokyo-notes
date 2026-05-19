@@ -175,19 +175,6 @@ class Dashboard(Gtk.Box):
         row.set_selectable(False)
         return row
 
-    def _toggle_checkbox(
-        self,
-        checkbox: Gtk.CheckButton,
-        handler_id: int,
-        cb: dict[str, Any],
-    ) -> None:
-        """Toggle *checkbox* programmatically and fire the toggled callback."""
-        new_state = not checkbox.get_active()
-        checkbox.handler_block(handler_id)
-        checkbox.set_active(new_state)
-        checkbox.handler_unblock(handler_id)
-        self.on_checkbox_toggled(cb, new_state)
-
     def _make_row(self, cb: dict[str, Any]) -> Gtk.ListBoxRow:
         """Build a single task row for *cb*."""
         row = Gtk.ListBoxRow()
@@ -228,19 +215,9 @@ class Dashboard(Gtk.Box):
         box.append(checkbox)
 
         # Task text — ellipsise long text instead of clipping.
-        # Clicking the text label toggles the checkbox (same as clicking the
-        # small checkbox widget), matching the convention in most task apps.
         text_label = Gtk.Label(label=cb["text"], xalign=0)
         text_label.set_hexpand(True)
         text_label.set_ellipsize(Pango.EllipsizeMode.END)
-        text_gesture = Gtk.GestureClick.new()
-        text_gesture.connect(
-            "pressed",
-            lambda *_a, _chk=checkbox, _hid=handler_id, _cb=cb: self._toggle_checkbox(
-                _chk, _hid, _cb
-            ),
-        )
-        text_label.add_controller(text_gesture)
         box.append(text_label)
 
         # Note chip — double-click navigates to the source note.
