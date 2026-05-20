@@ -20,6 +20,7 @@ _DEFAULTS: dict[str, Any] = {
     "theme":             "tokyo-night",
     "show_completed":    True,
     "show_progress_rings": True,
+    "show_backlinks":    True,
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).

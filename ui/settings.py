@@ -87,6 +87,12 @@ class SettingsView(Gtk.Box):
             initial_values.get("show_stats", False),
             "show_stats",
         ))
+        toolbar_group.add(self._make_switch_row(
+            "Backlinks Button",
+            "Show floating backlinks button in the editor",
+            initial_values.get("show_backlinks", True),
+            "show_backlinks",
+        ))
 
         dashboard_group = Adw.PreferencesGroup(title="Dashboard")
         content.append(dashboard_group)
@@ -220,6 +226,7 @@ class SettingsView(Gtk.Box):
             "sakura_effect":       True,
             "show_completed":      True,
             "show_progress_rings": True,
+            "show_backlinks":      True,
             "theme":               "tokyo-night",
         }
         for key, value in defaults.items():

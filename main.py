@@ -302,6 +302,34 @@ class TokyoNotes(Adw.Application):
         self.sakura_overlay = SakuraOverlay()
         self.overlay.set_child(self.content_stack)
         self.overlay.add_overlay(self.sakura_overlay)
+
+        self.backlinks_container = Gtk.Box()
+        self.backlinks_container.set_halign(Gtk.Align.END)
+        self.backlinks_container.set_valign(Gtk.Align.END)
+        self.backlinks_container.set_margin_end(16)
+        self.backlinks_container.set_margin_bottom(16)
+
+        self.backlinks_btn = Gtk.Button()
+        self.backlinks_btn.add_css_class("backlinks-fab")
+        self.backlinks_btn.connect("clicked", self._show_backlinks_popover)
+        self.backlinks_btn.set_visible(False)
+
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        icon = Gtk.Image.new_from_file(str(self.base_dir / "assets" / "toolbar" / "link.svg"))
+        icon.set_pixel_size(18)
+        btn_box.append(icon)
+
+        self.backlinks_count = Gtk.Label()
+        self.backlinks_count.add_css_class("backlinks-count")
+        self.backlinks_count.set_visible(False)
+        self.backlinks_count.set_valign(Gtk.Align.CENTER)
+        btn_box.append(self.backlinks_count)
+
+        self.backlinks_btn.set_child(btn_box)
+        self.backlinks_container.append(self.backlinks_btn)
+
+        self.overlay.add_overlay(self.backlinks_container)
+
         return self.overlay
 
     # Settings / theme
@@ -316,6 +344,48 @@ class TokyoNotes(Adw.Application):
             self.nav.refresh_dashboard(self.dashboard_view.active_filter)
         elif key == "show_progress_rings" and self.dashboard_view is not None:
             self.nav.refresh_dashboard(self.dashboard_view.active_filter)
+        elif key == "show_backlinks":
+            self._update_backlinks()
+
+    def _update_backlinks(self) -> None:
+        """Update the backlinks button visibility and count."""
+        if not self.current_note or not self.cfg.get("show_backlinks", True):
+            self.backlinks_container.set_visible(False)
+            return
+        backlinks = self.notes_manager.get_backlinks(
+            self.current_note, self.cfg.archived
+        )
+        if backlinks:
+            self.backlinks_container.set_visible(True)
+            self.backlinks_btn.set_visible(True)
+            self.backlinks_count.set_label(str(len(backlinks)))
+            self.backlinks_count.set_visible(True)
+            self.backlinks_btn.set_tooltip_text(f"{len(backlinks)} backlink(s)")
+        else:
+            self.backlinks_container.set_visible(False)
+
+    def _set_backlinks_visible(self, visible: bool) -> None:
+        """Show or hide the backlinks button (used when switching views)."""
+        if visible:
+            self._update_backlinks()
+        else:
+            self.backlinks_container.set_visible(False)
+
+    def _show_backlinks_popover(self, btn: Gtk.Button) -> None:
+        """Show the backlinks popover."""
+        if not self.current_note:
+            return
+        from ui.backlinks_popover import BacklinksPopover
+        backlinks = self.notes_manager.get_backlinks(
+            self.current_note, self.cfg.archived
+        )
+        popover = BacklinksPopover(
+            backlinks,
+            self.lifecycle.on_link_clicked,
+            self.text_view,
+        )
+        popover.set_parent(btn)
+        popover.popup()
 
     def apply_theme(self, theme_name: str) -> None:
         self.theme_manager.apply_theme(theme_name)

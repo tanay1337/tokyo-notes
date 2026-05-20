@@ -264,3 +264,14 @@ class NotesManager:
             self.save_note(note_name, "\n".join(lines))
             return True
         return False
+
+    def get_backlinks(self, note_name: str, exclude_archived: set[str]) -> list[str]:
+        """Return list of notes that link to *note_name* via [[wiki links]]."""
+        backlinks = []
+        for note in self.get_notes():
+            if note == note_name or note in exclude_archived:
+                continue
+            content = self.read_note(note)
+            if f"[[{note_name}]]" in content:
+                backlinks.append(note)
+        return backlinks

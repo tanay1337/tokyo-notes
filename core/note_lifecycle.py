@@ -105,6 +105,7 @@ class NoteLifecycleManager:
                 )
 
             app.last_cursor_line = -1
+            app._update_backlinks()
 
             if listbox == app.sidebar.main_list:
                 app.sidebar.archive_list.unselect_all()

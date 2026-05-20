@@ -60,6 +60,7 @@ class NavigationController:
         app.content_stack.set_visible_child_name("dashboard")
         self.update_header_ui("Dashboard", is_editor=False)
         app.sidebar.set_active_view("dashboard")
+        app._set_backlinks_visible(False)
 
     def refresh_dashboard(self, filter_type: str = "today") -> None:
         """Repopulate the dashboard, fetching fresh checkboxes from storage."""
@@ -129,6 +130,7 @@ class NavigationController:
         app.content_stack.set_visible_child_name("graph")
         self.update_header_ui("Knowledge Graph", is_editor=False)
         app.sidebar.set_active_view("graph")
+        app._set_backlinks_visible(False)
 
     # Settings
 
@@ -148,6 +150,7 @@ class NavigationController:
                     "theme": app.cfg.get("theme"),
                     "show_completed": app.cfg.get("show_completed", True),
                     "show_progress_rings": app.cfg.get("show_progress_rings", True),
+                    "show_backlinks": app.cfg.get("show_backlinks", True),
                 },
             )
             app.content_stack.add_named(app.settings_view, "settings")
@@ -155,6 +158,7 @@ class NavigationController:
         app.content_stack.set_visible_child_name("settings")
         self.update_header_ui("Settings", is_editor=False)
         app.sidebar.set_active_view("settings")
+        app._set_backlinks_visible(False)
 
     # Escape / back
 
@@ -167,6 +171,7 @@ class NavigationController:
             title = app.current_note if app.current_note else "Tokyo Notes"
             self.update_header_ui(title, is_editor=True)
             app.sidebar.set_active_view("editor")
+            app._set_backlinks_visible(True)
             return True
         if app.sidebar.search_entry.has_focus():
             app.sidebar.search_entry.set_text("")
