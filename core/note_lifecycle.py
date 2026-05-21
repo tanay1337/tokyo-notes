@@ -293,6 +293,34 @@ class NoteLifecycleManager:
         if not content.strip():
             return False
 
+        if app.current_note.startswith(".template:"):
+            tmpl_slug = app.current_note.split(":", 1)[1]
+            from core.services import derive_display_title, clean_title
+            new_title = derive_display_title(content, "")
+            if new_title and new_title != tmpl_slug:
+                new_slug = clean_title(new_title).lower().replace(" ", "-")
+                new_slug = "".join(c for c in new_slug if c.isalnum() or c in "-_")
+                if new_slug and new_slug != tmpl_slug:
+                    templates_dir = app.template_manager.templates_dir
+                    old_path = templates_dir / f"{tmpl_slug}.md"
+                    new_path = templates_dir / f"{new_slug}.md"
+                    counter = 1
+                    base_slug = new_slug
+                    while new_path.exists():
+                        new_slug = f"{base_slug}-{counter}"
+                        new_path = templates_dir / f"{new_slug}.md"
+                        counter += 1
+                    if old_path.exists():
+                        old_path.rename(new_path)
+                    new_path.write_text(content, encoding="utf-8")
+                    app.current_note = f".template:{new_slug}"
+                    app.nav.update_header_ui(f"Template: {new_slug}", is_editor=True)
+                else:
+                    app.template_manager.update_template(tmpl_slug, content)
+            else:
+                app.template_manager.update_template(tmpl_slug, content)
+            return False
+
         old_name = app.current_note
 
         if app.notes_manager.is_encrypted(app.current_note):

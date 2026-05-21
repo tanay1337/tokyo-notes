@@ -27,6 +27,7 @@ def setup_shortcuts(
     on_archive: Callable[[], None] | None = None,
     on_settings: Callable[[], None] | None = None,
     on_lock: Callable[[], None] | None = None,
+    on_new_from_template: Callable[[], None] | None = None,
 ) -> None:
     # Ctrl+N  new note          Ctrl+D  dashboard         Ctrl+G  graph
     # Ctrl+F  search (×2=clear) Ctrl+Q  quit              Ctrl+H  help
@@ -38,7 +39,7 @@ def setup_shortcuts(
     controller.set_scope(Gtk.ShortcutScope.GLOBAL)
 
     bindings: list[tuple[str, Callable]] = [
-        ("Delete",              on_delete),
+        (get_accel("<Primary>Delete"), on_delete),
         (get_accel("q"),        quit_app),
         (get_accel("n"),        on_new_note),
         (get_accel("d"),        on_dashboard),
@@ -58,6 +59,8 @@ def setup_shortcuts(
         bindings.append((get_accel("<Shift>s"), on_settings))
     if on_lock:
         bindings.append((get_accel("l"), on_lock))
+    if on_new_from_template:
+        bindings.append((get_accel("<Shift>n"), on_new_from_template))
 
     for trigger_str, callback in bindings:
         controller.add_shortcut(Gtk.Shortcut.new(

@@ -13,6 +13,7 @@ A minimal GTK4 Markdown note-taking app.
 - **Exporting**: Save notes as PDF or copy raw Markdown.
 - **Themes**: Multiple themes including Tokyo Night, Nord, and Cyberpunk 2077.
 - **Full-Text Search**: Find notes by title or keyword content.
+- **Templates**: Create notes from reusable templates with auto-filled variables like `{{today}}`, `{{now}}`, `{{time}}`, and `{{weekday}}`.
 
 ## Installation
 Requires Python 3, PyGObject, GTK4, Libadwaita, and Libadwaita Icons.
@@ -37,13 +38,14 @@ python3 main.py
 | Shortcut | Action |
 | :--- | :--- |
 | `Ctrl/Cmd + N` | New Note |
+| `Ctrl/Cmd + Shift + N` | New Note from Template |
 | `Ctrl/Cmd + D` | Toggle Dashboard |
 | `Ctrl/Cmd + F` | Focus Search |
 | `Ctrl/Cmd + G` | Knowledge Graph |
 | `Ctrl/Cmd + L` | Lock Private Notes |
 | `Ctrl/Cmd + Shift + T` | Insert Timestamp |
 | `Ctrl/Cmd + Shift + Z` | Zen Mode |
-| `Delete` | Delete selected note (with confirmation) |
+| `Ctrl/Cmd + Delete` | Delete selected note (with confirmation) |
 | `Escape` | Close Dashboard / Clear Search / Return to Editor |
 | `Ctrl/Cmd + Q` | Quit |
 

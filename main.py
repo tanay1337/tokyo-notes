@@ -20,6 +20,7 @@ from core.search import SearchController
 from core.shortcuts import setup_shortcuts
 from core.startup_checks import validate_notes_folder
 from core.storage import NotesManager
+from core.template_manager import TemplateManager
 from core.theme_manager import ThemeManager
 from core.window_manager import WindowManager
 from ui.click_dispatcher import ClickDispatcher
@@ -51,6 +52,7 @@ class TokyoNotes(Adw.Application):
         self.nav = NavigationController(self)
         self.lifecycle = NoteLifecycleManager(self)
         self.search = SearchController(self.refresh_list)
+        self.template_manager = TemplateManager(self)
 
         # Runtime state — all timeout IDs kept together for easy auditing
         self.current_note: str | None = None
@@ -375,6 +377,147 @@ class TokyoNotes(Adw.Application):
         if hasattr(self, "toast_overlay"):
             self.toast_overlay.add_toast(toast)
 
+    # Template actions
+
+    def _on_new_from_template_global(self, action=None, parameter=None) -> None:
+        """Ctrl+Shift+N: open template picker to create a new note from template."""
+        self._show_template_picker_for_new_note()
+
+    def _on_new_from_template_action(self, action, parameter) -> None:
+        """Menu action: open template picker to create a new note from template."""
+        self._show_template_picker_for_new_note()
+
+    def _on_new_from_template(self, btn: Gtk.Button | None = None) -> None:
+        """Sidebar button: open template picker to create a new note from template."""
+        self._show_template_picker_for_new_note()
+
+    def _show_template_picker_for_new_note(self) -> None:
+        """Show the template picker for creating a new note."""
+        from ui.template_picker import TemplatePicker
+
+        def on_selected(slug: str) -> None:
+            content = self.template_manager.get_template_content(slug)
+            if content is None:
+                return
+            from core.template_manager import TemplateManager
+            substituted = TemplateManager.substitute_variables(content)
+            self.lifecycle.on_new_note(None)
+            self.buffer.handler_block(self.changed_handler_id)
+            self.buffer.set_text(substituted)
+            self.buffer.handler_unblock(self.changed_handler_id)
+            start = self.buffer.get_start_iter()
+            self.buffer.place_cursor(start)
+            self.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
+            if self.highlighter:
+                self.highlighter.highlight(start_line=0, end_line=30)
+            self.text_view.grab_focus()
+
+        picker = TemplatePicker(
+            self.template_manager.get_all_templates(),
+            on_selected,
+            self.text_view if hasattr(self, "text_view") else None,
+        )
+        if hasattr(self, "text_view"):
+            strong, _weak = self.text_view.get_cursor_locations(None)
+            bx, by = self.text_view.buffer_to_window_coords(
+                Gtk.TextWindowType.TEXT, strong.x, strong.y
+            )
+            rect = Gdk.Rectangle()
+            rect.x = bx
+            rect.y = by
+            rect.width = 1
+            rect.height = 1
+            picker.set_parent(self.text_view)
+            picker.set_pointing_to(rect)
+        else:
+            picker.set_parent(self.win)
+        picker.popup()
+
+    def _on_save_as_template_action(self, action, parameter) -> None:
+        """Save a note as a template."""
+        note_name = parameter.get_string()
+        content = self.notes_manager.read_note(note_name)
+        self._show_save_template_dialog(note_name, content)
+
+    def _show_save_template_dialog(self, note_name: str, content: str) -> None:
+        """Show a dialog to name and save a template."""
+        dialog = Adw.MessageDialog(
+            transient_for=self.win,
+            heading="Save as Template",
+            body=f"Enter a name for the template (based on '{note_name}'):",
+        )
+        entry = Gtk.Entry()
+        entry.set_text(note_name)
+        entry.set_activates_default(True)
+        dialog.set_extra_child(entry)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Save")
+        try:
+            dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        except Exception:
+            pass
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_save_template_response, content, entry)
+        dialog.present()
+
+    def _on_save_template_response(
+        self, dialog: Adw.MessageDialog, response: str, content: str, entry: Gtk.Entry
+    ) -> None:
+        if response != "save":
+            return
+        name = entry.get_text().strip()
+        if not name:
+            self._show_toast("Template name cannot be empty")
+            return
+        slug = self.template_manager.save_as_template(name, content)
+        self._show_toast(f"Template '{slug}' saved")
+
+    def _on_new_template(self) -> None:
+        """Create a blank new template and open it in the editor."""
+        self._flush_pending_save()
+        slug = self.template_manager.save_as_template("New Template", "")
+        self._on_edit_template(slug)
+
+    def _on_edit_template(self, slug: str) -> None:
+        """Open a template in the main editor for editing."""
+        self._flush_pending_save()
+        template_path = self.template_manager.templates_dir / f"{slug}.md"
+        if not template_path.exists():
+            return
+        content = template_path.read_text(encoding="utf-8")
+        self.current_note = f".template:{slug}"
+        self.nav.update_header_ui(f"Template: {slug}", is_editor=True)
+        self.editor.set_editable(True)
+        self.buffer.handler_block(self.changed_handler_id)
+        self.buffer.set_text(content)
+        self.buffer.handler_unblock(self.changed_handler_id)
+        start = self.buffer.get_start_iter()
+        self.buffer.place_cursor(start)
+        self.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
+        self.content_stack.set_visible_child_name("editor")
+        if self.highlighter:
+            self.highlighter.highlight(start_line=0, end_line=30)
+        self.text_view.grab_focus()
+
+    def _on_delete_template(self, slug: str) -> None:
+        """Delete a template by slug."""
+        self.template_manager.delete_template(slug)
+        self._show_toast(f"Template '{slug}' deleted")
+
+    def _on_open_templates_folder(self) -> None:
+        """Open the templates folder in the file manager."""
+        import subprocess
+        import shutil
+        templates_dir = str(self.template_manager.templates_dir)
+        opener = "xdg-open"
+        if shutil.which("xdg-open") is None:
+            opener = "open" if shutil.which("open") else None
+        if opener:
+            subprocess.Popen([opener, templates_dir])
+        else:
+            self._show_toast(f"Templates folder: {templates_dir}")
+
     # GIO actions
 
     def _setup_actions(self) -> None:
@@ -385,8 +528,17 @@ class TokyoNotes(Adw.Application):
             ("archive",       self.on_toggle_archive_note),
             ("make_private",  self.on_make_private),
             ("remove_privacy", self.on_remove_privacy),
+            ("save_as_template", self._on_save_as_template_action),
         ):
             action = Gio.SimpleAction.new(name, GLib.VariantType.new("s"))
+            action.connect("activate", handler)
+            self.add_action(action)
+
+        for name, handler in (
+            ("new_note",      self.lifecycle.on_new_note_global),
+            ("new_from_template", self._on_new_from_template_global),
+        ):
+            action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
             self.add_action(action)
 
@@ -577,6 +729,7 @@ class TokyoNotes(Adw.Application):
         self.sidebar = Sidebar(
             self,
             self.lifecycle.on_new_note,
+            self._on_new_from_template,
             self.nav.on_dashboard_clicked,
             self.nav.on_archived_clicked,
             self.nav.on_graph_clicked,
@@ -635,6 +788,7 @@ class TokyoNotes(Adw.Application):
             on_archive=self.on_archive_shortcut,
             on_settings=self.nav.on_settings_clicked,
             on_lock=self.lock_session,
+            on_new_from_template=self._on_new_from_template_global,
         )
         logger.info("Tokyo Notes started — notes folder: %s", self.notes_folder)
 
@@ -865,6 +1019,10 @@ class TokyoNotes(Adw.Application):
             f"app.archive::{note_name}",
         )
 
+        template_section = Gio.Menu()
+        template_section.append("Save as Template", f"app.save_as_template::{note_name}")
+        menu.append_section(None, template_section)
+
         privacy_section = Gio.Menu()
         if self.notes_manager.is_encrypted(note_name):
             privacy_section.append("Remove privacy", f"app.remove_privacy::{note_name}")
@@ -917,6 +1075,14 @@ class TokyoNotes(Adw.Application):
             if tid > 0:
                 GLib.source_remove(tid)
                 setattr(self, attr, 0)
+
+        if self.current_note and self.current_note.startswith(".template:"):
+            tmpl_slug = self.current_note.split(":", 1)[1]
+            start, end = self.buffer.get_bounds()
+            content = self.buffer.get_text(start, end, True)
+            if content:
+                self.template_manager.update_template(tmpl_slug, content)
+            return
 
         if self.current_note:
             start, end = self.buffer.get_bounds()
@@ -1008,6 +1174,7 @@ class TokyoNotes(Adw.Application):
 
         section.append(_group("Navigation", [
             ("<Primary>n", "New note"),
+            ("<Primary><Shift>n", "New from template"),
             ("<Primary>d", "Dashboard"),
             ("<Primary>g", "Knowledge graph"),
             ("<Primary>f", "Search  (press again to clear)"),
@@ -1016,7 +1183,7 @@ class TokyoNotes(Adw.Application):
             ("Escape", "Back to editor / clear search"),
         ]))
         section.append(_group("Notes", [
-            ("Delete", "Delete selected note"),
+            ("<Primary>Delete", "Delete selected note"),
             ("<Primary><Shift>p", "Pin / unpin note"),
             ("<Primary><Shift>a", "Archive / unarchive note"),
             ("<Primary>l", "Lock private notes"),
@@ -1027,6 +1194,7 @@ class TokyoNotes(Adw.Application):
         section.append(_group("Editor", [
             ("bracketleft bracketleft", "Open note link picker  ( [[ )"),
             ("at", "Open deadline picker  ( @ )"),
+            ("braceleft braceleft", "Open variable picker  ( {{ )"),
             ("Return", "Continue list or task on new line"),
         ]))
 

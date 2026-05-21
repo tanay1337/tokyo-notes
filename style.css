@@ -491,3 +491,52 @@ entry.shake {
     color: @fg_color;
     opacity: 0.5;
 }
+
+/* Template Picker */
+.template-picker row {
+    padding: 8px 12px;
+}
+
+.template-desc {
+    font-size: 8pt;
+    color: @fg_color;
+    opacity: 0.5;
+}
+
+/* Templates */
+.template-subheading {
+    font-size: 11pt;
+    font-weight: 600;
+    color: @fg_color;
+}
+
+.template-badge {
+    font-size: 8pt;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background-color: @selection_color;
+    color: @accent_color;
+}
+
+.template-action-btn {
+    min-width: 0;
+    padding: 4px 8px;
+    font-size: 9pt;
+}
+
+/* Variable Picker */
+.variable-picker row {
+    padding: 8px 12px;
+}
+
+.variable-name {
+    font-size: 10pt;
+    font-weight: 500;
+    font-family: monospace;
+}
+
+.variable-desc {
+    font-size: 8pt;
+    color: @fg_color;
+    opacity: 0.5;
+}

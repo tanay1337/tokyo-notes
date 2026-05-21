@@ -8,7 +8,7 @@ from typing import Any, Callable, TYPE_CHECKING
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gtk, Pango
+from gi.repository import Adw, Gdk, Gio, Gtk, Pango
 
 from core.utils import create_empty_state_widget
 
@@ -29,6 +29,7 @@ class Sidebar(Gtk.Box):
         self,
         app: "TokyoNotes",
         on_new_note: Callable[..., Any],
+        on_new_from_template: Callable[..., Any],
         on_dashboard_clicked: Callable[..., Any],
         on_archive_clicked: Callable[..., Any],
         on_graph_clicked: Callable[..., Any],
@@ -39,8 +40,16 @@ class Sidebar(Gtk.Box):
 
         sidebar_header = Adw.HeaderBar()
         sidebar_header.set_title_widget(Gtk.Label(label="Tokyo Notes"))
-        new_btn = Gtk.Button(icon_name="document-new-symbolic")
-        new_btn.connect("clicked", on_new_note)
+
+        new_btn = Gtk.MenuButton(icon_name="document-new-symbolic")
+        new_btn.set_tooltip_text("New note")
+        new_btn.set_direction(Gtk.ArrowType.DOWN)
+
+        new_menu = Gio.Menu()
+        new_menu.append("New Note", "app.new_note")
+        new_menu.append("New Note from template", "app.new_from_template")
+        new_btn.set_menu_model(new_menu)
+
         sidebar_header.pack_start(new_btn)
         self.append(sidebar_header)
 

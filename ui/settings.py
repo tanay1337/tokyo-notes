@@ -7,7 +7,7 @@ from typing import Any, Callable
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk, Pango
 
 _THEMES: list[dict[str, str]] = [
     {"id": "tokyo-light",    "name": "Tokyo Light",    "preview": "Clean and bright, inspired by Tokyo Day",   "type": "light"},
@@ -30,6 +30,11 @@ class SettingsView(Gtk.Box):
         initial_values: dict[str, Any],
         on_change_password: Callable[[], Any] | None = None,
         on_set_password: Callable[[str], Any] | None = None,
+        on_new_template: Callable[[], Any] | None = None,
+        on_edit_template: Callable[[str], Any] | None = None,
+        on_delete_template: Callable[[str], Any] | None = None,
+        on_open_templates_folder: Callable[[], Any] | None = None,
+        templates: list[dict[str, str]] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("dashboard-view")
@@ -41,6 +46,11 @@ class SettingsView(Gtk.Box):
         self._on_change_password = on_change_password
         self._on_set_password = on_set_password
         self._has_encrypted_notes = initial_values.get("has_encrypted_notes", False)
+        self._on_new_template = on_new_template
+        self._on_edit_template = on_edit_template
+        self._on_delete_template = on_delete_template
+        self._on_open_templates_folder = on_open_templates_folder
+        self._templates = templates or []
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
@@ -136,6 +146,44 @@ class SettingsView(Gtk.Box):
             on_config_changed,
         )
         private_group.add(self._lock_timeout_row)
+
+        self._templates_group = Adw.PreferencesGroup(title="Templates")
+        content.append(self._templates_group)
+
+        if on_new_template:
+            sub_header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            sub_header_box.set_margin_start(12)
+            sub_header_box.set_margin_end(12)
+            sub_header_box.set_margin_top(16)
+            sub_header_box.set_margin_bottom(6)
+
+            sub_label = Gtk.Label(label="Current Templates", xalign=0)
+            sub_label.add_css_class("template-subheading")
+            sub_label.set_hexpand(True)
+            sub_header_box.append(sub_label)
+
+            new_btn = Gtk.Button(icon_name="document-new-symbolic")
+            new_btn.set_valign(Gtk.Align.CENTER)
+            new_btn.set_tooltip_text("New Template")
+            new_btn.connect("clicked", lambda _: on_new_template())
+            sub_header_box.append(new_btn)
+
+            self._templates_group.add(sub_header_box)
+
+        self._templates_list = Gtk.ListBox()
+        self._templates_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._templates_list.add_css_class("settings-list")
+        self._templates_group.add(self._templates_list)
+        self._template_rows: list[Gtk.ListBoxRow] = []
+        self._populate_templates()
+
+        if on_open_templates_folder:
+            folder_row = Adw.ActionRow(title="Templates Folder", subtitle="Open templates directory in file manager")
+            folder_btn = Gtk.Button(icon_name="folder-symbolic")
+            folder_btn.set_valign(Gtk.Align.CENTER)
+            folder_btn.connect("clicked", lambda _: on_open_templates_folder())
+            folder_row.add_suffix(folder_btn)
+            self._templates_group.add(folder_row)
 
         theme_group = Adw.PreferencesGroup(title="Themes")
         content.append(theme_group)
@@ -304,3 +352,88 @@ class SettingsView(Gtk.Box):
         if self._has_encrypted_notes:
             if self._on_change_password:
                 self._on_change_password()
+
+    def _populate_templates(self) -> None:
+        """Populate the templates list box with action rows."""
+        while (child := self._templates_list.get_first_child()):
+            self._templates_list.remove(child)
+        self._template_rows = []
+
+        if not self._templates:
+            empty = Gtk.ListBoxRow()
+            empty.set_sensitive(False)
+            label = Gtk.Label(label="No templates yet. Click the + button to create one.", xalign=0.5)
+            label.add_css_class("dim-label")
+            label.set_margin_top(8)
+            label.set_margin_bottom(8)
+            empty.set_child(label)
+            self._templates_list.append(empty)
+            return
+
+        for tmpl in self._templates:
+            row = self._make_template_row(tmpl)
+            self._templates_list.append(row)
+            self._template_rows.append(row)
+
+    def _make_template_row(self, tmpl: dict[str, str]) -> Gtk.ListBoxRow:
+        """Create a template list row with name, edit button, and delete button."""
+        row = Gtk.ListBoxRow()
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        box.set_margin_top(4)
+        box.set_margin_bottom(4)
+
+        label = Gtk.Label(label=tmpl["name"], xalign=0)
+        label.set_hexpand(True)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        box.append(label)
+
+        if tmpl.get("is_builtin"):
+            badge = Gtk.Label(label="Built-in")
+            badge.add_css_class("template-badge")
+            box.append(badge)
+
+        edit_btn = Gtk.Button(label="Edit")
+        edit_btn.set_valign(Gtk.Align.CENTER)
+        edit_btn.add_css_class("template-action-btn")
+        edit_btn.connect("clicked", lambda _: self._on_edit_template(tmpl["slug"]))
+        box.append(edit_btn)
+
+        delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        delete_btn.set_valign(Gtk.Align.CENTER)
+        delete_btn.add_css_class("template-action-btn")
+        delete_btn.connect("clicked", lambda _: self._on_delete_template_confirm(tmpl["slug"], tmpl["name"]))
+        box.append(delete_btn)
+
+        row.set_child(box)
+        return row
+
+    def _on_delete_template_confirm(self, slug: str, name: str) -> None:
+        """Show confirmation before deleting a template."""
+        dialog = Adw.MessageDialog(
+            transient_for=self.get_root(),
+            heading=f"Delete Template?",
+            body=f"Are you sure you want to delete '{name}'? This action cannot be undone.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        try:
+            dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        except Exception:
+            pass
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_delete_template_response, slug)
+        dialog.present()
+
+    def _on_delete_template_response(
+        self, dialog: Adw.MessageDialog, response: str, slug: str
+    ) -> None:
+        if response == "delete" and self._on_delete_template:
+            self._on_delete_template(slug)
+            self._templates = [t for t in self._templates if t["slug"] != slug]
+            self._populate_templates()
+
+    def refresh_templates(self, templates: list[dict[str, str]]) -> None:
+        """Refresh the templates list with new data."""
+        self._templates = templates
+        self._populate_templates()

@@ -142,6 +142,7 @@ class NavigationController:
                 app.notes_manager.is_encrypted(n)
                 for n in app.notes_manager.get_notes()
             )
+            templates = app.template_manager.get_all_templates()
             app.settings_view = SettingsView(
                 app.apply_theme,
                 app.on_settings_config_changed,
@@ -160,8 +161,16 @@ class NavigationController:
                 },
                 on_change_password=app._show_password_change_dialog,
                 on_set_password=app._show_setup_dialog,
+                on_new_template=app._on_new_template,
+                on_edit_template=app._on_edit_template,
+                on_delete_template=app._on_delete_template,
+                on_open_templates_folder=app._on_open_templates_folder,
+                templates=templates,
             )
             app.content_stack.add_named(app.settings_view, "settings")
+        else:
+            templates = app.template_manager.get_all_templates()
+            app.settings_view.refresh_templates(templates)
 
         app.content_stack.set_visible_child_name("settings")
         self.update_header_ui("Settings", is_editor=False)

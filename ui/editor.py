@@ -200,15 +200,17 @@ class Editor(Gtk.Box):
         text: str,
         length: int,
     ) -> None:
-        """Trigger deadline or link picker on '@' or '[['."""
+        """Trigger deadline, link, or variable picker on '@', '[[' , or '{{'."""
         if text == "@":
             GLib.idle_add(self.show_deadline_picker)
         elif text == "[" and location.get_offset() > 0:
-            # insert-text fires before insertion; check the character sitting
-            # just before the insertion point to detect the second '['.
             prev_iter = buffer.get_iter_at_offset(location.get_offset() - 1)
             if prev_iter.get_char() == "[":
                 GLib.idle_add(self.show_link_picker)
+        elif text == "{" and location.get_offset() > 0:
+            prev_iter = buffer.get_iter_at_offset(location.get_offset() - 1)
+            if prev_iter.get_char() == "{":
+                GLib.idle_add(self.show_variable_picker)
 
     # Picker helpers
 
@@ -249,6 +251,24 @@ class Editor(Gtk.Box):
 
     def on_deadline_selected(self, deadline: str) -> None:
         self.buffer.insert_at_cursor(deadline)
+
+    def show_variable_picker(self) -> None:
+        """Show the variable picker popover at the cursor."""
+        from ui.variable_picker import VariablePicker
+
+        def on_selected(variable: str) -> None:
+            cursor = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+            success, line_start = self.buffer.get_iter_at_line(cursor.get_line())
+            if success:
+                line_text = self.buffer.get_text(line_start, cursor, False)
+                if line_text.endswith("{{"):
+                    delete_start = cursor.copy()
+                    delete_start.backward_chars(2)
+                    self.buffer.delete(delete_start, cursor)
+            self.buffer.insert_at_cursor(variable)
+
+        picker = VariablePicker(on_selected, self.text_view)
+        self._popup_at_cursor(picker)
 
     # Image rendering
 
