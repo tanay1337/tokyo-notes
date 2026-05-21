@@ -37,7 +37,8 @@ def update_note_title(
         return old_name, False
 
     collision = (Path(notes_manager.notes_dir) / f"{new_title}.md")
-    if collision.exists():
+    collision_enc = (Path(notes_manager.notes_dir) / f"{new_title}.md.enc")
+    if collision.exists() or collision_enc.exists():
         return old_name, False
     if not notes_manager.rename_note(old_name, new_title):
         return old_name, False

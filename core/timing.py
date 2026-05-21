@@ -1,22 +1,17 @@
 """Debounce utility for frequent UI events."""
 from __future__ import annotations
 
-import weakref
 from typing import Any, Callable
 
 from gi.repository import GLib
 
 
 class Debouncer:
-    """Delays a callback until a quiet period follows the last schedule() call.
-
-    Uses a weakref so the callback does not prevent its owner from being
-    garbage-collected.
-    """
+    """Delays a callback until a quiet period follows the last schedule() call."""
 
     def __init__(self, delay_ms: int, callback: Callable[..., Any]) -> None:
         self._timeout_id: int = 0
-        self._ref = weakref.ref(callback)
+        self._callback = callback
         self._delay_ms = delay_ms
 
     def schedule(self, *args: Any) -> None:
@@ -25,9 +20,7 @@ class Debouncer:
 
     def _fire(self, args: tuple) -> bool:
         self._timeout_id = 0
-        callback = self._ref()
-        if callback is not None:
-            callback(*args)
+        self._callback(*args)
         return False
 
     def cancel(self) -> None:

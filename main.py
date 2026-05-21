@@ -1,7 +1,6 @@
 """Tokyo Notes — main application entry point."""
 import logging
 import sys
-import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -64,8 +63,24 @@ class TokyoNotes(Adw.Application):
         self.search_timeout_id: int = 0
         self.changed_handler_id: int = 0
         self.last_cursor_line: int = -1
+        self._pending_highlight_id: int = 0
         self._has_images: bool = False
         self.split_view: object = None  # set in do_activate
+
+        # Session state for private notes
+        self._session_key: bytearray | None = None
+        self._session_password_bytes: bytearray | None = None
+        self._is_session_locked: bool = any(
+            self.notes_manager.is_encrypted(n) for n in self.notes_manager.get_notes()
+        )
+        self._lock_timer_id: int = 0
+        self._wrong_unlock_attempts: int = 0
+        self._pending_encrypt_note: str | None = None
+        self._unlock_cooldown_id: int = 0
+        self._unlock_cooldown_remaining: int = 0
+
+        # Sync encrypted.json with actual .md.enc files on disk
+        self._sync_encrypted_config()
 
         install_crash_handler(self)
         self._setup_actions()
@@ -74,19 +89,302 @@ class TokyoNotes(Adw.Application):
 
     def do_shutdown(self) -> None:
         """Flush any pending config writes and note saves before the process exits."""
+        self._cancel_lock_timer()
+        self._flush_pending_save()
+        if self.current_note and self.notes_manager.is_encrypted(self.current_note):
+            self.buffer.set_text("")
+        self._zero_session_key()
+        self._zero_session_password()
         self.cfg.flush_immediate()
         logger.info("Tokyo Notes shutting down")
-        # PyGObject's Gio.Application.do_shutdown() takes no arguments beyond self.
         Adw.Application.do_shutdown(self)
+
+    def _apply_security_mitigations(self) -> None:
+        """Prevent core dumps and attempt to lock process memory."""
+        try:
+            import resource
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        except Exception as e:
+            logger.warning("Could not disable core dumps: %s", e)
+
+        try:
+            import ctypes
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            result = libc.mlockall(1 | 2)
+            if result != 0:
+                errno = ctypes.get_errno()
+                logger.warning("mlockall failed (errno=%d) — continuing anyway", errno)
+        except Exception as e:
+            logger.warning("Could not lock memory pages: %s", e)
+
+    # Session management for private notes
+
+    def unlock_session(self, password: str) -> None:
+        """Unlock private notes with the given password.
+
+        Verification happens by deriving a key using the per-file salt from
+        the first encrypted note and attempting to decrypt it.
+        The password is stored in memory so keys can be derived per-note.
+        """
+        from core.encryption import derive_key_from_file, decrypt
+
+        encrypted_notes = [
+            n for n in self.notes_manager.get_notes()
+            if self.notes_manager.is_encrypted(n)
+        ]
+        if not encrypted_notes:
+            self._show_toast("No private notes to unlock")
+            return
+
+        first_note = encrypted_notes[0]
+        try:
+            raw = self.notes_manager.read_note(first_note)
+            ciphertext_bytes = raw.encode("latin-1")
+            key = derive_key_from_file(password, ciphertext_bytes)
+            decrypt(ciphertext_bytes, bytearray(key))
+        except Exception as e:
+            logger.warning("Wrong password: %s", e)
+            self._wrong_unlock_attempts += 1
+            if self._wrong_unlock_attempts >= 3:
+                self._start_unlock_cooldown()
+            self._show_toast("Wrong password")
+            return
+
+        self._session_password_bytes = bytearray(password.encode("utf-8"))
+        self._is_session_locked = False
+        self._wrong_unlock_attempts = 0
+        self._cancel_unlock_cooldown()
+        self._update_sidebar_lock_state()
+        self._reset_lock_timer()
+        self._show_toast("Private notes unlocked")
+        self.editor.set_editable(True)
+        if self.current_note and self.notes_manager.is_encrypted(self.current_note):
+            self.nav.update_header_ui(self.current_note, is_editor=True)
+            self.sidebar.set_active_view("editor")
+            self.content_stack.set_visible_child_name("editor")
+            try:
+                self._load_encrypted_note(self.current_note)
+            except Exception as e:
+                logger.error("Failed to load encrypted note after unlock: %s", e)
+        if self._pending_encrypt_note:
+            note_name = self._pending_encrypt_note
+            self._pending_encrypt_note = None
+            try:
+                self._encrypt_note(note_name)
+            except Exception as e:
+                logger.error("Failed to encrypt pending note '%s' after unlock: %s", note_name, e)
+
+    def _show_unlock_popover(self) -> None:
+        """Show the unlock dialog."""
+        from ui.unlock_popover import UnlockDialog
+        dialog = UnlockDialog(self)
+        dialog.present()
+
+    def lock_session(self) -> None:
+        """Lock private notes, zero the key and password, clear the buffer."""
+        self._cancel_lock_timer()
+        if self.current_note and self.notes_manager.is_encrypted(self.current_note):
+            try:
+                self._save_current_encrypted_note()
+            except Exception as e:
+                logger.error("Failed to save encrypted note on lock: %s", e)
+            self.buffer.set_text("")
+        self.editor.set_editable(False)
+        self._zero_session_key()
+        self._zero_session_password()
+        self._is_session_locked = True
+        self._update_sidebar_lock_state()
+        self._show_toast("Private notes locked", action_label="Unlock", action=self._show_unlock_popover)
+
+    def _zero_session_key(self) -> None:
+        """Zero out the session key bytearray before releasing it."""
+        if self._session_key is not None:
+            for i in range(len(self._session_key)):
+                self._session_key[i] = 0
+            self._session_key = None
+
+    def _zero_session_password(self) -> None:
+        """Zero out the session password bytearray before releasing it."""
+        if self._session_password_bytes is not None:
+            for i in range(len(self._session_password_bytes)):
+                self._session_password_bytes[i] = 0
+            self._session_password_bytes = None
+
+    def _cancel_lock_timer(self) -> None:
+        if self._lock_timer_id:
+            GLib.source_remove(self._lock_timer_id)
+            self._lock_timer_id = 0
+
+    def _reset_lock_timer(self) -> None:
+        """Reset the inactivity timer. Only active when an encrypted note is open."""
+        self._cancel_lock_timer()
+        if self._is_session_locked or self._session_password_bytes is None:
+            return
+        timeout_minutes = self.cfg.get("lock_timeout_minutes", 5)
+        if timeout_minutes == 0:
+            self._lock_timer_id = 0
+            return
+        self._lock_timer_id = GLib.timeout_add_seconds(
+            timeout_minutes * 60,
+            self._on_lock_timeout,
+        )
+
+    def _sync_encrypted_config(self) -> None:
+        """Rebuild encrypted.json from actual .md.enc files on disk."""
+        actual_encrypted = {
+            Path(p.name).stem
+            for p in self.notes_manager.notes_dir.glob("*.md.enc")
+        }
+        stale = self.cfg.encrypted - actual_encrypted
+        missing = actual_encrypted - self.cfg.encrypted
+        if stale:
+            for name in stale:
+                self.cfg.encrypted.discard(name)
+            self.cfg._save_json(self.cfg.encrypted_path, self.cfg.encrypted)
+        if missing:
+            for name in missing:
+                self.cfg.encrypted.add(name)
+            self.cfg._save_json(self.cfg.encrypted_path, self.cfg.encrypted)
+
+    def _on_lock_timeout(self) -> bool:
+        self._lock_timer_id = 0
+        self.lock_session()
+        return False
+
+    def _start_unlock_cooldown(self) -> None:
+        self._cancel_unlock_cooldown()
+        self._unlock_cooldown_remaining = 5
+
+        def _tick() -> bool:
+            self._unlock_cooldown_remaining -= 1
+            if self._unlock_cooldown_remaining <= 0:
+                self._unlock_cooldown_id = 0
+                self._unlock_cooldown_remaining = 0
+                return False
+            return True
+
+        self._unlock_cooldown_id = GLib.timeout_add_seconds(1, _tick)
+
+    def _cancel_unlock_cooldown(self) -> None:
+        if self._unlock_cooldown_id:
+            GLib.source_remove(self._unlock_cooldown_id)
+            self._unlock_cooldown_id = 0
+            self._unlock_cooldown_remaining = 0
+
+    def is_unlock_cooldown_active(self) -> bool:
+        return self._unlock_cooldown_remaining > 0
+
+    def get_unlock_cooldown_remaining(self) -> int:
+        return self._unlock_cooldown_remaining
+
+    def _update_sidebar_lock_state(self) -> None:
+        """Update all encrypted sidebar rows to reflect the current lock state."""
+        locked = self._is_session_locked
+        for lb in (self.sidebar.main_list, self.sidebar.archive_list):
+            child = lb.get_first_child()
+            while child:
+                if getattr(child, "is_encrypted", False):
+                    self.sidebar.update_encrypted_row(child, locked)
+                child = child.get_next_sibling()
+
+    def _save_current_encrypted_note(self) -> None:
+        """Encrypt and save the current editor buffer content."""
+        if not self.current_note or self._session_password_bytes is None:
+            return
+        start, end = self.buffer.get_bounds()
+        plaintext = self.buffer.get_text(start, end, True)
+        from core.encryption import derive_key_from_file, encrypt, _SALT_LEN
+        raw = self.notes_manager.read_note(self.current_note)
+        ciphertext_bytes = raw.encode("latin-1")
+        file_salt = ciphertext_bytes[:_SALT_LEN]
+        password = self._session_password_bytes.decode("utf-8")
+        key = derive_key_from_file(password, ciphertext_bytes)
+        key_bytes = bytearray(key)
+        ciphertext = encrypt(plaintext, key_bytes, file_salt)
+        self.notes_manager.save_note(self.current_note, ciphertext.decode("latin-1"), encrypt=True)
+        self.cfg.mark_encrypted(self.current_note)
+
+    def _encrypt_note(self, note_name: str) -> None:
+        """Encrypt an existing plain note using the stored session password."""
+        if self._session_password_bytes is None:
+            return
+        content = self.notes_manager.read_note(note_name)
+        from core.encryption import encrypt, secure_delete, derive_key
+        import os
+        from core.encryption import _SALT_LEN
+        salt = os.urandom(_SALT_LEN)
+        password = self._session_password_bytes.decode("utf-8")
+        key = derive_key(password, salt)
+        key_bytes = bytearray(key)
+        ciphertext = encrypt(content, key_bytes, salt)
+        plain_path = self.notes_manager.notes_dir / f"{note_name}.md"
+        self.notes_manager.save_note(note_name, ciphertext.decode("latin-1"), encrypt=True)
+        self.cfg.mark_encrypted(note_name)
+        if plain_path.exists():
+            secure_delete(plain_path)
+        self.notes_manager._content_cache.pop(note_name, None)
+        self.notes_manager._metadata_cache.pop(note_name, None)
+        self.refresh_list()
+        if self.current_note == note_name:
+            self.buffer.handler_block(self.changed_handler_id)
+            self.buffer.set_text(content)
+            self.buffer.handler_unblock(self.changed_handler_id)
+        self._show_toast(f"'{note_name}' is now private")
+
+    def _load_encrypted_note(self, note_name: str) -> None:
+        """Decrypt and load an encrypted note into the editor."""
+        if self._session_password_bytes is None:
+            return
+        try:
+            raw = self.notes_manager.read_note(note_name)
+            ciphertext = raw.encode("latin-1")
+            from core.encryption import derive_key_from_file, decrypt
+            password = self._session_password_bytes.decode("utf-8")
+            key = derive_key_from_file(password, ciphertext)
+            plaintext = decrypt(ciphertext, bytearray(key))
+            self.buffer.handler_block(self.changed_handler_id)
+            self.buffer.set_text(plaintext)
+            self.buffer.handler_unblock(self.changed_handler_id)
+
+            start = self.buffer.get_start_iter()
+            self.buffer.place_cursor(start)
+            self.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
+
+            if self.highlighter:
+                self.highlighter.highlight(start_line=0, end_line=30)
+            if self._pending_highlight_id:
+                GLib.source_remove(self._pending_highlight_id)
+                self._pending_highlight_id = 0
+            if self.highlighter and self.buffer.get_line_count() > 30:
+                self._pending_highlight_id = GLib.idle_add(
+                    self.lifecycle._highlight_chunk, note_name, 30
+                )
+        except Exception as e:
+            logger.error("Failed to decrypt note '%s': %s", note_name, e)
+            self._show_toast(f"Failed to decrypt '{note_name}'")
+            self.buffer.handler_block(self.changed_handler_id)
+            self.buffer.set_text("")
+            self.buffer.handler_unblock(self.changed_handler_id)
+
+    def _show_toast(self, message: str, action_label: str | None = None, action=None) -> None:
+        """Show an Adw.Toast with optional action button."""
+        toast = Adw.Toast(title=message, timeout=3)
+        if action_label and action:
+            toast.set_button_label(action_label)
+            toast.connect("button-clicked", lambda *_: action())
+        if hasattr(self, "toast_overlay"):
+            self.toast_overlay.add_toast(toast)
 
     # GIO actions
 
     def _setup_actions(self) -> None:
         for name, handler in (
-            ("delete",  self.lifecycle.on_delete_action),
-            ("pin",     self.on_pin_note),
-            ("unpin",   self.on_unpin_note),
-            ("archive", self.on_toggle_archive_note),
+            ("delete",        self.lifecycle.on_delete_action),
+            ("pin",           self.on_pin_note),
+            ("unpin",         self.on_unpin_note),
+            ("archive",       self.on_toggle_archive_note),
+            ("make_private",  self.on_make_private),
+            ("remove_privacy", self.on_remove_privacy),
         ):
             action = Gio.SimpleAction.new(name, GLib.VariantType.new("s"))
             action.connect("activate", handler)
@@ -112,28 +410,129 @@ class TokyoNotes(Adw.Application):
         self.cfg.unpin(parameter.get_string())
         self.refresh_list(self.sidebar.search_entry.get_text())
 
+    def on_make_private(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        note_name = parameter.get_string()
+        if self.notes_manager.is_encrypted(note_name):
+            return
+        if self._session_password_bytes is not None:
+            self._encrypt_note(note_name)
+        elif self._is_session_locked and self._session_password_bytes is None:
+            has_any_encrypted = any(
+                self.notes_manager.is_encrypted(n) for n in self.notes_manager.get_notes()
+            )
+            if not has_any_encrypted:
+                self._is_session_locked = False
+                self._show_setup_dialog(note_name)
+            else:
+                self._pending_encrypt_note = note_name
+                self._show_unlock_popover()
+        else:
+            self._show_setup_dialog(note_name)
+
+    def on_remove_privacy(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        note_name = parameter.get_string()
+        if not self.notes_manager.is_encrypted(note_name):
+            return
+        self._confirm_remove_privacy(note_name)
+
+    def _show_setup_dialog(self, note_name: str) -> None:
+        from ui.setup_dialog import SetupDialog
+        dialog = SetupDialog(self, note_name)
+        dialog.present()
+
+    def _show_password_change_dialog(self) -> None:
+        from ui.password_change_dialog import PasswordChangeDialog
+        dialog = PasswordChangeDialog(self)
+        dialog.present()
+
+    def _confirm_remove_privacy(self, note_name: str) -> None:
+        if self._is_session_locked or self._session_password_bytes is None:
+            self._select_sidebar_row(note_name)
+            self._show_unlock_popover()
+            return
+
+        dialog = Adw.MessageDialog(
+            transient_for=self.win,
+            heading="Remove Privacy?",
+            body=(
+                f"This will save '{note_name}' as plain text. "
+                "The note will no longer be encrypted. Are you sure?"
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove Privacy")
+        try:
+            dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        except Exception:
+            pass
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_remove_privacy_response, note_name)
+        dialog.present()
+
+    def _on_remove_privacy_response(
+        self, dialog: Adw.MessageDialog, response: str, note_name: str
+    ) -> None:
+        if response != "remove":
+            return
+        if self._session_password_bytes is None:
+            return
+
+        # Read the actual note content from disk (decrypt it), not the buffer
+        raw = self.notes_manager.read_note(note_name)
+        from core.encryption import derive_key_from_file, decrypt
+        ciphertext_bytes = raw.encode("latin-1")
+        password = self._session_password_bytes.decode("utf-8")
+        key = derive_key_from_file(password, ciphertext_bytes)
+        content = decrypt(ciphertext_bytes, bytearray(key))
+
+        plain_path = self.notes_manager.notes_dir / f"{note_name}.md"
+        enc_path = self.notes_manager.notes_dir / f"{note_name}.md.enc"
+
+        self.notes_manager.save_note(note_name, content)
+        self.cfg.mark_decrypted(note_name)
+
+        if enc_path.exists():
+            from core.encryption import secure_delete
+            secure_delete(enc_path)
+
+        self.refresh_list()
+        if self.current_note == note_name:
+            self.buffer.handler_block(self.changed_handler_id)
+            self.buffer.set_text(content)
+            self.buffer.handler_unblock(self.changed_handler_id)
+
     # Folder selection
 
     def on_select_folder(self, _button=None) -> None:
         dialog = Gtk.FileDialog()
         dialog.set_title("Select Notes Folder")
-        if Path(self.notes_folder).exists():
-            dialog.set_initial_folder(
-                Gio.File.new_for_path(str(Path(self.notes_folder).absolute()))
-            )
+        # Use home directory as initial folder to avoid GTK4 bug where
+        # selecting a parent of the initial folder fails silently.
+        dialog.set_initial_folder(
+            Gio.File.new_for_path(str(Path.home()))
+        )
         dialog.select_folder(self.win, None, self._on_folder_selected)
 
     def _on_folder_selected(self, dialog, result) -> None:
         try:
             folder = dialog.select_folder_finish(result)
-        except GLib.Error:
-            return  # user cancelled
+        except GLib.Error as e:
+            logger.warning("Folder selection failed or cancelled: %s", e)
+            self._show_toast("Folder selection cancelled")
+            return
 
         if not folder:
             return
 
         new_folder = folder.get_path()
+        logger.info("Selected folder: %s (current: %s)", new_folder, self.notes_folder)
         if new_folder == self.notes_folder:
+            self._show_toast("Already using this folder")
             return
 
         self.notes_folder = new_folder
@@ -150,6 +549,7 @@ class TokyoNotes(Adw.Application):
         self.buffer.handler_unblock(self.changed_handler_id)
         self.win.set_title("Tokyo Notes")
         self.refresh_list()
+        self._show_toast("Notes folder changed")
 
     # Activation / window construction
 
@@ -160,12 +560,13 @@ class TokyoNotes(Adw.Application):
             self.win.present()
             return
 
+        self._apply_security_mitigations()
+
         self.theme_manager.setup_providers()
         self.win = self.window_manager.create_window()
         self.apply_theme(self.cfg.get("theme"))
 
         self.split_view = Adw.OverlaySplitView()
-        self.win.set_content(self.split_view)
 
         # Build the toggle button before the sidebar so _build_content_header
         # can pack it; connect its "toggled" signal after the sidebar exists.
@@ -206,6 +607,10 @@ class TokyoNotes(Adw.Application):
         main_layout.append(overlay)
         self.split_view.set_content(main_layout)
 
+        self.toast_overlay = Adw.ToastOverlay()
+        self.toast_overlay.set_child(self.split_view)
+        self.win.set_content(self.toast_overlay)
+
         self.win.present()
         self.window_manager.setup_breakpoint()
 
@@ -229,6 +634,7 @@ class TokyoNotes(Adw.Application):
             on_pin=self.on_pin_shortcut,
             on_archive=self.on_archive_shortcut,
             on_settings=self.nav.on_settings_clicked,
+            on_lock=self.lock_session,
         )
         logger.info("Tokyo Notes started — notes folder: %s", self.notes_folder)
 
@@ -290,6 +696,11 @@ class TokyoNotes(Adw.Application):
         gesture.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
         self.text_view.add_controller(gesture)
         self.text_view.set_focus_on_click(True)
+
+        scroll_ctrl = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+        scroll_ctrl.connect("scroll", self._on_editor_scroll)
+        scroll_ctrl.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
+        self.text_view.add_controller(scroll_ctrl)
 
     def _build_content_stack(self) -> Gtk.Overlay:
         self.content_stack = Gtk.Stack()
@@ -444,8 +855,6 @@ class TokyoNotes(Adw.Application):
         if not note_name:
             return
 
-        # Safe actions first, destructive action last in its own section
-        # so the pointer is never sitting on Delete when the menu opens.
         menu = Gio.Menu()
         if note_name in self.cfg.pinned:
             menu.append("Unpin", f"app.unpin::{note_name}")
@@ -455,14 +864,20 @@ class TokyoNotes(Adw.Application):
             "Unarchive" if is_archived else "Archive",
             f"app.archive::{note_name}",
         )
+
+        privacy_section = Gio.Menu()
+        if self.notes_manager.is_encrypted(note_name):
+            privacy_section.append("Remove privacy", f"app.remove_privacy::{note_name}")
+        else:
+            privacy_section.append("Make private", f"app.make_private::{note_name}")
+        menu.append_section(None, privacy_section)
+
         danger = Gio.Menu()
         danger.append("Delete", f"app.delete::{note_name}")
         menu.append_section(None, danger)
 
         popover = Gtk.PopoverMenu.new_from_model(menu)
         popover.set_parent(row)
-        # Anchor below the row so the menu drops down and the pointer
-        # is not on any item when the menu first appears.
         row_rect = Gdk.Rectangle()
         row_rect.x      = 0
         row_rect.y      = row.get_height()
@@ -507,7 +922,24 @@ class TokyoNotes(Adw.Application):
             start, end = self.buffer.get_bounds()
             content = self.buffer.get_text(start, end, True)
             if content:
-                self.notes_manager.save_note(self.current_note, content)
+                if self.notes_manager.is_encrypted(self.current_note):
+                    if self._session_password_bytes is not None:
+                        try:
+                            from core.encryption import derive_key_from_file, encrypt, _SALT_LEN
+                            raw = self.notes_manager.read_note(self.current_note)
+                            ciphertext_bytes = raw.encode("latin-1")
+                            file_salt = ciphertext_bytes[:_SALT_LEN]
+                            password = self._session_password_bytes.decode("utf-8")
+                            key = derive_key_from_file(password, ciphertext_bytes)
+                            key_bytes = bytearray(key)
+                            ciphertext = encrypt(content, key_bytes, file_salt)
+                            self.notes_manager.save_note(self.current_note, ciphertext.decode("latin-1"), encrypt=True)
+                        except Exception as e:
+                            logger.error("Failed to encrypt note '%s' on save: %s", self.current_note, e)
+                    else:
+                        logger.warning("Skipping save of encrypted note '%s' — session locked", self.current_note)
+                else:
+                    self.notes_manager.save_note(self.current_note, content)
 
     def _reschedule(self, timeout_attr: str, delay_ms: int, callback: Callable) -> None:
         """Cancel any pending GLib timeout and schedule a fresh one."""
@@ -587,6 +1019,7 @@ class TokyoNotes(Adw.Application):
             ("Delete", "Delete selected note"),
             ("<Primary><Shift>p", "Pin / unpin note"),
             ("<Primary><Shift>a", "Archive / unarchive note"),
+            ("<Primary>l", "Lock private notes"),
             ("<Primary><Shift>t", "Insert timestamp"),
             ("<Primary><Shift>z", "Zen mode"),
             ("<Primary>q", "Quit"),
@@ -625,6 +1058,8 @@ class TokyoNotes(Adw.Application):
             or self.content_stack.get_visible_child_name() != "editor"
         ):
             return
+        if self.current_note and self.notes_manager.is_encrypted(self.current_note):
+            self._reset_lock_timer()
         cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
         cursor_line = cursor_iter.get_line()
         if cursor_line == self.last_cursor_line:
@@ -644,7 +1079,17 @@ class TokyoNotes(Adw.Application):
     def on_click_pressed(
         self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float
     ) -> None:
+        self._reset_lock_timer_on_activity()
         self.click_dispatcher.handle_click(x, y)
+
+    def _on_editor_scroll(
+        self, controller: Gtk.EventControllerScroll, dx: float, dy: float
+    ) -> None:
+        self._reset_lock_timer_on_activity()
+
+    def _reset_lock_timer_on_activity(self) -> None:
+        if not self._is_session_locked:
+            self._reset_lock_timer()
 
     # Highlighting
 

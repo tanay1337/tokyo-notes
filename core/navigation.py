@@ -138,6 +138,10 @@ class NavigationController:
         """Switch to the settings view, lazily creating it on first access."""
         app = self.app
         if app.settings_view is None:
+            has_encrypted = any(
+                app.notes_manager.is_encrypted(n)
+                for n in app.notes_manager.get_notes()
+            )
             app.settings_view = SettingsView(
                 app.apply_theme,
                 app.on_settings_config_changed,
@@ -151,7 +155,11 @@ class NavigationController:
                     "show_completed": app.cfg.get("show_completed", True),
                     "show_progress_rings": app.cfg.get("show_progress_rings", True),
                     "show_backlinks": app.cfg.get("show_backlinks", True),
+                    "lock_timeout_minutes": app.cfg.get("lock_timeout_minutes", 5),
+                    "has_encrypted_notes": has_encrypted,
                 },
+                on_change_password=app._show_password_change_dialog,
+                on_set_password=app._show_setup_dialog,
             )
             app.content_stack.add_named(app.settings_view, "settings")
 

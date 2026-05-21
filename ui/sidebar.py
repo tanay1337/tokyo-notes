@@ -154,11 +154,13 @@ class Sidebar(Gtk.Box):
         for note in pinned_notes:
             self.main_list.append(
                 self._make_row(note, snippet_fn(note), is_pinned=True,
+                               is_encrypted=self.app.notes_manager.is_encrypted(note),
                                on_right_click=on_right_click, base_dir=base_dir)
             )
         for note in other_notes:
             self.main_list.append(
                 self._make_row(note, snippet_fn(note),
+                               is_encrypted=self.app.notes_manager.is_encrypted(note),
                                on_right_click=on_right_click, base_dir=base_dir)
             )
 
@@ -176,6 +178,7 @@ class Sidebar(Gtk.Box):
                 snippet = snippet_fn(note)
             self.archive_list.append(
                 self._make_row(note, snippet, is_archived=True,
+                               is_encrypted=self.app.notes_manager.is_encrypted(note),
                                on_right_click=on_right_click, base_dir=base_dir)
             )
 
@@ -193,6 +196,7 @@ class Sidebar(Gtk.Box):
         snippet_text: str,
         is_pinned: bool = False,
         is_archived: bool = False,
+        is_encrypted: bool = False,
         on_right_click: Callable[..., Any] | None = None,
         base_dir: Path | None = None,
     ) -> Gtk.ListBoxRow:
@@ -209,6 +213,11 @@ class Sidebar(Gtk.Box):
             label.add_css_class("muted-label")
         label.set_hexpand(True)
         title_box.append(label)
+
+        lock_icon = Gtk.Image.new_from_icon_name("changes-prevent-symbolic")
+        lock_icon.set_visible(is_encrypted)
+        lock_icon.add_css_class("lock-icon")
+        title_box.append(lock_icon)
 
         pin_icon = Gtk.Image()
         pin_icon.set_from_icon_name(_get_pin_icon_name())
@@ -227,14 +236,17 @@ class Sidebar(Gtk.Box):
         row.note_name = note_name
         row.title_label = label
         row.snippet_label = snippet
+        row.is_encrypted = is_encrypted
 
-        # Hover-preload using a weakref so the row can be GCed.
+        if is_encrypted:
+            box.add_css_class("private-note-locked")
+
         import weakref
         _app_ref = weakref.ref(self.app)
         hover = Gtk.EventControllerMotion()
         def _on_hover_enter(*_):
             app = _app_ref()
-            if app is not None:
+            if app is not None and not (is_encrypted and app._is_session_locked):
                 app.notes_manager.read_note(note_name)
         hover.connect("enter", _on_hover_enter)
         row.add_controller(hover)
@@ -245,3 +257,23 @@ class Sidebar(Gtk.Box):
             row.add_controller(gesture)
 
         return row
+
+    def update_encrypted_row(self, row: Gtk.ListBoxRow, locked: bool) -> None:
+        """Update CSS classes and snippet for an encrypted row on lock state change."""
+        if not getattr(row, "is_encrypted", False):
+            return
+        box = row.get_child()
+        if not isinstance(box, Gtk.Box):
+            return
+
+        if locked:
+            box.add_css_class("private-note-locked")
+            box.remove_css_class("private-note-unlocked")
+            if hasattr(row, "snippet_label"):
+                row.snippet_label.set_label("Private note")
+        else:
+            box.add_css_class("private-note-unlocked")
+            box.remove_css_class("private-note-locked")
+            if hasattr(row, "snippet_label"):
+                meta = self.app.notes_manager.get_metadata(row.note_name)
+                row.snippet_label.set_label(meta.get("snippet", ""))

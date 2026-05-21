@@ -26,10 +26,11 @@ def setup_shortcuts(
     on_pin: Callable[[], None] | None = None,
     on_archive: Callable[[], None] | None = None,
     on_settings: Callable[[], None] | None = None,
+    on_lock: Callable[[], None] | None = None,
 ) -> None:
     # Ctrl+N  new note          Ctrl+D  dashboard         Ctrl+G  graph
     # Ctrl+F  search (×2=clear) Ctrl+Q  quit              Ctrl+H  help
-    # Ctrl+Shift+T  timestamp   Ctrl+Shift+Z  zen mode
+    # Ctrl+L  lock notes        Ctrl+Shift+T  timestamp   Ctrl+Shift+Z  zen mode
     # Ctrl+Shift+P  pin note    Ctrl+Shift+A  archive note
     # Ctrl+Shift+S  settings
     # Escape  back / clear      Delete  delete note
@@ -55,6 +56,8 @@ def setup_shortcuts(
         bindings.append((get_accel("<Shift>a"), on_archive))
     if on_settings:
         bindings.append((get_accel("<Shift>s"), on_settings))
+    if on_lock:
+        bindings.append((get_accel("l"), on_lock))
 
     for trigger_str, callback in bindings:
         controller.add_shortcut(Gtk.Shortcut.new(

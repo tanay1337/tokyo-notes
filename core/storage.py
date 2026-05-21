@@ -11,6 +11,7 @@ seconds before re-validating externally-modified files.
 """
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -48,25 +49,56 @@ class NotesManager:
                 stale.unlink()
             except OSError:
                 pass
+        # Clean up leftover .enc.new files from crashed re-encryption
+        for stale in self.notes_dir.glob("*.md.enc.new"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
 
     # Querying
 
     def get_notes(self, search_text: str = "") -> list[str]:
         """Return all note stems sorted by mtime (newest first).
 
-        As a side-effect, refreshes the mtime cache for every note found so
-        that subsequent read_note() calls can skip stat() for up to
-        _MTIME_TRUST_SECS seconds.
+        Scans both .md and .md.enc files. Encrypted notes are included
+        in the list so they appear in the sidebar (with a lock icon).
+        If both .md and .md.enc exist for the same note, .enc takes priority.
         """
-        entries = [(p, p.stat()) for p in self.notes_dir.glob("*.md")]
-        entries.sort(key=lambda x: x[1].st_mtime, reverse=True)
+        plain_entries: dict[str, tuple[Path, os.stat_result]] = {}
+        enc_entries: dict[str, tuple[Path, os.stat_result]] = {}
+
+        for p in self.notes_dir.glob("*.md"):
+            try:
+                plain_entries[p.stem] = (p, p.stat())
+            except OSError:
+                pass
+        for p in self.notes_dir.glob("*.md.enc"):
+            try:
+                name = Path(p.stem).stem
+                enc_entries[name] = (p, p.stat())
+            except OSError:
+                pass
+
+        # Merge: encrypted takes priority over plain for the same name
+        merged: dict[str, tuple[Path, os.stat_result, bool]] = {}
+        for name, (p, st) in plain_entries.items():
+            merged[name] = (p, st, False)
+        for name, (p, st) in enc_entries.items():
+            merged[name] = (p, st, True)
+
+        entries = sorted(merged.values(), key=lambda x: x[1].st_mtime, reverse=True)
 
         with self._lock:
-            for p, st in entries:
-                self._mtime_cache[p.stem] = st.st_mtime
+            for p, st, _is_enc in entries:
+                name = Path(p.stem).stem if _is_enc else p.stem
+                self._mtime_cache[name] = st.st_mtime
             self._last_full_scan = time.monotonic()
 
-        note_names = [p.stem for p, _ in entries]
+        note_names = []
+        for p, _, is_enc in entries:
+            name = Path(p.stem).stem if is_enc else p.stem
+            note_names.append(name)
 
         if not search_text:
             return note_names
@@ -83,15 +115,23 @@ class NotesManager:
 
     # Reading
 
+    def is_encrypted(self, name: str) -> bool:
+        """Check if *name* has an encrypted .md.enc file on disk."""
+        return (self.notes_dir / f"{name}.md.enc").exists()
+
     def read_note(self, name: str) -> str:
         """Return content of *name*.md from cache or disk.
 
-        Skips stat() if the mtime was refreshed recently by get_notes() and
-        the cache already has a matching entry. This makes search fast on
-        large note collections.
+        If an .enc file exists, returns the raw ciphertext bytes as a
+        latin-1 string (so it survives the cache without decoding errors).
+        The caller (main.py) is responsible for decrypting with the session key.
         """
-        note_path = self.notes_dir / f"{name}.md"
-        if not note_path.exists():
+        enc_path = self.notes_dir / f"{name}.md.enc"
+        plain_path = self.notes_dir / f"{name}.md"
+
+        if enc_path.exists():
+            return self._read_encrypted(name, enc_path)
+        if not plain_path.exists():
             return ""
 
         with self._lock:
@@ -99,27 +139,56 @@ class NotesManager:
             cached = self._content_cache.get(name)
             scan_fresh = (time.monotonic() - self._last_full_scan) < _MTIME_TRUST_SECS
 
-        # Fast path: mtime from the recent scan matches cached content.
         if scan_fresh and cached and cached["mtime"] == cached_mtime:
             return cached["content"]
 
-        # Slow path: stat to detect external edits (lock released only after read).
-        current_mtime = note_path.stat().st_mtime
+        current_mtime = plain_path.stat().st_mtime
         with self._lock:
             self._mtime_cache[name] = current_mtime
             cached = self._content_cache.get(name)
             if cached and cached["mtime"] == current_mtime:
                 return cached["content"]
 
-        content = note_path.read_text(encoding="utf-8")
+        content = plain_path.read_text(encoding="utf-8")
         with self._lock:
             self._content_cache[name] = {"content": content, "mtime": current_mtime}
         return content
 
+    def _read_encrypted(self, name: str, enc_path: Path) -> str:
+        """Read encrypted file content. Returns raw bytes as latin-1 string."""
+        with self._lock:
+            cached_mtime = self._mtime_cache.get(name, 0)
+            cached = self._content_cache.get(name)
+            scan_fresh = (time.monotonic() - self._last_full_scan) < _MTIME_TRUST_SECS
+
+        current_mtime = enc_path.stat().st_mtime
+        if scan_fresh and cached and cached["mtime"] == current_mtime:
+            return cached["content"]
+
+        with self._lock:
+            self._mtime_cache[name] = current_mtime
+            cached = self._content_cache.get(name)
+            if cached and cached["mtime"] == current_mtime:
+                return cached["content"]
+
+        raw_bytes = enc_path.read_bytes()
+        content = raw_bytes.decode("latin-1")
+        with self._lock:
+            self._content_cache[name] = {"content": content, "mtime": current_mtime, "encrypted": True}
+        return content
+
     def get_metadata(self, name: str) -> dict[str, Any]:
-        """Return cached metadata for *name* (snippet, links, checkboxes, mtime)."""
-        note_path = self.notes_dir / f"{name}.md"
-        if not note_path.exists():
+        """Return cached metadata for *name* (snippet, links, checkboxes, mtime).
+
+        For encrypted notes, returns a placeholder snippet since content
+        cannot be read without the session key.
+        """
+        enc_path = self.notes_dir / f"{name}.md.enc"
+        plain_path = self.notes_dir / f"{name}.md"
+
+        if enc_path.exists():
+            return self._get_metadata_encrypted(name, enc_path)
+        if not plain_path.exists():
             return {"snippet": "", "links": [], "checkboxes": [], "mtime": 0}
 
         with self._lock:
@@ -130,7 +199,7 @@ class NotesManager:
         if scan_fresh and cached_meta and cached_meta["mtime"] == cached_mtime:
             return cached_meta
 
-        current_mtime = note_path.stat().st_mtime
+        current_mtime = plain_path.stat().st_mtime
         with self._lock:
             self._mtime_cache[name] = current_mtime
             cached_meta = self._metadata_cache.get(name)
@@ -155,6 +224,34 @@ class NotesManager:
             self._metadata_cache[name] = metadata
         return metadata
 
+    def _get_metadata_encrypted(self, name: str, enc_path: Path) -> dict[str, Any]:
+        """Return metadata for an encrypted note (placeholder snippet)."""
+        with self._lock:
+            cached_mtime = self._mtime_cache.get(name, 0)
+            cached_meta = self._metadata_cache.get(name)
+            scan_fresh = (time.monotonic() - self._last_full_scan) < _MTIME_TRUST_SECS
+
+        current_mtime = enc_path.stat().st_mtime
+        if scan_fresh and cached_meta and cached_meta["mtime"] == current_mtime:
+            return cached_meta
+
+        with self._lock:
+            self._mtime_cache[name] = current_mtime
+            cached_meta = self._metadata_cache.get(name)
+            if cached_meta and cached_meta["mtime"] == current_mtime:
+                return cached_meta
+
+        metadata = {
+            "snippet":    "Private note",
+            "links":      [],
+            "checkboxes": [],
+            "mtime":      current_mtime,
+            "encrypted":  True,
+        }
+        with self._lock:
+            self._metadata_cache[name] = metadata
+        return metadata
+
     def get_all_checkboxes(self, exclude: set[str] | None = None) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         for name in self.get_notes():
@@ -168,7 +265,7 @@ class NotesManager:
     def reserve_name(self, name: str = "Untitled") -> str:
         base = name
         counter = 1
-        while (self.notes_dir / f"{name}.md").exists():
+        while (self.notes_dir / f"{name}.md").exists() or (self.notes_dir / f"{name}.md.enc").exists():
             name = f"{base} {counter}"
             counter += 1
         return name
@@ -178,8 +275,16 @@ class NotesManager:
         self.save_note(name, content)
         return name
 
-    def save_note(self, name: str, content: str) -> None:
-        """Atomic write: write to .tmp then rename over the destination."""
+    def save_note(self, name: str, content: str, encrypt: bool = False) -> None:
+        """Atomic write: write to .tmp then rename over the destination.
+
+        If *encrypt* is True, *content* is treated as raw ciphertext bytes
+        (encoded as latin-1) and written to .md.enc.
+        """
+        if encrypt:
+            self._save_encrypted(name, content)
+            return
+
         note_path = self.notes_dir / f"{name}.md"
         tmp_path  = self.notes_dir / f".{name}.tmp"
         try:
@@ -194,8 +299,29 @@ class NotesManager:
             self._mtime_cache[name]    = mtime
             self._metadata_cache.pop(name, None)
 
+    def _save_encrypted(self, name: str, ciphertext_latin1: str) -> None:
+        """Save ciphertext to .md.enc file atomically."""
+        enc_path = self.notes_dir / f"{name}.md.enc"
+        tmp_path = self.notes_dir / f".{name}.tmp.enc"
+        raw_bytes = ciphertext_latin1.encode("latin-1")
+        try:
+            tmp_path.write_bytes(raw_bytes)
+            tmp_path.replace(enc_path)
+        except OSError:
+            tmp_path.unlink(missing_ok=True)
+            raise
+        mtime = enc_path.stat().st_mtime
+        with self._lock:
+            self._content_cache[name] = {"content": ciphertext_latin1, "mtime": mtime, "encrypted": True}
+            self._mtime_cache[name] = mtime
+            self._metadata_cache.pop(name, None)
+
     def delete_note(self, name: str) -> None:
         note_path = self.notes_dir / f"{name}.md"
+        enc_path = self.notes_dir / f"{name}.md.enc"
+        if enc_path.exists():
+            from core.encryption import secure_delete
+            secure_delete(enc_path)
         if note_path.exists():
             note_path.unlink()
         with self._lock:
@@ -207,9 +333,20 @@ class NotesManager:
         """Synchronous rename. Returns True on success."""
         old_path = self.notes_dir / f"{old_name}.md"
         new_path = self.notes_dir / f"{new_name}.md"
-        if not old_path.exists() or new_path.exists():
+        old_enc = self.notes_dir / f"{old_name}.md.enc"
+        new_enc = self.notes_dir / f"{new_name}.md.enc"
+
+        if old_enc.exists():
+            if new_enc.exists():
+                return False
+            old_enc.rename(new_enc)
+        elif old_path.exists():
+            if new_path.exists():
+                return False
+            old_path.rename(new_path)
+        else:
             return False
-        old_path.rename(new_path)
+
         with self._lock:
             self._content_cache.pop(old_name, None)
             self._metadata_cache.pop(old_name, None)
@@ -252,7 +389,7 @@ class NotesManager:
         lines = content.split("\n")
         if 0 < line_num <= len(lines):
             prefix = re.sub(
-                r"\s*@\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?.*$",
+                r"\s*@\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?",
                 "",
                 lines[line_num - 1],
             )
@@ -266,10 +403,16 @@ class NotesManager:
         return False
 
     def get_backlinks(self, note_name: str, exclude_archived: set[str]) -> list[str]:
-        """Return list of notes that link to *note_name* via [[wiki links]]."""
+        """Return list of notes that link to *note_name* via [[wiki links]].
+
+        Skips encrypted notes since their content cannot be searched without
+        the session key.
+        """
         backlinks = []
         for note in self.get_notes():
             if note == note_name or note in exclude_archived:
+                continue
+            if self.is_encrypted(note):
                 continue
             content = self.read_note(note)
             if f"[[{note_name}]]" in content:

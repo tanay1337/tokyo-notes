@@ -1,6 +1,7 @@
 """Note lifecycle manager — owns open, create, delete, save, and rename logic."""
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -13,6 +14,8 @@ from gi.repository import Adw, GLib, Gtk
 
 from core.services import build_stats, derive_display_title, patch_sidebar_row, update_note_title
 from core.utils import get_snippet
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from main import TokyoNotes
@@ -59,6 +62,7 @@ class NoteLifecycleManager:
         app.buffer.handler_block(app.changed_handler_id)
         app.buffer.set_text("")
         app.buffer.handler_unblock(app.changed_handler_id)
+        app.editor.set_editable(True)
         app.content_stack.set_visible_child_name("editor")
         app.text_view.grab_focus()
 
@@ -69,23 +73,49 @@ class NoteLifecycleManager:
         if not row or app.is_loading:
             return
         note_name = getattr(row, "note_name", None)
-        if not note_name or note_name == app.current_note:
+        if not note_name:
+            return
+
+        if note_name == app.current_note:
+            if app.notes_manager.is_encrypted(note_name) and app._is_session_locked:
+                app._show_unlock_popover()
+            return
+
+        if app.notes_manager.is_encrypted(note_name) and app._is_session_locked:
+            app._flush_pending_save()
+            app.buffer.handler_block(app.changed_handler_id)
+            app.buffer.set_text("")
+            app.buffer.handler_unblock(app.changed_handler_id)
+            app.editor.set_editable(False)
+            app.current_note = note_name
+            app._select_sidebar_row(note_name)
+            app._show_unlock_popover()
             return
 
         app._flush_pending_save()
         app.is_loading = True
+        app.editor.set_editable(True)
         try:
             app.current_note = note_name
             app.nav.update_header_ui(app.current_note, is_editor=True)
             app.sidebar.set_active_view("editor")
-            content = app.notes_manager.read_note(app.current_note)
+
+            if app.notes_manager.is_encrypted(app.current_note) and app._session_password_bytes is not None:
+                try:
+                    app._load_encrypted_note(app.current_note)
+                    content = app.buffer.get_text(*app.buffer.get_bounds(), True)
+                except Exception as e:
+                    logger.error("Failed to decrypt note '%s' on selection: %s", app.current_note, e)
+                    content = ""
+            else:
+                content = app.notes_manager.read_note(app.current_note)
+
             app._has_images = "![" in content
 
             app.buffer.handler_block(app.changed_handler_id)
             app.buffer.set_text(content)
             app.content_stack.set_visible_child_name("editor")
 
-            # Scroll to top for consistent load position.
             start = app.buffer.get_start_iter()
             app.buffer.place_cursor(start)
             app.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
@@ -94,7 +124,7 @@ class NoteLifecycleManager:
                 app.highlighter.highlight(start_line=0, end_line=30)
             app.buffer.handler_unblock(app.changed_handler_id)
 
-            if hasattr(app, "_pending_highlight_id") and app._pending_highlight_id:
+            if app._pending_highlight_id:
                 GLib.source_remove(app._pending_highlight_id)
                 app._pending_highlight_id = 0
             if app.highlighter and app.buffer.get_line_count() > 30:
@@ -264,6 +294,23 @@ class NoteLifecycleManager:
             return False
 
         old_name = app.current_note
+
+        if app.notes_manager.is_encrypted(app.current_note):
+            if app._session_password_bytes is not None:
+                from core.encryption import derive_key_from_file, encrypt, _SALT_LEN
+                raw = app.notes_manager.read_note(app.current_note)
+                ciphertext_bytes = raw.encode("latin-1")
+                file_salt = ciphertext_bytes[:_SALT_LEN]
+                password = app._session_password_bytes.decode("utf-8")
+                key = derive_key_from_file(password, ciphertext_bytes)
+                key_bytes = bytearray(key)
+                ciphertext = encrypt(content, key_bytes, file_salt)
+                app.notes_manager.save_note(app.current_note, ciphertext.decode("latin-1"), encrypt=True)
+            else:
+                logger.warning("Skipping save of encrypted note '%s' — session locked", app.current_note)
+        else:
+            app.notes_manager.save_note(app.current_note, content)
+
         new_name, did_rename = update_note_title(
             old_name=old_name,
             content=content,
@@ -273,10 +320,11 @@ class NoteLifecycleManager:
         if did_rename:
             app.current_note = new_name
             app.nav.update_header_ui(new_name, is_editor=True)
+            if app.notes_manager.is_encrypted(new_name):
+                app.cfg.encrypted.discard(old_name)
+                app.cfg.encrypted.add(new_name)
+                app.cfg._save_json(app.cfg.encrypted_path, app.cfg.encrypted)
 
-        app.notes_manager.save_note(app.current_note, content)
-
-        # Rebuild the sidebar list so the new / renamed note appears.
         app.refresh_list(app.sidebar.search_entry.get_text())
         app._select_sidebar_row(app.current_note)
 
@@ -288,6 +336,7 @@ class NoteLifecycleManager:
         app = self.app
         if app.is_loading or not app.current_note or app.editor.is_updating_images:
             return
+        app._reset_lock_timer_on_activity()
         app._reschedule("sidebar_update_timeout_id", 150, self._update_sidebar_and_stats)
         app._reschedule("highlight_timeout_id", 100, app.do_delayed_highlight)
         if not app._has_images:

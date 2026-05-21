@@ -21,6 +21,7 @@ _DEFAULTS: dict[str, Any] = {
     "show_completed":    True,
     "show_progress_rings": True,
     "show_backlinks":    True,
+    "lock_timeout_minutes": 5,
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).
@@ -53,6 +54,7 @@ class ConfigManager:
         self.config_path: Path = self.config_dir / "tokyo-notes.json"
         self.pinned_path: Path = self.config_dir / "pinned.json"
         self.archive_path: Path = self.config_dir / "archived.json"
+        self.encrypted_path: Path = self.config_dir / "encrypted.json"
 
         self.data: dict[str, Any] = self._load_json(self.config_path, dict(_DEFAULTS))
         # Resolve the notes folder default here, not at module level.
@@ -61,6 +63,7 @@ class ConfigManager:
 
         self.pinned: set[str] = set(self._load_json(self.pinned_path, []))
         self.archived: set[str] = set(self._load_json(self.archive_path, []))
+        self.encrypted: set[str] = set(self._load_json(self.encrypted_path, []))
 
         # Debounce state — managed exclusively by set() and _flush().
         self._dirty: bool = False
@@ -159,12 +162,31 @@ class ConfigManager:
         return note_name in self.archived
 
     def remove_note(self, note_name: str) -> None:
-        """Remove a deleted note from pinned and archived sets."""
+        """Remove a deleted note from pinned, archived, and encrypted sets."""
         changed_pinned = note_name in self.pinned
         changed_archived = note_name in self.archived
+        changed_encrypted = note_name in self.encrypted
         self.pinned.discard(note_name)
         self.archived.discard(note_name)
+        self.encrypted.discard(note_name)
         if changed_pinned:
             self._save_json(self.pinned_path, self.pinned)
         if changed_archived:
             self._save_json(self.archive_path, self.archived)
+        if changed_encrypted:
+            self._save_json(self.encrypted_path, self.encrypted)
+
+    # Encrypted notes — immediate writes
+
+    def mark_encrypted(self, note_name: str) -> None:
+        if note_name not in self.encrypted:
+            self.encrypted.add(note_name)
+            self._save_json(self.encrypted_path, self.encrypted)
+
+    def mark_decrypted(self, note_name: str) -> None:
+        if note_name in self.encrypted:
+            self.encrypted.discard(note_name)
+            self._save_json(self.encrypted_path, self.encrypted)
+
+    def is_config_encrypted(self, note_name: str) -> bool:
+        return note_name in self.encrypted

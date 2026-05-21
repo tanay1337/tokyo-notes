@@ -28,6 +28,8 @@ class SettingsView(Gtk.Box):
         on_config_changed: Callable[[str, Any], Any],
         on_select_folder_callback: Callable[[Gtk.Button], Any],
         initial_values: dict[str, Any],
+        on_change_password: Callable[[], Any] | None = None,
+        on_set_password: Callable[[str], Any] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("dashboard-view")
@@ -36,6 +38,9 @@ class SettingsView(Gtk.Box):
         self.on_config_changed = on_config_changed
         self.on_select_folder_callback = on_select_folder_callback
         self._initial_values = initial_values
+        self._on_change_password = on_change_password
+        self._on_set_password = on_set_password
+        self._has_encrypted_notes = initial_values.get("has_encrypted_notes", False)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
@@ -110,6 +115,28 @@ class SettingsView(Gtk.Box):
             "show_progress_rings",
         ))
 
+        private_group = Adw.PreferencesGroup(title="Private Notes")
+        content.append(private_group)
+
+        self._change_password_row = Adw.ActionRow(
+            title="Master password",
+            subtitle="Make a note private first to enable private notes." if not self._has_encrypted_notes else "",
+        )
+        self._change_password_btn = Gtk.Button(
+            label="Set password" if not self._has_encrypted_notes else "Change password"
+        )
+        self._change_password_btn.set_valign(Gtk.Align.CENTER)
+        self._change_password_btn.set_sensitive(self._has_encrypted_notes)
+        self._change_password_btn.connect("clicked", self._on_change_password_clicked)
+        self._change_password_row.add_suffix(self._change_password_btn)
+        private_group.add(self._change_password_row)
+
+        self._lock_timeout_row = self._make_lock_timeout_row(
+            initial_values.get("lock_timeout_minutes", 5),
+            on_config_changed,
+        )
+        private_group.add(self._lock_timeout_row)
+
         theme_group = Adw.PreferencesGroup(title="Themes")
         content.append(theme_group)
 
@@ -180,6 +207,35 @@ class SettingsView(Gtk.Box):
         )
         return row
 
+    def _make_lock_timeout_row(
+        self, current_minutes: int, on_config_changed: Callable[[str, Any], Any]
+    ) -> Adw.ComboRow:
+        """Create a dropdown for lock timeout selection."""
+        options = {
+            0: "Never",
+            5: "5 min",
+            15: "15 min",
+            30: "30 min",
+            60: "1 hour",
+        }
+        model = Gtk.StringList()
+        labels = []
+        for minutes in (0, 5, 15, 30, 60):
+            labels.append(options[minutes])
+            model.append(options[minutes])
+
+        row = Adw.ComboRow(title="Lock after inactivity", model=model)
+        current_idx = (0, 5, 15, 30, 60).index(current_minutes) if current_minutes in options else 1
+        row.set_selected(current_idx)
+        row.connect(
+            "notify::selected",
+            lambda r, _pspec: on_config_changed(
+                "lock_timeout_minutes",
+                (0, 5, 15, 30, 60)[r.get_selected()],
+            ),
+        )
+        return row
+
     def _make_theme_row(self, theme: dict[str, str], is_active: bool) -> Gtk.ListBoxRow:
         """Create a theme selection card row."""
         row = Gtk.ListBoxRow()
@@ -243,3 +299,8 @@ class SettingsView(Gtk.Box):
 
     def update_folder_path(self, new_path: str) -> None:
         self.path_label.set_label(new_path)
+
+    def _on_change_password_clicked(self, *_args) -> None:
+        if self._has_encrypted_notes:
+            if self._on_change_password:
+                self._on_change_password()

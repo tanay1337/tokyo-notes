@@ -348,7 +348,7 @@ class ActionsHandler:
             text = self.app.buffer.get_text(start, end, True)
 
         # Skip lines that belong to earlier pages.
-        page_height = height - _PDF_MARGIN
+        page_height = height - 2 * _PDF_MARGIN
         y = _PDF_MARGIN
         current_page = 0
         in_code_block = False

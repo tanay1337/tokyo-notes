@@ -436,3 +436,58 @@ button.pill {
     padding: 2px 10px;
     font-size: 9pt;
 }
+
+/* Private notes — sidebar row styling */
+.private-note-locked .sidebar-label {
+    opacity: 0.75;
+}
+
+.private-note-locked .lock-icon {
+    color: @accent_color;
+    opacity: 0.9;
+}
+
+.private-note-unlocked .lock-icon {
+    opacity: 0.3;
+}
+
+.lock-icon {
+    min-width: 16px;
+    min-height: 16px;
+}
+
+/* Unlock popover error label */
+.error-label {
+    color: #ff6b6b;
+    font-size: 9pt;
+}
+
+/* Shake animation for wrong password */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+}
+
+entry.shake {
+    animation: shake 0.4s ease;
+}
+
+/* Locked note overlay */
+.lock-overlay {
+    background-color: alpha(@bg_color, 0.85);
+    padding: 40px;
+    border-radius: 12px;
+}
+
+.lock-overlay-icon {
+    opacity: 0.4;
+}
+
+.lock-overlay-label {
+    font-size: 11pt;
+    color: @fg_color;
+    opacity: 0.5;
+}

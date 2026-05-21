@@ -56,7 +56,6 @@ class Editor(Gtk.Box):
         self.text_view.set_right_margin(80)
         self.text_view.set_top_margin(40)
         self.text_view.set_bottom_margin(40)
-        # Restore comfortable line spacing -- equivalent to ~1.5x line height.
         self.text_view.set_pixels_above_lines(3)
         self.text_view.set_pixels_below_lines(3)
         self.text_view.set_pixels_inside_wrap(2)
@@ -76,7 +75,14 @@ class Editor(Gtk.Box):
         self.buffer.connect("notify::cursor-position", on_cursor_moved)
 
         scrolled_editor.set_child(self.text_view)
-        self.append(scrolled_editor)
+
+        self.editor_overlay = Gtk.Overlay()
+        self.editor_overlay.set_child(scrolled_editor)
+
+        self._lock_overlay = self._build_lock_overlay()
+        self.editor_overlay.add_overlay(self._lock_overlay)
+
+        self.append(self.editor_overlay)
 
         self.status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         self.status_bar.add_css_class("status-bar")
@@ -89,6 +95,36 @@ class Editor(Gtk.Box):
 
         self.image_anchors: list[Gtk.TextChildAnchor] = []
         self.is_updating_images: bool = False
+
+    def _build_lock_overlay(self) -> Gtk.Box:
+        overlay_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16, valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER)
+        overlay_box.add_css_class("lock-overlay")
+
+        icon_path = Path(__file__).parent.parent / "assets" / "tokyo_notes_icon.svg"
+        if icon_path.exists():
+            icon = Gtk.Image.new_from_file(str(icon_path))
+            icon.set_pixel_size(64)
+            icon.add_css_class("lock-overlay-icon")
+            overlay_box.append(icon)
+
+        label = Gtk.Label(
+            label="Click on this note in the sidebar to unlock.",
+            xalign=0.5,
+        )
+        label.add_css_class("lock-overlay-label")
+        overlay_box.append(label)
+
+        overlay_box.set_visible(False)
+        return overlay_box
+
+    def set_editable(self, editable: bool) -> None:
+        self.text_view.set_editable(editable)
+        self.text_view.set_can_focus(editable)
+        self.text_view.set_receives_default(editable)
+        if hasattr(self, "toolbar"):
+            self.toolbar.set_sensitive(editable)
+        if hasattr(self, "_lock_overlay"):
+            self._lock_overlay.set_visible(not editable)
 
     def _do_insert_continuation(self, prefix: str) -> bool:
         """Idle callback for inserting a list continuation prefix safely.
