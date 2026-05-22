@@ -1,5 +1,5 @@
 /* Global UI Transitions */
-window, .sidebar, .toolbar, .dashboard-view {
+.sidebar, .toolbar, .dashboard-view {
     transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
@@ -48,12 +48,6 @@ row {
     border: none;
 }
 
-.dashboard-row {
-    padding: 5px 10px;
-    margin: 1px 8px;
-    border-radius: 4px;
-}
-
 row:selected {
     background-color: @selection_color;
     color: @selected_fg_color;
@@ -97,9 +91,7 @@ button.filter-btn.active {
     filter: invert(1);
 }
 
-.dark-theme button.backlinks-fab image {
-    filter: invert(1);
-}
+
 
 button:hover {
     background-color: @selection_color;
@@ -122,21 +114,6 @@ text {
     background-color: @bg_color;
 }
 
-.code-block-container {
-    background-color: @sidebar_bg;
-    border-radius: 8px;
-    border: 1px solid @border_color;
-    padding: 12px;
-    margin: 8px 0;
-}
-
-.dashboard-header {
-    font-weight: bold;
-    font-size: 13pt;
-    color: @accent_color;
-    padding: 5px 5px 5px 5px;
-}
-
 .dashboard-footer-btn {
     padding: 12px;
     border-radius: 8px;
@@ -151,12 +128,6 @@ text {
 
 .dashboard-view {
     background-color: @bg_color;
-}
-
-.dashboard-title {
-    font-weight: bold;
-    font-size: 14pt;
-    color: @fg_color;
 }
 
 .calendar-row {
@@ -192,15 +163,6 @@ text {
     color: @fg_color;
     padding: 1px 8px;
     border-radius: 12px;
-    font-size: 8pt;
-    font-weight: 500;
-}
-
-.deadline-chip {
-    background-color: @selection_color;
-    color: @accent_color;
-    padding: 2px 8px;
-    border-radius: 10px;
     font-size: 8pt;
     font-weight: 500;
 }
@@ -243,13 +205,6 @@ text {
 }
 
 /* Settings View Styles */
-.settings-section-header {
-    font-weight: bold;
-    font-size: 14pt;
-    color: @accent_color;
-    padding: 20px 15px 10px 15px;
-}
-
 .theme-card {
     padding: 15px;
     margin: 5px 15px;
@@ -354,10 +309,6 @@ popover > contents {
     font-weight: bold;
 }
 
-.suggested-action:hover {
-    filter: brightness(1.1);
-}
-
 .empty-state-box {
     margin-top: 50px;
     opacity: 0.8;
@@ -412,17 +363,15 @@ button.backlinks-fab {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
+.dark-theme button.backlinks-fab image {
+    filter: invert(1);
+}
+
 button.backlinks-fab:hover {
     background-color: @selection_color;
 }
 
 /* Backlinks count label */
-.backlinks-count {
-    font-size: 10pt;
-    font-weight: 600;
-    color: @accent_color;
-}
-
 .backlinks-count {
     font-size: 9pt;
     font-weight: 600;
@@ -454,25 +403,6 @@ button.pill {
 .lock-icon {
     min-width: 16px;
     min-height: 16px;
-}
-
-/* Unlock popover error label */
-.error-label {
-    color: #ff6b6b;
-    font-size: 9pt;
-}
-
-/* Shake animation for wrong password */
-@keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    20% { transform: translateX(-6px); }
-    40% { transform: translateX(6px); }
-    60% { transform: translateX(-4px); }
-    80% { transform: translateX(4px); }
-}
-
-entry.shake {
-    animation: shake 0.4s ease;
 }
 
 /* Locked note overlay */
@@ -539,4 +469,9 @@ entry.shake {
     font-size: 8pt;
     color: @fg_color;
     opacity: 0.5;
+}
+
+/* Inline images in editor */
+.inline-image {
+    margin: 8px 0;
 }

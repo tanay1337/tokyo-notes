@@ -9,7 +9,9 @@ File format for .enc files:
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
+from typing import Callable
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
@@ -32,6 +34,19 @@ def derive_key(password: str, salt: bytes) -> bytes:
         salt=salt,
     )
     return kdf.derive(password.encode("utf-8"))
+
+
+def derive_key_async(password: str, salt: bytes, on_done: Callable[[bytes], None]) -> None:
+    """Derive a key on a background thread; calls *on_done* on the current thread.
+
+    Because Argon2id is CPU-bound (1--3 s), this avoids blocking the main thread.
+    The derived key is passed to *on_done* (called from the background thread, so
+    *on_done* must schedule work back to the main loop via GLib.idle_add, etc.).
+    """
+    def _work() -> None:
+        key = derive_key(password, salt)
+        on_done(key)
+    threading.Thread(target=_work, daemon=True).start()
 
 
 def derive_key_from_file(password: str, ciphertext_bytes: bytes) -> bytes:
@@ -71,8 +86,11 @@ def secure_delete(path: Path) -> None:
     """Overwrite file with zeros then unlink. Best-effort."""
     try:
         size = path.stat().st_size
+        chunk = b"\x00" * min(size, 65536)
         with open(path, "wb") as f:
-            f.write(b"\x00" * size)
+            for _ in range(size // len(chunk)):
+                f.write(chunk)
+            f.write(b"\x00" * (size % len(chunk)))
             f.flush()
             os.fsync(f.fileno())
         path.unlink()

@@ -1,6 +1,7 @@
 """Settings view for configuring application preferences."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Callable
 
@@ -8,6 +9,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango
+
+logger = logging.getLogger(__name__)
 
 _THEMES: list[dict[str, str]] = [
     {"id": "tokyo-light",    "name": "Tokyo Light",    "preview": "Clean and bright, inspired by Tokyo Day",   "type": "light"},
@@ -37,7 +40,6 @@ class SettingsView(Gtk.Box):
         templates: list[dict[str, str]] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        self.add_css_class("dashboard-view")
 
         self.on_theme_selected = on_theme_selected
         self.on_config_changed = on_config_changed
@@ -65,11 +67,25 @@ class SettingsView(Gtk.Box):
         content.set_margin_start(20)
         content.set_margin_end(20)
 
-        general_group = Adw.PreferencesGroup(title="General")
-        content.append(general_group)
+        content.append(self._build_general_group())
+        content.append(self._build_editor_group())
+        content.append(self._build_dashboard_group())
+        content.append(self._build_private_group())
+        content.append(self._build_templates_group())
+        content.append(self._build_theme_group())
+        content.append(self._build_danger_group())
+
+        clamp.set_child(content)
+        scrolled.set_child(clamp)
+        self.append(scrolled)
+
+    # Group builders
+
+    def _build_general_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title="General")
 
         self.folder_row = Adw.ActionRow(title="Notes Folder")
-        self.path_label = Gtk.Label(label=initial_values.get("notes_folder", ""))
+        self.path_label = Gtk.Label(label=self._initial_values.get("notes_folder", ""))
         self.path_label.add_css_class("dim-label")
         self.path_label.set_valign(Gtk.Align.CENTER)
         self.folder_row.add_suffix(self.path_label)
@@ -78,55 +94,56 @@ class SettingsView(Gtk.Box):
         folder_btn.set_valign(Gtk.Align.CENTER)
         folder_btn.connect("clicked", self.on_select_folder_clicked)
         self.folder_row.add_suffix(folder_btn)
-        general_group.add(self.folder_row)
+        group.add(self.folder_row)
 
-        general_group.add(self._make_switch_row(
+        group.add(self._make_switch_row(
             "Sakura Celebration",
             "Show cherry blossoms when completing tasks",
-            initial_values.get("sakura_effect", True),
+            self._initial_values.get("sakura_effect", True),
             "sakura_effect",
         ))
+        return group
 
-        toolbar_group = Adw.PreferencesGroup(title="Editor")
-        content.append(toolbar_group)
-
-        toolbar_group.add(self._make_switch_row(
+    def _build_editor_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title="Editor")
+        group.add(self._make_switch_row(
             "Formatting Bar",
             "Show markdown formatting tools above the editor",
-            initial_values.get("show_toolbar", True),
+            self._initial_values.get("show_toolbar", True),
             "show_toolbar",
         ))
-        toolbar_group.add(self._make_switch_row(
+        group.add(self._make_switch_row(
             "Status Bar",
             "Show word count and reading time at the bottom",
-            initial_values.get("show_stats", False),
+            self._initial_values.get("show_stats", False),
             "show_stats",
         ))
-        toolbar_group.add(self._make_switch_row(
+        group.add(self._make_switch_row(
             "Backlinks Button",
             "Show floating backlinks button in the editor",
-            initial_values.get("show_backlinks", True),
+            self._initial_values.get("show_backlinks", True),
             "show_backlinks",
         ))
+        return group
 
-        dashboard_group = Adw.PreferencesGroup(title="Dashboard")
-        content.append(dashboard_group)
-
-        dashboard_group.add(self._make_switch_row(
+    def _build_dashboard_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title="Dashboard")
+        group.add(self._make_switch_row(
             "Show Completed Tasks",
             "Include completed tasks in the dashboard",
-            initial_values.get("show_completed", True),
+            self._initial_values.get("show_completed", True),
             "show_completed",
         ))
-        dashboard_group.add(self._make_switch_row(
+        group.add(self._make_switch_row(
             "Progress Indicators",
             "Show completion rings on date headers",
-            initial_values.get("show_progress_rings", True),
+            self._initial_values.get("show_progress_rings", True),
             "show_progress_rings",
         ))
+        return group
 
-        private_group = Adw.PreferencesGroup(title="Private Notes")
-        content.append(private_group)
+    def _build_private_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title="Private Notes")
 
         self._change_password_row = Adw.ActionRow(
             title="Master password",
@@ -139,18 +156,19 @@ class SettingsView(Gtk.Box):
         self._change_password_btn.set_sensitive(self._has_encrypted_notes)
         self._change_password_btn.connect("clicked", self._on_change_password_clicked)
         self._change_password_row.add_suffix(self._change_password_btn)
-        private_group.add(self._change_password_row)
+        group.add(self._change_password_row)
 
         self._lock_timeout_row = self._make_lock_timeout_row(
-            initial_values.get("lock_timeout_minutes", 5),
-            on_config_changed,
+            self._initial_values.get("lock_timeout_minutes", 5),
+            self.on_config_changed,
         )
-        private_group.add(self._lock_timeout_row)
+        group.add(self._lock_timeout_row)
+        return group
 
+    def _build_templates_group(self) -> Adw.PreferencesGroup:
         self._templates_group = Adw.PreferencesGroup(title="Templates")
-        content.append(self._templates_group)
 
-        if on_new_template:
+        if self._on_new_template:
             sub_header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             sub_header_box.set_margin_start(12)
             sub_header_box.set_margin_end(12)
@@ -165,28 +183,29 @@ class SettingsView(Gtk.Box):
             new_btn = Gtk.Button(icon_name="document-new-symbolic")
             new_btn.set_valign(Gtk.Align.CENTER)
             new_btn.set_tooltip_text("New Template")
-            new_btn.connect("clicked", lambda _: on_new_template())
+            new_btn.connect("clicked", lambda _: self._on_new_template())
             sub_header_box.append(new_btn)
 
             self._templates_group.add(sub_header_box)
 
         self._templates_list = Gtk.ListBox()
         self._templates_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._templates_list.add_css_class("settings-list")
         self._templates_group.add(self._templates_list)
         self._template_rows: list[Gtk.ListBoxRow] = []
         self._populate_templates()
 
-        if on_open_templates_folder:
+        if self._on_open_templates_folder:
             folder_row = Adw.ActionRow(title="Templates Folder", subtitle="Open templates directory in file manager")
             folder_btn = Gtk.Button(icon_name="folder-symbolic")
             folder_btn.set_valign(Gtk.Align.CENTER)
-            folder_btn.connect("clicked", lambda _: on_open_templates_folder())
+            folder_btn.connect("clicked", lambda _: self._on_open_templates_folder())
             folder_row.add_suffix(folder_btn)
             self._templates_group.add(folder_row)
 
-        theme_group = Adw.PreferencesGroup(title="Themes")
-        content.append(theme_group)
+        return self._templates_group
+
+    def _build_theme_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title="Themes")
 
         theme_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 
@@ -200,17 +219,15 @@ class SettingsView(Gtk.Box):
 
         self.light_theme_list = Gtk.ListBox()
         self.light_theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.light_theme_list.add_css_class("settings-list")
 
         self.dark_theme_list = Gtk.ListBox()
         self.dark_theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.dark_theme_list.add_css_class("settings-list")
 
         theme_stack.add_titled(self.dark_theme_list,  "dark",  "Dark Mode")
         theme_stack.add_titled(self.light_theme_list, "light", "Light Mode")
 
         self.theme_rows: dict[str, Gtk.ListBoxRow] = {}
-        current_theme = initial_values.get("theme", "tokyo-night")
+        current_theme = self._initial_values.get("theme", "tokyo-night")
 
         for theme in _THEMES:
             row = self._make_theme_row(theme, theme["id"] == current_theme)
@@ -219,12 +236,12 @@ class SettingsView(Gtk.Box):
             self.theme_rows[theme["id"]] = row
 
         theme_stack.set_visible_child_name("light" if "light" in current_theme else "dark")
-
         theme_box.append(theme_stack)
-        theme_group.add(theme_box)
+        group.add(theme_box)
+        return group
 
-        danger_group = Adw.PreferencesGroup(title="Reset")
-        content.append(danger_group)
+    def _build_danger_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title="Reset")
 
         reset_row = Adw.ActionRow(
             title="Reset to Defaults",
@@ -235,11 +252,8 @@ class SettingsView(Gtk.Box):
         reset_btn.add_css_class("destructive-action")
         reset_btn.connect("clicked", self.on_reset_clicked)
         reset_row.add_suffix(reset_btn)
-        danger_group.add(reset_row)
-
-        clamp.set_child(content)
-        scrolled.set_child(clamp)
-        self.append(scrolled)
+        group.add(reset_row)
+        return group
 
     # Widget factories
 
@@ -267,9 +281,7 @@ class SettingsView(Gtk.Box):
             60: "1 hour",
         }
         model = Gtk.StringList()
-        labels = []
         for minutes in (0, 5, 15, 30, 60):
-            labels.append(options[minutes])
             model.append(options[minutes])
 
         row = Adw.ComboRow(title="Lock after inactivity", model=model)
@@ -337,16 +349,26 @@ class SettingsView(Gtk.Box):
             self.on_config_changed(key, value)
         self.on_theme_selected("tokyo-night")
 
-        # Briefly change the button label to confirm the reset happened.
         button.set_label("Reset ✓")
         button.set_sensitive(False)
-        GLib.timeout_add(
-            1500,
-            lambda: (button.set_label("Reset"), button.set_sensitive(True), False)[2],
-        )
+        def _reset_btn() -> bool:
+            button.set_label("Reset")
+            button.set_sensitive(True)
+            return False
+        GLib.timeout_add(1500, _reset_btn)
 
     def update_folder_path(self, new_path: str) -> None:
         self.path_label.set_label(new_path)
+
+    def refresh_privacy_state(self, has_encrypted: bool) -> None:
+        self._has_encrypted_notes = has_encrypted
+        self._change_password_btn.set_label(
+            "Set password" if not has_encrypted else "Change password"
+        )
+        self._change_password_btn.set_sensitive(has_encrypted)
+        self._change_password_row.set_subtitle(
+            "Make a note private first to enable private notes." if not has_encrypted else ""
+        )
 
     def _on_change_password_clicked(self, *_args) -> None:
         if self._has_encrypted_notes:
@@ -418,8 +440,8 @@ class SettingsView(Gtk.Box):
         dialog.add_response("delete", "Delete")
         try:
             dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-        except Exception:
-            pass
+        except AttributeError:
+            logger.debug("set_response_appearance not supported (older Adw version)")
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
         dialog.connect("response", self._on_delete_template_response, slug)
@@ -429,9 +451,9 @@ class SettingsView(Gtk.Box):
         self, dialog: Adw.MessageDialog, response: str, slug: str
     ) -> None:
         if response == "delete" and self._on_delete_template:
-            self._on_delete_template(slug)
-            self._templates = [t for t in self._templates if t["slug"] != slug]
-            self._populate_templates()
+            if self._on_delete_template(slug):
+                self._templates = [t for t in self._templates if t["slug"] != slug]
+                self._populate_templates()
 
     def refresh_templates(self, templates: list[dict[str, str]]) -> None:
         """Refresh the templates list with new data."""

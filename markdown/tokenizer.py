@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from typing import Iterator
 
 from markdown.ast import MdLine
 from core.utils import (
@@ -24,13 +23,6 @@ _LIST_UL = re.compile(r"^(\s*)([-*+])\s+(.*)$")
 _LIST_OL = re.compile(r"^(\s*)(\d+\.\s+)(.*)$")
 _CODE_FENCE = re.compile(r"^```(\w*)$")
 _CHECKBOX = re.compile(r"^(\s*-\s*\[([ xX])\]\s*)(.*)$")
-
-# Inline bold/italic/code/strike — not in core.utils (PDF-only there)
-_INLINE_BOLD = re.compile(r"\*\*([^*]+)\*\*")
-_INLINE_ITALIC = re.compile(r"(?<!\*)\*([^*]+)\*")
-_INLINE_ITALIC2 = re.compile(r"(?<!_)_([^_]+)_")
-_INLINE_CODE = re.compile(r"`([^`]+)`")
-_INLINE_STRIKE = re.compile(r"~~([^~]+)~~")
 
 
 class LineTokenizer:
@@ -88,28 +80,8 @@ class LineTokenizer:
         h = _HEADER_ATX.match(stripped)
         if h:
             level = len(h.group(1))
-            return MdLine(stripped, "h" + str(min(level, 4)), text=h.group(2)), False
+            return MdLine(stripped, "h" + str(level), text=h.group(2)), False
 
         md = MdLine(stripped, "text"), False
         self._prev_line = md[0]
         return md
-
-
-class DocumentTokenizer:
-    """High-level helper that tokenises a list of lines."""
-
-    __slots__ = ("_tokenizer",)
-
-    def __init__(self) -> None:
-        self._tokenizer = LineTokenizer()
-
-    def tokenize(self, lines: list[str]) -> list[MdLine]:
-        # Reset per-line state so successive calls don't bleed setext-heading
-        # detection across document boundaries.
-        self._tokenizer._prev_line = None
-        in_fenced = False
-        ok: list[MdLine] = []
-        for line in lines:
-            md, in_fenced = self._tokenizer.tokenize(line, in_fence=in_fenced)
-            ok.append(md)
-        return ok

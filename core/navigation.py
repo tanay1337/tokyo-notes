@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 from core.graph_manager import GraphManager
 from core.utils import create_empty_state_widget
@@ -39,7 +39,7 @@ class NavigationController:
         if app.dashboard_view is None:
             app.dashboard_view = Dashboard(
                 app.on_dashboard_checkbox_toggled,
-                app.on_dashboard_deadline_click,
+                lambda cb, x, y: app.handle_deadline_click(x, y, cb["note"], cb["line"]),
                 app.lifecycle.handle_row_click,
                 self.on_dashboard_empty,
                 self.refresh_dashboard,
@@ -101,11 +101,11 @@ class NavigationController:
         """
         today = datetime.date.today()
         today_str = today.isoformat()
-        next_week_str = (today + datetime.timedelta(days=7)).isoformat()
+        week_end = (today + datetime.timedelta(days=6 - today.weekday())).isoformat()
         if any((cb.get("deadline") or "").startswith(today_str) for cb in unchecked):
             return "today"
         if any(
-            (cb.get("deadline") or "") <= next_week_str
+            cb["deadline"] <= week_end
             for cb in unchecked
             if cb.get("deadline")
         ):
@@ -119,14 +119,12 @@ class NavigationController:
         app = self.app
         if app.graph_manager is None:
             app.graph_manager = GraphManager(app.notes_manager)
+        graph_data = app.graph_manager.get_graph_data_rich(app.cfg.archived)
         if app.graph_view is None:
-            graph_data = app.graph_manager.get_graph_data_rich(app.cfg.archived)
             app.graph_view = GraphView(graph_data, app.lifecycle.on_link_clicked)
             app.content_stack.add_named(app.graph_view, "graph")
         else:
-            graph_data = app.graph_manager.get_graph_data_rich(app.cfg.archived)
-
-        app.graph_view.update_data(graph_data)
+            app.graph_view.update_data(graph_data)
         app.content_stack.set_visible_child_name("graph")
         self.update_header_ui("Knowledge Graph", is_editor=False)
         app.sidebar.set_active_view("graph")
@@ -169,6 +167,11 @@ class NavigationController:
             )
             app.content_stack.add_named(app.settings_view, "settings")
         else:
+            has_encrypted = any(
+                app.notes_manager.is_encrypted(n)
+                for n in app.notes_manager.get_notes()
+            )
+            app.settings_view.refresh_privacy_state(has_encrypted)
             templates = app.template_manager.get_all_templates()
             app.settings_view.refresh_templates(templates)
 
@@ -205,9 +208,7 @@ class NavigationController:
         app = self.app
         if is_editor:
             app.content_title.set_label(title)
-            app.pdf_btn.set_visible(True)
             app.back_btn.set_visible(False)
         else:
-            app.content_title.set_markup(f"<b>{title}</b>")
-            app.pdf_btn.set_visible(False)
+            app.content_title.set_markup(f"<b>{GLib.markup_escape_text(title)}</b>")
             app.back_btn.set_visible(True)

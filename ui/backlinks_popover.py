@@ -18,7 +18,6 @@ class BacklinksPopover(Gtk.Popover):
         text_view: Gtk.Widget | None = None,
     ) -> None:
         super().__init__()
-        self.add_css_class("backlinks-popover")
         self.on_note_clicked = on_note_clicked
         self._text_view = text_view
 

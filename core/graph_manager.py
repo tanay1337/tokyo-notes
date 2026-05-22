@@ -13,7 +13,7 @@ class GraphManager:
     def __init__(self, notes_manager: "NotesManager") -> None:
         self.notes_manager = notes_manager
 
-    def get_graph_data(self, archived_notes: set[str] | None = None) -> dict[str, list[str]]:
+    def _get_graph_data(self, archived_notes: set[str] | None = None) -> dict[str, list[str]]:
         """Return a {note: [linked_notes]} map, excluding archived notes."""
         all_notes = self.notes_manager.get_notes()
         visible = {n for n in all_notes if not (archived_notes and n in archived_notes)}
@@ -30,13 +30,18 @@ class GraphManager:
 
     def get_graph_data_rich(self, archived_notes: set[str] | None = None) -> dict:
         """Return graph data with degree info for node sizing."""
-        adjacency = self.get_graph_data(archived_notes)
+        adjacency = self._get_graph_data(archived_notes)
 
-        degrees: dict[str, int] = {}
+        in_degrees: dict[str, int] = {node: 0 for node in adjacency}
         for node, links in adjacency.items():
-            in_degree = sum(1 for targets in adjacency.values() if node in targets)
-            out_degree = len(links)
-            degrees[node] = in_degree + out_degree
+            for target in links:
+                if target in in_degrees:
+                    in_degrees[target] += 1
+
+        degrees: dict[str, int] = {
+            node: in_degrees[node] + len(links)
+            for node, links in adjacency.items()
+        }
 
         return {
             "adjacency": adjacency,

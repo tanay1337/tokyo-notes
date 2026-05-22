@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -59,11 +58,11 @@ class NoteLifecycleManager:
         app.current_note = name
         app.nav.update_header_ui(name, is_editor=True)
         app._has_images = False
-        app.buffer.handler_block(app.changed_handler_id)
-        app.buffer.set_text("")
-        app.buffer.handler_unblock(app.changed_handler_id)
+        app._set_buffer_text("")
         app.editor.set_editable(True)
         app.content_stack.set_visible_child_name("editor")
+        app.refresh_list()
+        app._select_sidebar_row(name)
         app.text_view.grab_focus()
 
     # Open / select
@@ -83,9 +82,7 @@ class NoteLifecycleManager:
 
         if app.notes_manager.is_encrypted(note_name) and app._is_session_locked:
             app._flush_pending_save()
-            app.buffer.handler_block(app.changed_handler_id)
-            app.buffer.set_text("")
-            app.buffer.handler_unblock(app.changed_handler_id)
+            app._set_buffer_text("")
             app.editor.set_editable(False)
             app.current_note = note_name
             app._select_sidebar_row(note_name)
@@ -104,6 +101,17 @@ class NoteLifecycleManager:
                 try:
                     app._load_encrypted_note(app.current_note)
                     content = app.buffer.get_text(*app.buffer.get_bounds(), True)
+                    app.content_stack.set_visible_child_name("editor")
+                    start = app.buffer.get_start_iter()
+                    app.buffer.place_cursor(start)
+                    app.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
+                    app.last_cursor_line = -1
+                    app._update_backlinks()
+                    if listbox == app.sidebar.main_list:
+                        app.sidebar.archive_list.unselect_all()
+                    else:
+                        app.sidebar.main_list.unselect_all()
+                    return
                 except Exception as e:
                     logger.error("Failed to decrypt note '%s' on selection: %s", app.current_note, e)
                     content = ""
@@ -112,8 +120,7 @@ class NoteLifecycleManager:
 
             app._has_images = "![" in content
 
-            app.buffer.handler_block(app.changed_handler_id)
-            app.buffer.set_text(content)
+            app._set_buffer_text(content)
             app.content_stack.set_visible_child_name("editor")
 
             start = app.buffer.get_start_iter()
@@ -122,16 +129,16 @@ class NoteLifecycleManager:
 
             if app.highlighter:
                 app.highlighter.highlight(start_line=0, end_line=30)
-            app.buffer.handler_unblock(app.changed_handler_id)
 
+            app._full_pass_complete = False
             if app._pending_highlight_id:
                 GLib.source_remove(app._pending_highlight_id)
                 app._pending_highlight_id = 0
-            if app.highlighter and app.buffer.get_line_count() > 30:
+            if app.highlighter:
                 app._pending_highlight_id = GLib.idle_add(
                     self._highlight_chunk,
                     app.current_note,
-                    30,
+                    0,
                 )
 
             app.last_cursor_line = -1
@@ -151,17 +158,25 @@ class NoteLifecycleManager:
         total = app.buffer.get_line_count()
         end_line = min(start_line + 50, total)
         app.buffer.handler_block(app.changed_handler_id)
-        app.highlighter.highlight(start_line=start_line, end_line=end_line)
-        app.buffer.handler_unblock(app.changed_handler_id)
+        try:
+            app.highlighter.highlight(start_line=start_line, end_line=end_line)
+        finally:
+            app.buffer.handler_unblock(app.changed_handler_id)
         if end_line < total:
             GLib.idle_add(self._highlight_chunk, expected_note, end_line)
+        else:
+            app._full_pass_complete = True
         return False
 
     # Navigate
 
     def on_link_clicked(self, note_name: str) -> None:
-        self.app.content_stack.set_visible_child_name("editor")
-        self.app._select_sidebar_row(note_name)
+        app = self.app
+        app.content_stack.set_visible_child_name("editor")
+        if app._select_sidebar_row(note_name):
+            app.nav.update_header_ui(note_name, is_editor=True)
+            app.sidebar.set_active_view("editor")
+            app._set_backlinks_visible(True)
 
     def handle_row_click(
         self, gesture: Any, n_press: int, x: float, y: float, cb: dict
@@ -173,8 +188,10 @@ class NoteLifecycleManager:
 
     def scroll_to_line(self, line_num: int) -> bool:
         app = self.app
-        success, it = app.buffer.get_iter_at_line(line_num - 1)
-        if not success:
+        try:
+            result = app.buffer.get_iter_at_line(line_num - 1)
+            it = result[1] if isinstance(result, tuple) else result
+        except (TypeError, IndexError):
             return False
         mark = app.buffer.create_mark(None, it, True)
         app.text_view.scroll_to_mark(mark, 0.0, True, 0.5, 0.1)
@@ -185,6 +202,8 @@ class NoteLifecycleManager:
 
     def on_delete_shortcut(self) -> bool:
         app = self.app
+        if app.text_view.has_focus():
+            return False
         main_row = app.sidebar.main_list.get_selected_row()
         arch_row = app.sidebar.archive_list.get_selected_row()
         row = main_row if (main_row and hasattr(main_row, "note_name")) else arch_row
@@ -211,8 +230,8 @@ class NoteLifecycleManager:
             dialog.add_response("delete", "Delete")
             try:
                 dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-            except Exception:
-                pass
+            except AttributeError:
+                logger.debug("set_response_appearance not supported (older Adw version)")
             dialog.connect("response", self.on_delete_dialog_response, note_name)
             dialog.present()
 
@@ -235,13 +254,18 @@ class NoteLifecycleManager:
         app.notes_manager.delete_note(note_name)
         app.cfg.remove_note(note_name)
         app.sidebar.maybe_exit_archive_view()
-        if app.current_note == note_name:
+        was_current = app.current_note == note_name
+        if was_current:
             app.current_note = None
-            app.buffer.handler_block(app.changed_handler_id)
-            app.buffer.set_text("")
-            app.buffer.handler_unblock(app.changed_handler_id)
+            app._set_buffer_text("")
             app.win.set_title("Tokyo Notes")
         app.refresh_list(app.sidebar.search_entry.get_text())
+        if was_current:
+            remaining = app.notes_manager.get_notes()
+            if remaining:
+                self.initial_load()
+            else:
+                self.on_new_note(None)
 
     # Live sidebar update (150 ms debounce)
 
@@ -271,8 +295,12 @@ class NoteLifecycleManager:
                 break
 
         if not row_found and content.strip():
+            # Only trigger a full refresh for existing notes that somehow
+            # lost their sidebar row. New unsaved notes don't have a row yet,
+            # so skip to avoid rebuilding the entire list on every keystroke.
             app.refresh_list(app.sidebar.search_entry.get_text())
-            app._select_sidebar_row(current)
+            if current in app.notes_manager.get_notes():
+                app._select_sidebar_row(current)
 
         if app.editor.status_bar.get_visible():
             app.editor.stats_label.set_label(build_stats(content))
@@ -295,7 +323,6 @@ class NoteLifecycleManager:
 
         if app.current_note.startswith(".template:"):
             tmpl_slug = app.current_note.split(":", 1)[1]
-            from core.services import derive_display_title, clean_title
             new_title = derive_display_title(content, "")
             if new_title and new_title != tmpl_slug:
                 new_slug = clean_title(new_title).lower().replace(" ", "-")
@@ -325,13 +352,8 @@ class NoteLifecycleManager:
 
         if app.notes_manager.is_encrypted(app.current_note):
             if app._session_password_bytes is not None:
-                from core.encryption import derive_key_from_file, encrypt, _SALT_LEN
-                raw = app.notes_manager.read_note(app.current_note)
-                ciphertext_bytes = raw.encode("latin-1")
-                file_salt = ciphertext_bytes[:_SALT_LEN]
-                password = app._session_password_bytes.decode("utf-8")
-                key = derive_key_from_file(password, ciphertext_bytes)
-                key_bytes = bytearray(key)
+                from core.encryption import encrypt
+                key_bytes, file_salt, _ = app._derive_encryption_key(app.current_note)
                 ciphertext = encrypt(content, key_bytes, file_salt)
                 app.notes_manager.save_note(app.current_note, ciphertext.decode("latin-1"), encrypt=True)
             else:
@@ -368,12 +390,8 @@ class NoteLifecycleManager:
         app._reschedule("sidebar_update_timeout_id", 150, self._update_sidebar_and_stats)
         app._reschedule("highlight_timeout_id", 100, app.do_delayed_highlight)
         if not app._has_images:
-            cursor = app.buffer.get_iter_at_mark(app.buffer.get_insert())
-            cursor.set_line_offset(0)
-            end_of_line = cursor.copy()
-            if not end_of_line.ends_line():
-                end_of_line.forward_to_line_end()
-            if "![" in app.buffer.get_text(cursor, end_of_line, False):
+            start, end = app.buffer.get_bounds()
+            if "![" in app.buffer.get_text(start, end, False):
                 app._has_images = True
         if app._has_images:
             app._reschedule("image_timeout_id", 2000, app.do_delayed_images)

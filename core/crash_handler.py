@@ -63,7 +63,7 @@ def install(app: "TokyoNotes") -> None:
 
         crash_path = _write_crash_report(exc_type, exc_value, exc_tb)
 
-        # Show a dialog if the main window exists and we're on the GTK thread.
+        # Show a dialog if the main window exists and we're on the GTK main thread.
         # gi was imported at module level; if it failed, this block is skipped.
         try:
             if gi is None:
@@ -71,9 +71,9 @@ def install(app: "TokyoNotes") -> None:
             else:
                 import gi as _gi
                 _gi.require_version("Adw", "1")
-                from gi.repository import Adw
+                from gi.repository import Adw, GLib
                 win = getattr(app, "win", None)
-                if win is not None:
+                if win is not None and GLib.main_depth() > 0:
                     dialog = Adw.MessageDialog(
                         transient_for=win,
                         heading="Unexpected Error",

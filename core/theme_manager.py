@@ -22,11 +22,16 @@ class ThemeManager:
         self.style_provider = Gtk.CssProvider()
 
     def setup_providers(self) -> None:
-        """Register CSS providers with GTK."""
+        """Register CSS providers with GTK.
+        
+        The theme provider gets a slightly higher priority than the base
+        style provider, allowing themes to override the default rules in
+        style.css.
+        """
         display = Gdk.Display.get_default()
         if display:
             Gtk.StyleContext.add_provider_for_display(
-                display, self.theme_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+                display, self.theme_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1
             )
             Gtk.StyleContext.add_provider_for_display(
                 display, self.style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION

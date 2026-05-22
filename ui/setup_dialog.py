@@ -8,6 +8,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 
+from core.utils import assess_password_strength
+
 if TYPE_CHECKING:
     from main import TokyoNotes
 
@@ -107,7 +109,7 @@ class SetupDialog(Adw.Window):
 
     def _on_password_changed(self, *_args) -> None:
         password = self._password_entry.get_text()
-        strength = _assess_strength(password)
+        strength = assess_password_strength(password)
         if strength["color"]:
             self._strength_label.set_markup(
                 f'<span foreground="{strength["color"]}">{strength["label"]}</span>'
@@ -171,8 +173,7 @@ class SetupDialog(Adw.Window):
             self.app.settings_view._change_password_row.set_subtitle("")
 
         if self.app.current_note == note_name:
-            self.app.buffer.handler_block(self.app.changed_handler_id)
-            self.app.buffer.set_text(content)
+            self.app._set_buffer_text(content)
             self.app.buffer.handler_unblock(self.app.changed_handler_id)
 
     def _show_error(self, message: str) -> None:
@@ -183,28 +184,3 @@ class SetupDialog(Adw.Window):
         self._error_label.set_visible(False)
 
 
-def _assess_strength(password: str) -> dict:
-    """Heuristic password strength assessment."""
-    if not password:
-        return {"label": "", "color": None}
-
-    score = 0
-    if len(password) >= 8:
-        score += 1
-    if len(password) >= 12:
-        score += 1
-    if any(c.isupper() for c in password):
-        score += 1
-    if any(c.islower() for c in password):
-        score += 1
-    if any(c.isdigit() for c in password):
-        score += 1
-    if any(not c.isalnum() for c in password):
-        score += 1
-
-    if score <= 2:
-        return {"label": "Weak", "color": "#ff6b6b"}
-    elif score <= 4:
-        return {"label": "Fair", "color": "#ffd93d"}
-    else:
-        return {"label": "Strong", "color": "#6bcb77"}

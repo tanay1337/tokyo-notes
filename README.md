@@ -5,12 +5,11 @@ A minimal GTK4 Markdown note-taking app.
 <img src="https://imglink.cc/cdn/P8DiOqf543.png" width="500" />
 
 ## Features
-- **Private Notes**: AES-256-GCM encrypted notes with per-file salt, inactivity auto-lock, and brute-force protection.
 - **Task Management**: Dashboard with Today, Week, and All views, featuring deadline tracking and jump-to-line navigation.
+- **Private Notes**: AES-256-GCM encrypted notes with per-file salt, inactivity auto-lock, and brute-force protection.
 - **Thematic Animations**: "Sakura Celebration" particle effect when completing tasks in Dashboard.
 - **Archive System**: Keep your workspace clean by archiving finished notes.
 - **Knowledge Graph**: Visualize and navigate connections between your notes.
-- **Exporting**: Save notes as PDF or copy raw Markdown.
 - **Themes**: Multiple themes including Tokyo Night, Nord, and Cyberpunk 2077.
 - **Full-Text Search**: Find notes by title or keyword content.
 - **Templates**: Create notes from reusable templates with auto-filled variables like `{{today}}`, `{{now}}`, `{{time}}`, and `{{weekday}}`.
@@ -45,7 +44,7 @@ python3 main.py
 | `Ctrl/Cmd + L` | Lock Private Notes |
 | `Ctrl/Cmd + Shift + T` | Insert Timestamp |
 | `Ctrl/Cmd + Shift + Z` | Zen Mode |
-| `Ctrl/Cmd + Delete` | Delete selected note (with confirmation) |
+| `Delete` | Delete selected note (with confirmation) |
 | `Escape` | Close Dashboard / Clear Search / Return to Editor |
 | `Ctrl/Cmd + Q` | Quit |
 

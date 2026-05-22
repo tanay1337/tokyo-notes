@@ -39,7 +39,7 @@ def setup_shortcuts(
     controller.set_scope(Gtk.ShortcutScope.GLOBAL)
 
     bindings: list[tuple[str, Callable]] = [
-        (get_accel("<Primary>Delete"), on_delete),
+        ("Delete",              on_delete),
         (get_accel("q"),        quit_app),
         (get_accel("n"),        on_new_note),
         (get_accel("d"),        on_dashboard),

@@ -45,14 +45,19 @@ class ClickDispatcher:
     def __init__(self, app: "TokyoNotes") -> None:
         self.app = app
 
-    def handle_click(self, x: float, y: float) -> None:
+    def handle_click(self, x: float, y: float, gesture: Gtk.GestureClick | None = None) -> None:
         """Translate window coordinates to a buffer position and dispatch."""
         text_view = self.app.text_view
 
         bx, by = text_view.window_to_buffer_coords(
             Gtk.TextWindowType.TEXT, int(x), int(y)
         )
-        success, cursor_iter = text_view.get_iter_at_location(bx, by)
+        try:
+            success, cursor_iter = text_view.get_iter_at_location(bx, by)
+        except Exception:
+            # GTK can raise "byte index off the end of the line" when the
+            # buffer has been modified between the click and the lookup.
+            return
         if not success:
             return
 
@@ -68,7 +73,7 @@ class ClickDispatcher:
         for kind, pattern in _CLICK_PATTERNS:
             for m in pattern.finditer(line_text):
                 if m.start() <= click_col <= m.end():
-                    self._dispatch(kind, m, x, y, cursor_iter)
+                    self._dispatch(kind, m, x, y, cursor_iter, gesture)
                     return
 
     def _dispatch(
@@ -78,10 +83,13 @@ class ClickDispatcher:
         x: float,
         y: float,
         cursor_iter: Gtk.TextIter,
+        gesture: Gtk.GestureClick | None = None,
     ) -> None:
         app = self.app
 
         if kind == "wiki":
+            if gesture:
+                gesture.set_state(Gtk.EventSequenceState.CLAIMED)
             app.lifecycle.on_link_clicked(match.group(1))
 
         elif kind == "mdlink":
@@ -97,7 +105,9 @@ class ClickDispatcher:
                 webbrowser.open_new_tab(url)
 
         elif kind == "tag":
-            app.sidebar.search_entry.set_text(match.group(0))
+            current = app.sidebar.search_entry.get_text()
+            new_text = match.group(0) if not current else f"{current} {match.group(0)}"
+            app.sidebar.search_entry.set_text(new_text)
             app.on_search_changed(app.sidebar.search_entry)
 
         elif kind == "deadline":

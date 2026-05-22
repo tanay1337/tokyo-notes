@@ -1,7 +1,0 @@
-E501
-W503
-___pycache__/
-*.pyc
-env/
-venv/
-.git/

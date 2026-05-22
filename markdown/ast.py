@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-__all__ = ("MdLine", "InlineSpan")
+__all__ = ("MdLine",)
 
 
 @dataclass(slots=True, frozen=True)
@@ -21,12 +21,3 @@ class MdLine:
     @classmethod
     def blank(cls, raw: str = "") -> MdLine:
         return cls(raw=raw, kind="blank")
-
-
-@dataclass(slots=True, frozen=True)
-class InlineSpan:
-    start: int
-    end: int
-    kind: str
-    text: str = ""
-    href: str = ""

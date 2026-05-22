@@ -8,6 +8,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
+from core.utils import assess_password_strength
+
 if TYPE_CHECKING:
     from main import TokyoNotes
 
@@ -126,7 +128,7 @@ class PasswordChangeDialog(Adw.Window):
 
     def _on_password_changed(self, *_args) -> None:
         password = self._new_entry.get_text()
-        strength = _assess_strength(password)
+        strength = assess_password_strength(password)
         if strength["color"]:
             self._strength_label.set_markup(
                 f'<span foreground="{strength["color"]}">{strength["label"]}</span>'
@@ -230,10 +232,12 @@ class PasswordChangeDialog(Adw.Window):
             self._set_ui_sensitive(True)
             return
 
-        # Update session password
+        # Zero old password, then update with new one
+        self.app._zero_session_password()
         self.app._session_password_bytes = bytearray(new_password.encode("utf-8"))
 
-        # Clear caches
+        # Clear all caches (including encryption key cache)
+        self.app._encryption_key_cache.clear()
         for name in encrypted_notes:
             self.app.notes_manager._content_cache.pop(name, None)
             self.app.notes_manager._metadata_cache.pop(name, None)
@@ -272,28 +276,3 @@ class PasswordChangeDialog(Adw.Window):
         GLib.timeout_add(2000, lambda: (self.close(), False)[1])
 
 
-def _assess_strength(password: str) -> dict:
-    """Heuristic password strength assessment."""
-    if not password:
-        return {"label": "", "color": None}
-
-    score = 0
-    if len(password) >= 8:
-        score += 1
-    if len(password) >= 12:
-        score += 1
-    if any(c.isupper() for c in password):
-        score += 1
-    if any(c.islower() for c in password):
-        score += 1
-    if any(c.isdigit() for c in password):
-        score += 1
-    if any(not c.isalnum() for c in password):
-        score += 1
-
-    if score <= 2:
-        return {"label": "Weak", "color": "#ff6b6b"}
-    elif score <= 4:
-        return {"label": "Fair", "color": "#ffd93d"}
-    else:
-        return {"label": "Strong", "color": "#6bcb77"}

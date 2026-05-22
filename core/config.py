@@ -74,10 +74,16 @@ class ConfigManager:
     def _load_json(self, path: Path, default: dict | list) -> Any:
         if path.exists():
             try:
-                return json.loads(path.read_text(encoding="utf-8"))
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, type(default)):
+                    return data
+                logger.warning(
+                    "Config %s has wrong type (%s), expected %s — using default",
+                    path, type(data).__name__, type(default).__name__,
+                )
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning("Could not read %s: %s", path, e)
-        return dict(default) if isinstance(default, dict) else default
+        return dict(default) if isinstance(default, dict) else list(default)
 
     def _save_json(self, path: Path, data: dict | set | list) -> None:
         """Atomic JSON write — write temp then rename to avoid corruption on crash."""
@@ -146,9 +152,6 @@ class ConfigManager:
             self.pinned.discard(note_name)
             self._save_json(self.pinned_path, self.pinned)
 
-    def is_pinned(self, note_name: str) -> bool:
-        return note_name in self.pinned
-
     # Archived notes — immediate writes
 
     def toggle_archive(self, note_name: str) -> None:
@@ -187,6 +190,3 @@ class ConfigManager:
         if note_name in self.encrypted:
             self.encrypted.discard(note_name)
             self._save_json(self.encrypted_path, self.encrypted)
-
-    def is_config_encrypted(self, note_name: str) -> bool:
-        return note_name in self.encrypted

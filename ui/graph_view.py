@@ -51,6 +51,7 @@ class GraphView(Gtk.Box):
         self._connected: set[str] = set()
         self._pending_navigate: int = 0  # GLib source id
         self._sim_id: int = 0  # GLib source id for force simulation
+        self._cached_colors: dict[str, Gdk.RGBA] = {}
 
         # Toolbar
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -71,8 +72,10 @@ class GraphView(Gtk.Box):
         self.canvas.set_draw_func(self._on_draw)
         self.canvas.set_vexpand(True)
         self.canvas.set_hexpand(True)
-        self._label_layout: object = None
-        self.connect("unrealize", self._on_unrealize)
+        self._label_layout = None
+        self._realized = False
+        self.canvas.connect("realize", self._on_realize)
+        self.canvas.connect("unrealize", self._on_unrealize)
 
         # Scroll -> zoom
         scroll = Gtk.EventControllerScroll.new(
@@ -106,6 +109,9 @@ class GraphView(Gtk.Box):
     # Data
 
     def update_data(self, new_data: dict) -> None:
+        if self._sim_id:
+            GLib.source_remove(self._sim_id)
+            self._sim_id = 0
         self._adjacency = new_data.get("adjacency", new_data)
         self._degrees = new_data.get("degrees", {})
         self.nodes = list(self._adjacency.keys())
@@ -137,8 +143,8 @@ class GraphView(Gtk.Box):
 
     def _run_simulation(self, step: int) -> None:
         """Run one chunk of the force simulation (10 steps per idle tick)."""
-        if not hasattr(self, "_sim_id"):
-            return  # widget destroyed
+        if not getattr(self, "_realized", False):
+            return  # widget unrealized/destroyed
         chunk = 10
         end = min(step + chunk, _STEPS)
         for _ in range(step, end):
@@ -149,7 +155,11 @@ class GraphView(Gtk.Box):
             self._sim_id = 0
             self._centre_layout()
 
+    def _on_realize(self, widget: Gtk.Widget) -> None:
+        self._realized = True
+
     def _on_unrealize(self, widget: Gtk.Widget) -> None:
+        self._realized = False
         if self._pending_navigate:
             GLib.source_remove(self._pending_navigate)
             self._pending_navigate = 0
@@ -256,8 +266,7 @@ class GraphView(Gtk.Box):
 
         if self._fit_anim_id:
             GLib.source_remove(self._fit_anim_id)
-        self._fit_anim_id = 0
-        self.canvas.add_tick_callback(animate)
+        self._fit_anim_id = self.canvas.add_tick_callback(animate)
 
     # Coordinate helpers
 
@@ -282,18 +291,19 @@ class GraphView(Gtk.Box):
             return
 
         ctx = area.get_style_context()
-        ok, accent = ctx.lookup_color("accent_color")
-        if not ok:
-            accent = Gdk.RGBA()
-            accent.parse("#7aa2f7")
-        ok, fg = ctx.lookup_color("fg_color")
-        if not ok:
-            fg = Gdk.RGBA()
-            fg.parse("#a9b1d6")
-        ok, sel = ctx.lookup_color("selection_color")
-        if not ok:
-            sel = Gdk.RGBA()
-            sel.parse("#364a82")
+
+        def _get_color(name: str, fallback: str) -> Gdk.RGBA:
+            if name not in self._cached_colors:
+                ok, c = ctx.lookup_color(name)
+                if not ok:
+                    c = Gdk.RGBA()
+                    c.parse(fallback)
+                self._cached_colors[name] = c
+            return self._cached_colors[name]
+
+        accent = _get_color("accent_color", "#7aa2f7")
+        fg = _get_color("fg_color", "#a9b1d6")
+        sel = _get_color("selection_color", "#364a82")
 
         positions = {
             n: self._graph_to_canvas(self._pos[n][0], self._pos[n][1], width, height)

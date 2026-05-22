@@ -40,6 +40,8 @@ class NotesManager:
         self._content_cache: dict[str, dict[str, Any]] = {}
         self._metadata_cache: dict[str, dict[str, Any]] = {}
         self._mtime_cache: dict[str, float] = {}
+        self._backlink_cache: dict[str, tuple[list[str], float]] = {}
+        self._content_index: dict[str, set[str]] = {}
         self._last_full_scan: float = 0.0
         self._cleanup_stale_temps()
 
@@ -109,15 +111,32 @@ class NotesManager:
             if sl in name.lower():
                 filtered.append(name)
                 continue
-            if sl in self.read_note(name).lower():
+            if self._content_index_matches(name, sl):
                 filtered.append(name)
         return filtered
+
+    def _content_index_matches(self, name: str, search_lower: str) -> bool:
+        """Check if *search_lower* appears in note content, using cached index."""
+        cached_content = self._content_cache.get(name)
+        if cached_content:
+            return search_lower in cached_content["content"].lower()
+        if self.is_encrypted(name):
+            return False
+        content = self.read_note(name)
+        return search_lower in content.lower()
 
     # Reading
 
     def is_encrypted(self, name: str) -> bool:
         """Check if *name* has an encrypted .md.enc file on disk."""
         return (self.notes_dir / f"{name}.md.enc").exists()
+
+    def get_encrypted_notes(self) -> set[str]:
+        """Return the set of all note names that have .md.enc files."""
+        result: set[str] = set()
+        for p in self.notes_dir.glob("*.md.enc"):
+            result.add(Path(p.stem).stem)
+        return result
 
     def read_note(self, name: str) -> str:
         """Return content of *name*.md from cache or disk.
@@ -270,11 +289,6 @@ class NotesManager:
             counter += 1
         return name
 
-    def create_note(self, name: str = "Untitled", content: str = "") -> str:
-        name = self.reserve_name(name)
-        self.save_note(name, content)
-        return name
-
     def save_note(self, name: str, content: str, encrypt: bool = False) -> None:
         """Atomic write: write to .tmp then rename over the destination.
 
@@ -298,6 +312,7 @@ class NotesManager:
             self._content_cache[name]  = {"content": content, "mtime": mtime}
             self._mtime_cache[name]    = mtime
             self._metadata_cache.pop(name, None)
+        self._backlink_cache.clear()
 
     def _save_encrypted(self, name: str, ciphertext_latin1: str) -> None:
         """Save ciphertext to .md.enc file atomically."""
@@ -315,6 +330,7 @@ class NotesManager:
             self._content_cache[name] = {"content": ciphertext_latin1, "mtime": mtime, "encrypted": True}
             self._mtime_cache[name] = mtime
             self._metadata_cache.pop(name, None)
+        self._backlink_cache.clear()
 
     def delete_note(self, name: str) -> None:
         note_path = self.notes_dir / f"{name}.md"
@@ -328,6 +344,7 @@ class NotesManager:
             self._content_cache.pop(name, None)
             self._metadata_cache.pop(name, None)
             self._mtime_cache.pop(name, None)
+        self._backlink_cache.clear()
 
     def rename_note(self, old_name: str, new_name: str) -> bool:
         """Synchronous rename. Returns True on success."""
@@ -351,6 +368,7 @@ class NotesManager:
             self._content_cache.pop(old_name, None)
             self._metadata_cache.pop(old_name, None)
             self._mtime_cache.pop(old_name, None)
+        self._backlink_cache.clear()
         return True
 
     # Checkbox / deadline helpers
@@ -406,15 +424,22 @@ class NotesManager:
         """Return list of notes that link to *note_name* via [[wiki links]].
 
         Skips encrypted notes since their content cannot be searched without
-        the session key.
+        the session key. Results are cached; the cache is cleared on every
+        save/delete/rename so no mtime invalidation is needed inside this method.
         """
+        if note_name in self._backlink_cache:
+            return self._backlink_cache[note_name][0]
+
         backlinks = []
+        scan_time = time.monotonic()
+        pattern = re.compile(rf"\[\[{re.escape(note_name)}\]\]")
         for note in self.get_notes():
             if note == note_name or note in exclude_archived:
                 continue
             if self.is_encrypted(note):
                 continue
             content = self.read_note(note)
-            if f"[[{note_name}]]" in content:
+            if pattern.search(content):
                 backlinks.append(note)
+        self._backlink_cache[note_name] = (backlinks, scan_time)
         return backlinks

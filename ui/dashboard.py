@@ -119,8 +119,10 @@ class Dashboard(Gtk.Box):
     def _filter(
         self, checkboxes: list[dict[str, Any]], filter_type: str
     ) -> list[dict[str, Any]]:
-        _TODAY = datetime.date.today().isoformat()
-        _NEXT_WEEK = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
+        today = datetime.date.today()
+        _TODAY = today.isoformat()
+        _WEEK_START = (today - datetime.timedelta(days=today.weekday())).isoformat()
+        _WEEK_END = (today + datetime.timedelta(days=6 - today.weekday())).isoformat()
 
         if self.get_show_completed():
             pool = checkboxes
@@ -135,7 +137,7 @@ class Dashboard(Gtk.Box):
         if filter_type == "week":
             return [
                 cb for cb in pool
-                if cb.get("deadline") and cb["deadline"] <= _NEXT_WEEK
+                if cb.get("deadline") and _WEEK_START <= cb["deadline"] <= _WEEK_END
             ]
         return pool
 

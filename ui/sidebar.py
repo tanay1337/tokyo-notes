@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import functools
+import weakref
 from pathlib import Path
 from typing import Any, Callable, TYPE_CHECKING
 
@@ -54,8 +55,9 @@ class Sidebar(Gtk.Box):
         self.append(sidebar_header)
 
         self.search_entry = Gtk.SearchEntry(placeholder_text="Search notes…")
+        self.search_entry.set_can_focus(True)
         self.search_entry.connect("search-changed", self.on_search_changed)
-        self.search_entry.connect("stop-search", lambda _: self.app.refresh_list())
+        self.search_entry.connect("stop-search", lambda _: (self.app.refresh_list(), self.app.text_view.grab_focus()))
         self.append(self.search_entry)
 
         self.stack = Gtk.Stack()
@@ -64,9 +66,9 @@ class Sidebar(Gtk.Box):
         self.stack.add_named(self.main_list, "main")
         self.archive_list = Gtk.ListBox()
         self.stack.add_named(self.archive_list, "archive")
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_child(self.stack)
-        self.append(scrolled)
+        self.scrolled = Gtk.ScrolledWindow()
+        self.scrolled.set_child(self.stack)
+        self.append(self.scrolled)
 
         footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         footer.set_margin_start(10)
@@ -77,7 +79,7 @@ class Sidebar(Gtk.Box):
         self.archived_nav_btn = Gtk.Button(label="Archived Notes")
         self.archived_nav_btn.add_css_class("archived-nav-btn")
         self.archived_nav_btn.connect("clicked", on_archive_clicked)
-        self.archived_nav_btn.set_sensitive(False)
+        self.archived_nav_btn.set_sensitive(bool(app.cfg.archived))
         footer.append(self.archived_nav_btn)
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -154,8 +156,14 @@ class Sidebar(Gtk.Box):
         filter_text: str = "",
     ) -> None:
         """Rebuild both list boxes from scratch."""
+        adj = self.scrolled.get_vadjustment()
+        scroll_pos = adj.get_value() if adj else 0.0
+
         self._clear(self.main_list)
         self._clear(self.archive_list)
+
+        # Compute encrypted set once instead of per-row syscalls
+        encrypted_set = self.app.notes_manager.get_encrypted_notes()
 
         pinned_notes = [n for n in main_notes if n in pinned]
         other_notes  = [n for n in main_notes if n not in pinned]
@@ -163,13 +171,13 @@ class Sidebar(Gtk.Box):
         for note in pinned_notes:
             self.main_list.append(
                 self._make_row(note, snippet_fn(note), is_pinned=True,
-                               is_encrypted=self.app.notes_manager.is_encrypted(note),
+                               is_encrypted=note in encrypted_set,
                                on_right_click=on_right_click, base_dir=base_dir)
             )
         for note in other_notes:
             self.main_list.append(
                 self._make_row(note, snippet_fn(note),
-                               is_encrypted=self.app.notes_manager.is_encrypted(note),
+                               is_encrypted=note in encrypted_set,
                                on_right_click=on_right_click, base_dir=base_dir)
             )
 
@@ -187,11 +195,14 @@ class Sidebar(Gtk.Box):
                 snippet = snippet_fn(note)
             self.archive_list.append(
                 self._make_row(note, snippet, is_archived=True,
-                               is_encrypted=self.app.notes_manager.is_encrypted(note),
+                               is_encrypted=note in encrypted_set,
                                on_right_click=on_right_click, base_dir=base_dir)
             )
 
         self.archived_nav_btn.set_sensitive(bool(archived_notes))
+
+        if adj:
+            adj.set_value(scroll_pos)
 
     # Internal helpers
 
@@ -250,7 +261,6 @@ class Sidebar(Gtk.Box):
         if is_encrypted:
             box.add_css_class("private-note-locked")
 
-        import weakref
         _app_ref = weakref.ref(self.app)
         hover = Gtk.EventControllerMotion()
         def _on_hover_enter(*_):

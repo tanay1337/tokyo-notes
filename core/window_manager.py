@@ -42,9 +42,12 @@ class WindowManager:
         if monitors.get_n_items() == 0:
             return
 
-        monitor = monitors.get_item(0)
-        screen_width = monitor.get_geometry().width
-        half_width = screen_width // 2
+        # Use the smallest monitor width so the breakpoint works on all screens
+        min_width = min(
+            monitors.get_item(i).get_geometry().width
+            for i in range(monitors.get_n_items())
+        )
+        half_width = min_width // 2
         condition = Adw.BreakpointCondition.parse(f"max-width: {half_width}px")
         bp = Adw.Breakpoint.new(condition)
         bp.add_setter(self.app.split_view, "collapsed", True)

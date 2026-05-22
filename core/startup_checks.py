@@ -95,9 +95,7 @@ def _apply_folder(app: "TokyoNotes", new_folder: str) -> None:
         app.settings_view.update_folder_path(new_folder)
 
     app.current_note = None
-    app.buffer.handler_block(app.changed_handler_id)
-    app.buffer.set_text("")
-    app.buffer.handler_unblock(app.changed_handler_id)
+    app._set_buffer_text("")
     app.win.set_title("Tokyo Notes")
     app.refresh_list()
     logger.info("Notes folder switched to: %s", new_folder)

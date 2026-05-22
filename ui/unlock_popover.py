@@ -1,12 +1,15 @@
 """Unlock dialog for private notes."""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from main import TokyoNotes
@@ -35,18 +38,21 @@ class UnlockDialog(Adw.MessageDialog):
         self.add_response("unlock", "Unlock")
         try:
             self.set_response_appearance("unlock", Adw.ResponseAppearance.SUGGESTED)
-        except Exception:
-            pass
+        except AttributeError:
+            logger.debug("set_response_appearance not supported (older Adw version)")
         self.set_default_response("unlock")
         self.set_close_response("cancel")
 
         self._build_extra_content()
         self.connect("response", self._on_response)
+        self.connect("notify::visible", self._on_visible_changed)
 
         if self.app.is_unlock_cooldown_active():
             self._enter_cooldown()
-        else:
-            GLib.idle_add(lambda: (self._entry.grab_focus(), False)[1])
+
+    def _on_visible_changed(self, _pspec: object, _value: object) -> None:
+        if self.get_visible():
+            self._entry.grab_focus()
 
     def _build_extra_content(self) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -57,6 +63,8 @@ class UnlockDialog(Adw.MessageDialog):
         self._entry.set_placeholder_text("Master password")
         self._entry.set_visibility(False)
         self._entry.set_hexpand(True)
+        self._entry.set_can_focus(True)
+        self._entry.set_receives_default(True)
         self._entry.connect("activate", lambda *_: self._try_unlock())
         box.append(self._entry)
 

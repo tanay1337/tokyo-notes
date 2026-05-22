@@ -8,8 +8,7 @@ from typing import Any, Callable
 
 import gi
 gi.require_version("Gtk", "4.0")
-gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
 
 from ui.deadline_picker import DeadlinePicker
 from ui.link_picker import LinkPicker
@@ -24,10 +23,6 @@ _CONTINUATION_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^(\s*[-*+])\s+"),            "list"),
     (re.compile(r"^(\s*\d+\.)\s+"),            "ordered"),
 ]
-
-# Matches the Unicode object-replacement character inserted by GTK for
-# child anchors (embedded image widgets).
-_ANCHOR_CHAR_RE: re.Pattern = re.compile("\ufffc")
 
 
 class Editor(Gtk.Box):
@@ -94,7 +89,9 @@ class Editor(Gtk.Box):
         self.append(self.status_bar)
 
         self.image_anchors: list[Gtk.TextChildAnchor] = []
+        self.image_widgets: list[Gtk.Widget] = []
         self.is_updating_images: bool = False
+        self._picker_open: bool = False
 
     def _build_lock_overlay(self) -> Gtk.Box:
         overlay_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16, valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER)
@@ -108,7 +105,7 @@ class Editor(Gtk.Box):
             overlay_box.append(icon)
 
         label = Gtk.Label(
-            label="Click on this note in the sidebar to unlock.",
+            label="This note is private. Click the sidebar row and enter your password to unlock.",
             xalign=0.5,
         )
         label.add_css_class("lock-overlay-label")
@@ -201,7 +198,10 @@ class Editor(Gtk.Box):
         length: int,
     ) -> None:
         """Trigger deadline, link, or variable picker on '@', '[[' , or '{{'."""
+        if self._picker_open:
+            return
         if text == "@":
+            self._picker_open = True
             GLib.idle_add(self.show_deadline_picker)
         elif text == "[" and location.get_offset() > 0:
             prev_iter = buffer.get_iter_at_offset(location.get_offset() - 1)
@@ -240,14 +240,18 @@ class Editor(Gtk.Box):
     def show_link_picker(self) -> None:
         """Show the wiki-link picker popover at the cursor."""
         def on_selected(note_name: str) -> None:
+            self._picker_open = False
             self.buffer.insert_at_cursor(f"{note_name}]]")
 
         picker = LinkPicker(self.get_notes_callback(), on_selected, self.text_view)
+        picker.connect("closed", lambda *_: setattr(self, "_picker_open", False))
         self._popup_at_cursor(picker)
 
     def show_deadline_picker(self) -> None:
         """Show the deadline picker popover at the cursor."""
-        self._popup_at_cursor(DeadlinePicker(self.on_deadline_selected))
+        picker = DeadlinePicker(self.on_deadline_selected)
+        picker.connect("closed", lambda *_: setattr(self, "_picker_open", False))
+        self._popup_at_cursor(picker)
 
     def on_deadline_selected(self, deadline: str) -> None:
         self.buffer.insert_at_cursor(deadline)
@@ -257,40 +261,84 @@ class Editor(Gtk.Box):
         from ui.variable_picker import VariablePicker
 
         def on_selected(variable: str) -> None:
+            self._picker_open = False
             cursor = self.buffer.get_iter_at_mark(self.buffer.get_insert())
-            success, line_start = self.buffer.get_iter_at_line(cursor.get_line())
-            if success:
-                line_text = self.buffer.get_text(line_start, cursor, False)
-                if line_text.endswith("{{"):
-                    delete_start = cursor.copy()
-                    delete_start.backward_chars(2)
-                    self.buffer.delete(delete_start, cursor)
+            try:
+                result = self.buffer.get_iter_at_line(cursor.get_line())
+                line_start = result[1] if isinstance(result, tuple) else result
+            except (TypeError, IndexError):
+                self.buffer.insert_at_cursor(variable)
+                return
+            line_text = self.buffer.get_text(line_start, cursor, False)
+            if line_text.endswith("{{"):
+                delete_start = cursor.copy()
+                delete_start.backward_chars(2)
+                self.buffer.delete(delete_start, cursor)
             self.buffer.insert_at_cursor(variable)
 
         picker = VariablePicker(on_selected, self.text_view)
+        picker.connect("closed", lambda *_: setattr(self, "_picker_open", False))
         self._popup_at_cursor(picker)
 
     # Image rendering
 
-    def _on_remote_image_loaded(
-        self,
-        file: Gio.File,
-        result: Gio.AsyncResult,
-        img_widget: Gtk.Image,
-        label_widget: Gtk.Label,
-    ) -> None:
-        """Async callback: update the placeholder once the remote image arrives."""
+    def update_images(self, notes_dir: Path) -> None:
+        """Scan buffer for markdown image syntax and render inline widgets."""
+        if self.is_updating_images:
+            return
+        self.is_updating_images = True
         try:
-            success, contents, _etag = file.load_contents_finish(result)
-            if success:
-                loader = GdkPixbuf.PixbufLoader()
-                loader.write(contents)
-                loader.close()
-                pixbuf = loader.get_pixbuf()
-                if pixbuf:
-                    img_widget.set_from_pixbuf(pixbuf)
-                    label_widget.set_visible(False)
-        except Exception as exc:
-            logger.exception("Failed to load remote image: %s", exc)
+            # Delete old child anchors from the buffer.
+            for anchor in reversed(self.image_anchors):
+                result = self.buffer.get_iter_at_child_anchor(anchor)
+                it = result[1] if isinstance(result, tuple) else result
+                if it is None:
+                    continue
+                it2 = it.copy()
+                it2.forward_char()
+                self.buffer.delete(it, it2)
+            self.image_widgets.clear()
+            self.image_anchors.clear()
 
-    # Remaining methods omitted for brevity
+            image_re = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+            start, end = self.buffer.get_bounds()
+            text = self.buffer.get_text(start, end, False)
+
+            matches = list(image_re.finditer(text))
+            for match in reversed(matches):
+                img_path = match.group(2)
+                offset = match.end()
+
+                img_iter = self.buffer.get_iter_at_offset(offset)
+                anchor = self.buffer.create_child_anchor(img_iter)
+                self.image_anchors.append(anchor)
+
+                img_widget = Gtk.Image()
+                img_widget.set_hexpand(True)
+                img_widget.set_size_request(-1, 150)
+                img_widget.add_css_class("inline-image")
+
+                full_path = notes_dir / img_path
+                if full_path.exists():
+                    try:
+                        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                            str(full_path), 400, -1, True
+                        )
+                        img_widget.set_from_pixbuf(pixbuf)
+                    except Exception as exc:
+                        logger.warning("Failed to load image %s: %s", img_path, exc)
+                        img_widget.set_from_icon_name("image-missing")
+                else:
+                    img_widget.set_from_icon_name("image-missing")
+
+                self.text_view.add_child_at_anchor(img_widget, anchor)
+                self.image_widgets.append(img_widget)
+
+            GLib.idle_add(self._finish_image_update)
+        except Exception:
+            self.is_updating_images = False
+            raise
+
+    def _finish_image_update(self) -> bool:
+        self.is_updating_images = False
+        return False

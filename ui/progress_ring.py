@@ -2,15 +2,11 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any
 
 import cairo
 import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
-
-if TYPE_CHECKING:
-    pass
 
 
 class ProgressRing(Gtk.DrawingArea):
@@ -24,8 +20,8 @@ class ProgressRing(Gtk.DrawingArea):
         self._total = 0
         self._target_ratio = 0.0
         self._current_ratio = 0.0
-        self._initialized = False
         self._animating = False
+        self._tick_id: int | None = None
         self.set_size_request(size, size)
         self.set_draw_func(self.on_draw)
 
@@ -35,13 +31,6 @@ class ProgressRing(Gtk.DrawingArea):
         self._total = total
         self._target_ratio = completed / total if total > 0 else 0.0
 
-        if self._initialized:
-            self._current_ratio = self._target_ratio
-            self.queue_draw()
-            return
-
-        self._initialized = True
-
         if not animate or self._current_ratio == self._target_ratio:
             self._current_ratio = self._target_ratio
             self.queue_draw()
@@ -49,7 +38,9 @@ class ProgressRing(Gtk.DrawingArea):
 
         self._animating = True
         self._start_time: float | None = None
-        self.add_tick_callback(self._on_tick)
+        if self._tick_id is not None:
+            self.remove_tick_callback(self._tick_id)
+        self._tick_id = self.add_tick_callback(self._on_tick)
 
     def _on_tick(self, widget: Gtk.Widget, frame_clock: Any) -> bool:
         """Animation tick — ease-out from current to target ratio."""
@@ -63,6 +54,7 @@ class ProgressRing(Gtk.DrawingArea):
         if elapsed >= duration:
             self._current_ratio = self._target_ratio
             self._animating = False
+            self._tick_id = None
             self.queue_draw()
             return False
 

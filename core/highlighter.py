@@ -1,6 +1,7 @@
 """Markdown syntax highlighting for the GTK TextBuffer."""
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -23,9 +24,10 @@ from core.utils import (
     WIKI_CLICK_RE,
 )
 
+logger = logging.getLogger(__name__)
 
 _LIGHT_COLORS: dict[str, str] = {
-    "h1": "#34548a", "h2": "#5a4a78", "h3": "#33605a", "h4": "#8c4351",
+    "h1": "#34548a", "h2": "#5a4a78", "h3": "#33605a", "h4": "#8c4351", "h5": "#965027", "h6": "#8f5e15",
     "code_bg": "#cbccd1", "code_fg": "#8f5e15", "code_block_bg": "#cbccd1",
     "code_block_fg": "#343b58", "checkbox_empty": "#8c4351",
     "checkbox_checked": "#485e30", "internal_link": "#8f5e15",
@@ -36,7 +38,7 @@ _LIGHT_COLORS: dict[str, str] = {
 }
 
 _DARK_COLORS: dict[str, str] = {
-    "h1": "#7aa2f7", "h2": "#bb9af7", "h3": "#2ac3de", "h4": "#b4f9f8",
+    "h1": "#7aa2f7", "h2": "#bb9af7", "h3": "#2ac3de", "h4": "#b4f9f8", "h5": "#ff9e64", "h6": "#e0af68",
     "code_bg": "#292e42", "code_fg": "#e0af68", "code_block_bg": "#1a1b26",
     "code_block_fg": "#a9b1d6", "checkbox_empty": "#f7768e",
     "checkbox_checked": "#9ece6a", "internal_link": "#e0af68",
@@ -90,6 +92,7 @@ class MarkdownHighlighter:
         # Cache for _code_block_line_set — invalidated when buffer content changes.
         self._code_block_cache: set[int] = set()
         self._code_block_stamp: int = -1
+        self._in_fence: bool = False
 
         self.setup_tags()
 
@@ -113,6 +116,8 @@ class MarkdownHighlighter:
         tag("h2", weight=Pango.Weight.BOLD, size=18 * Pango.SCALE, foreground=c["h2"], left_margin=20)
         tag("h3", weight=Pango.Weight.BOLD, size=16 * Pango.SCALE, foreground=c["h3"], left_margin=20)
         tag("h4", weight=Pango.Weight.BOLD, size=14 * Pango.SCALE, foreground=c["h4"], left_margin=20)
+        tag("h5", weight=Pango.Weight.BOLD, size=13 * Pango.SCALE, foreground=c["h5"], left_margin=20)
+        tag("h6", weight=Pango.Weight.BOLD, size=12 * Pango.SCALE, foreground=c["h6"], left_margin=20)
         tag("body",              left_margin=30)
         tag("code",              family="Monospace", background=c["code_bg"],       foreground=c["code_fg"])
         tag("code_block",        family="Monospace", background=c["code_block_bg"], foreground=c["code_block_fg"])
@@ -152,31 +157,37 @@ class MarkdownHighlighter:
 
     def get_iter_at_line(self, line: int) -> Gtk.TextIter:
         result = self.buffer.get_iter_at_line(line)
-        return result[1] if isinstance(result, tuple) else result
+        if isinstance(result, tuple):
+            success, it = result
+            if not success:
+                logger.debug("get_iter_at_line(%d) failed, using end-of-buffer", line)
+            return it
+        return result
 
     def get_iter_at_offset(self, offset: int) -> Gtk.TextIter:
         result = self.buffer.get_iter_at_offset(offset)
-        return result[1] if isinstance(result, tuple) else result
+        if isinstance(result, tuple):
+            success, it = result
+            if not success:
+                logger.debug("get_iter_at_offset(%d) failed, using end-of-buffer", offset)
+            return it
+        return result
 
     # Code-block membership helpers
 
     def _code_block_line_set(self) -> set[int]:
         """Return the set of 0-based line numbers that fall inside a fenced code block.
 
-        The result is cached and keyed on the buffer's internal modification
-        stamp so repeated calls during the same highlight pass cost nothing.
-        The stamp advances on every buffer change, so the cache is always fresh.
+        The result is cached and keyed on the buffer's character count so
+        repeated calls during the same highlight pass cost nothing.
         """
-        stamp = self.buffer.get_modified()
-        char_count = self.buffer.get_char_count()
-        # Use char_count as a cheap proxy for content identity alongside
-        # the modification flag, since get_modified() resets after save.
-        cache_key = (stamp, char_count)
-        if cache_key == self._code_block_stamp:
+        stamp = self.buffer.get_char_count()
+        if stamp == self._code_block_stamp:
             return self._code_block_cache
 
         start, end = self.buffer.get_bounds()
-        lines = self.buffer.get_text(start, end, True).split("\n")
+        raw = self.buffer.get_text(start, end, True)
+        lines = raw.rstrip("\n").split("\n")
         result: set[int] = set()
         in_block = False
         for i, line in enumerate(lines):
@@ -187,7 +198,7 @@ class MarkdownHighlighter:
                 result.add(i)
 
         self._code_block_cache = result
-        self._code_block_stamp = cache_key
+        self._code_block_stamp = stamp
         return result
 
     # Main highlight pass
@@ -206,6 +217,7 @@ class MarkdownHighlighter:
             end_line = total_lines
 
         is_full_pass = start_line == 0 and end_line == total_lines
+        self._in_fence = False
 
         start_iter = self.get_iter_at_line(start_line)
         end_iter = (
@@ -224,8 +236,8 @@ class MarkdownHighlighter:
         if is_full_pass:
             for match in self.re_fenced_code.finditer(text_range):
                 self.apply_tag("code_block", match.start(2), match.end(2))
-                self.apply_tag("invisible",  match.start(),  match.start(2))
-                self.apply_tag("invisible",  match.end(2),   match.end())
+                self.apply_tag("dim",  match.start(),  match.start(2))
+                self.apply_tag("dim",  match.end(2),   match.end())
         else:
             # Partial pass: compute the code-block membership set once (O(n))
             # then do O(1) lookups per line instead of O(n) per line.
@@ -240,8 +252,9 @@ class MarkdownHighlighter:
 
         lines = text_range.split("\n")
         line_start_offset = start_iter.get_offset()
-        # Pre-compute for partial passes; empty set for full passes (not used).
-        code_block_lines: set[int] = set() if is_full_pass else self._code_block_line_set()
+        # For partial passes, code_block_lines was already computed above.
+        # Define it here (unused) so the name always exists.
+        code_block_lines: set[int] = set()
 
         for i, line in enumerate(lines):
             curr_line_num = start_line + i
@@ -254,14 +267,20 @@ class MarkdownHighlighter:
                 line_start_offset += len(line) + 1
                 continue
 
+            # Fence marker lines must keep their dim tag in partial passes.
+            if not is_full_pass and line.strip().startswith("```"):
+                self.apply_tag("dim", line_start_offset, line_end_offset)
+                line_start_offset += len(line) + 1
+                continue
+
             # During a full pass we also skip code-block interior lines here
             # because they were tagged by the fenced-block pass above.
+            # Use a running O(1) toggle instead of summing fences per line.
             if is_full_pass:
-                # Count fence markers up to this line to decide if we're inside.
-                fence_count = sum(
-                    1 for ln in lines[:i] if ln.strip().startswith("```")
-                )
-                if fence_count % 2 == 1:
+                inside_fence = self._in_fence
+                if line.strip().startswith("```"):
+                    self._in_fence = not self._in_fence
+                if inside_fence:
                     line_start_offset += len(line) + 1
                     continue
 
@@ -335,7 +354,7 @@ class MarkdownHighlighter:
             h = self.re_header.match(line)
             if h:
                 level = len(h.group(1))
-                self.apply_tag(f"h{min(level, 4)}", line_start_offset, line_end_offset)
+                self.apply_tag(f"h{level}", line_start_offset, line_end_offset)
                 marker_end = line_start_offset + level
                 self.apply_tag(
                     "dim" if is_cursor else "invisible",
@@ -347,90 +366,7 @@ class MarkdownHighlighter:
 
             self.apply_tag("body", line_start_offset, line_end_offset)
 
-            # Checkboxes
-            for m in self.re_checkbox_empty.finditer(line):
-                self.apply_tag(
-                    "checkbox_empty",
-                    line_start_offset + m.start(),
-                    line_start_offset + m.end(),
-                )
-            for m in self.re_checkbox_checked.finditer(line):
-                self.apply_tag(
-                    "checkbox_checked",
-                    line_start_offset + m.start(),
-                    line_start_offset + m.end(),
-                )
-
-            # Deadlines and tags
-            for m in self.re_deadline.finditer(line):
-                self.apply_tag(
-                    "deadline",
-                    line_start_offset + m.start(),
-                    line_start_offset + m.end(),
-                )
-            for m in self.re_tag.finditer(line):
-                self.apply_tag(
-                    "tag",
-                    line_start_offset + m.start(),
-                    line_start_offset + m.end(),
-                )
-
-            # Links and images
-            for m in self.re_links.finditer(line):
-                fs = line_start_offset + m.start()
-                fe = line_start_offset + m.end()
-                if m.group(1):  # [[wiki link]]
-                    self.apply_tag("internal-link", fs, fe)
-                    if not is_cursor:
-                        self.apply_tag("invisible", fs, fs + 2)
-                        self.apply_tag("invisible", fe - 2, fe)
-                else:
-                    if m.group(2):  # ![image](...)
-                        self.apply_tag("image", fs, fe)
-                    else:           # [text](url)
-                        text_s = fs + 1
-                        text_e = text_s + len(m.group(3))
-                        self.apply_tag("external-link", text_s, text_e)
-                        brackets = "dim" if is_cursor else "invisible"
-                        self.apply_tag(brackets, fs, text_s)
-                        self.apply_tag(brackets, text_e, fe)
-
-            # Inline styles
-            self._inline(self.re_bold1,         "bold",          line, line_start_offset, is_cursor)
-            self._inline(self.re_bold2,         "bold",          line, line_start_offset, is_cursor)
-            self._inline(self.re_italic1,       "italic",        line, line_start_offset, is_cursor, single=True)
-            self._inline(self.re_italic2,       "italic",        line, line_start_offset, is_cursor, single=True)
-            self._inline(self.re_code,          "code",          line, line_start_offset, is_cursor)
-            self._inline(self.re_strikethrough, "strikethrough", line, line_start_offset, is_cursor)
-
-            # Autolinks  <https://...>  or  <user@example.com>
-            for m in self.re_autolink.finditer(line):
-                self.apply_tag("autolink",
-                               line_start_offset + m.start(),
-                               line_start_offset + m.end())
-                self.apply_tag("invisible",
-                               line_start_offset + m.start(),
-                               line_start_offset + m.start() + 1)
-                self.apply_tag("invisible",
-                               line_start_offset + m.end() - 1,
-                               line_start_offset + m.end())
-
-            # Inline HTML
-            for m in self.re_html.finditer(line):
-                content = m.group(0)
-                is_autolink = "http" in content or ("@" in content and "<" in content)
-                if not is_autolink and not content.startswith(("<!", "<?")):
-                    self.apply_tag(
-                        "inline_html",
-                        line_start_offset + m.start(),
-                        line_start_offset + m.end(),
-                    )
-
-            # Hard line breaks (trailing backslash)
-            if line.rstrip().endswith("\\"):
-                self.apply_tag("line_break",
-                               line_start_offset + len(line.rstrip()),
-                               line_end_offset)
+            self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
 
             line_start_offset += len(line) + 1
 
@@ -460,8 +396,7 @@ class MarkdownHighlighter:
         if start_offset >= end_offset:
             return
         start_iter = self.get_iter_at_offset(start_offset)
-        end_iter = start_iter.copy()
-        end_iter.forward_chars(end_offset - start_offset)
+        end_iter = self.get_iter_at_offset(end_offset)
         self.buffer.apply_tag_by_name(tag_name, start_iter, end_iter)
 
     def _tag_for_line(self, md_line) -> str | None:
@@ -471,10 +406,10 @@ class MarkdownHighlighter:
             "h2": "h2",
             "h3": "h3",
             "h4": "h4",
+            "h5": "h5",
+            "h6": "h6",
             "hr": "hr",
             "blockquote": "blockquote",
-            "ul": "list_bullet",
-            "ol": "list_number",
             "table_row": "table_row",
             "table_sep": "table_sep",
             "code_block": "code_block",
@@ -495,15 +430,18 @@ class MarkdownHighlighter:
                 line_start_offset + md_line.indent + len(md_line.marker),
             )
 
+        self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
+
+    def _apply_inline_tags(self, line: str, line_start_offset: int, line_end_offset: int, is_cursor: bool) -> None:
+        """Apply inline patterns shared between the full and partial highlight passes."""
+
         # Checkboxes
-        cb_re = self.re_checkbox_empty
-        for m in cb_re.finditer(line):
+        for m in self.re_checkbox_empty.finditer(line):
             self.apply_tag("checkbox_empty", line_start_offset + m.start(), line_start_offset + m.end())
-        cb_re = self.re_checkbox_checked
-        for m in cb_re.finditer(line):
+        for m in self.re_checkbox_checked.finditer(line):
             self.apply_tag("checkbox_checked", line_start_offset + m.start(), line_start_offset + m.end())
 
-        # Inline patterns
+        # Inline styles
         self._inline(self.re_bold1, "bold", line, line_start_offset, is_cursor)
         self._inline(self.re_bold2, "bold", line, line_start_offset, is_cursor)
         self._inline(self.re_italic1, "italic", line, line_start_offset, is_cursor, single=True)
@@ -570,7 +508,12 @@ class MarkdownHighlighter:
         """Re-apply tags for lines from start_line to end_line (inclusive)."""
         from markdown.tokenizer import LineTokenizer
         tokenizer = LineTokenizer()
+        code_block_lines = self._code_block_line_set()
         in_block = False
+        # If start_line is inside a fenced code block, set in_block=True so the
+        # tokenizer correctly identifies code lines (fences may start earlier).
+        if start_line in code_block_lines:
+            in_block = True
         for line_num in range(start_line, end_line + 1):
             it = self.get_iter_at_line(line_num)
             it_end = it.copy()
@@ -587,6 +530,10 @@ class MarkdownHighlighter:
 
             if md.kind == "code_block":
                 self.apply_tag("code_block", line_start, line_end)
+                continue
+
+            if md.kind in ("code_fence_start", "code_fence_end"):
+                self.apply_tag("dim", line_start, line_end)
                 continue
 
             # Apply tags using the same logic as highlight() but line-local

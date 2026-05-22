@@ -27,11 +27,9 @@ class DeadlinePicker(Gtk.Popover):
         self.calendar = Gtk.Calendar()
         box.append(self.calendar)
 
-        # Default to end-of-day rather than current minute — most deadlines
-        # are date-based, not time-based.
+        # Default to date-only — most deadlines are date-based, not time-based.
         self.time_entry = Gtk.Entry()
         self.time_entry.set_placeholder_text("HH:MM (optional)")
-        self.time_entry.set_text("17:00")
         box.append(self.time_entry)
 
         # Action row: clear on the left, set on the right.
@@ -60,15 +58,13 @@ class DeadlinePicker(Gtk.Popover):
         try:
             dt = datetime.date(year, month, day)
         except ValueError:
-            # Invalid date (e.g., Feb 31); ignore the click.
+            self.callback(None)
+            self.popdown()
             return
         date_str = dt.isoformat()
         time_str = self.time_entry.get_text().strip()
-        if re.fullmatch(r"\d{2}:\d{2}", time_str):
+        if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", time_str):
             self.callback(f"{date_str} {time_str}")
-        elif time_str and time_str != "17:00":
-            # Malformed time: store date-only as best-effort.
-            self.callback(date_str)
         else:
             self.callback(date_str)
         self.popdown()

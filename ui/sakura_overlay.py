@@ -1,12 +1,15 @@
 """Sakura petal animation overlay."""
 from __future__ import annotations
 
+import logging
 import math
 import random
 from typing import TYPE_CHECKING
 
 import gi
-gi.require_version('Gtk', '4.0')
+gi.require_version("Gtk", "4.0")
+
+logger = logging.getLogger(__name__)
 from gi.repository import Gtk
 
 if TYPE_CHECKING:
@@ -117,7 +120,7 @@ class SakuraOverlay(Gtk.DrawingArea):
             self.queue_draw()
             return True
         except Exception:
-            # Prevent tick callback from getting stuck if drawing fails.
+            logger.exception("Sakura animation tick failed — stopping")
             self.is_animating = False
             return False
 

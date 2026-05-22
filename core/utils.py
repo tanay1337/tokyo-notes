@@ -54,15 +54,6 @@ HEADER_ATX_RE: re.Pattern = re.compile(r"^(#+)( .+)$")
 SETEXT_RE: re.Pattern = re.compile(r"^(\s*)(={3,}|-{3,})\s*$")
 FENCED_CODE_RE: re.Pattern = re.compile(r"```(\w*)\n?([\s\S]*?)```")
 
-# --- Inline markdown-to-Pango regexes (PDF renderer) ---
-_FMI_LINK_RE: re.Pattern    = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
-_FMI_BOLD1_RE: re.Pattern   = re.compile(r"\*\*([^*]+)\*\*")
-_FMI_BOLD2_RE: re.Pattern   = re.compile(r"__([^_]+)__")
-_FMI_ITALIC1_RE: re.Pattern = re.compile(r"\*([^*]+)\*")
-_FMI_ITALIC2_RE: re.Pattern = re.compile(r"_([^_]+)_")
-_FMI_CODE_RE: re.Pattern    = re.compile(r"`([^`]+)`")
-_FMI_STRIKE_RE: re.Pattern  = re.compile(r"~~([^~]+)~~")
-
 
 # Text helpers
 
@@ -80,28 +71,6 @@ def get_snippet(content: str, length: int = 50) -> str:
     text = MD_LINK_RE.sub(r"\1", text)
     text = MD_FMT_RE.sub("", text)
     return text[:length] + ("..." if len(text) > length else "")
-
-
-def escape_xml(text: str) -> str:
-    """Escape XML special characters for safe use in Pango markup."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def format_markdown_inline(text: str) -> str:
-    """Convert basic inline markdown to Pango markup for PDF rendering."""
-    text = escape_xml(text)
-    text = _FMI_LINK_RE.sub(
-        r'<span foreground="#1B365D" underline="single">\1</span>', text
-    )
-    text = _FMI_BOLD1_RE.sub(r'<span font_weight="500">\1</span>', text)
-    text = _FMI_BOLD2_RE.sub(r'<span font_weight="500">\1</span>', text)
-    text = _FMI_ITALIC1_RE.sub(r'<span font_style="italic">\1</span>', text)
-    text = _FMI_ITALIC2_RE.sub(r'<span font_style="italic">\1</span>', text)
-    text = _FMI_CODE_RE.sub(
-        r'<span font_family="monospace" background="#e8e6dc">\1</span>', text
-    )
-    text = _FMI_STRIKE_RE.sub(r'<span strikethrough="true">\1</span>', text)
-    return text
 
 
 def create_empty_state_widget(message: str, base_dir: Path) -> Any:
@@ -128,3 +97,30 @@ def create_empty_state_widget(message: str, base_dir: Path) -> Any:
 def get_accel(key: str) -> str:
     """Return the correct keyboard accelerator string for the current platform."""
     return f"{'<Meta>' if IS_MAC else '<Control>'}{key}"
+
+
+def assess_password_strength(password: str) -> dict:
+    """Heuristic password strength assessment."""
+    if not password:
+        return {"label": "", "color": None}
+
+    score = 0
+    if len(password) >= 8:
+        score += 1
+    if len(password) >= 12:
+        score += 1
+    if any(c.isupper() for c in password):
+        score += 1
+    if any(c.islower() for c in password):
+        score += 1
+    if any(c.isdigit() for c in password):
+        score += 1
+    if any(not c.isalnum() for c in password):
+        score += 1
+
+    if score <= 2:
+        return {"label": "Weak", "color": "#ff6b6b"}
+    elif score <= 4:
+        return {"label": "Fair", "color": "#ffd93d"}
+    else:
+        return {"label": "Strong", "color": "#6bcb77"}
