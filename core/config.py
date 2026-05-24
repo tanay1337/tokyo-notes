@@ -22,6 +22,7 @@ _DEFAULTS: dict[str, Any] = {
     "show_progress_rings": True,
     "show_backlinks":    True,
     "lock_timeout_minutes": 5,
+    "start_week_on_sunday": True,
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).

@@ -1461,6 +1461,10 @@ class TokyoNotes(Adw.Application):
         picker.set_pointing_to(rect)
         picker.popup()
 
+    def handle_snooze(self, note_name: str, line_num: int, deadline: str | None) -> None:
+        """Snooze a task by updating its deadline."""
+        self._apply_deadline_update(note_name, line_num, deadline)
+
     def _apply_deadline_update(
         self,
         note_name: str | None,

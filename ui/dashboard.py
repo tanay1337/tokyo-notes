@@ -8,7 +8,7 @@ from typing import Any, Callable
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Pango
+from gi.repository import Gio, Gtk, Pango
 
 from core.utils import clear_listbox
 from ui.progress_ring import ProgressRing
@@ -26,6 +26,8 @@ class Dashboard(Gtk.Box):
         refresh_callback: Callable[[str], Any],
         get_show_completed: Callable[[], bool],
         get_show_progress_rings: Callable[[], bool],
+        get_start_week_on_sunday: Callable[[], bool],
+        on_snooze: Callable[[str, int, str | None], Any] | None = None,
         assets_dir: Path | None = None,
         default_filter: str = "today",
     ) -> None:
@@ -39,6 +41,8 @@ class Dashboard(Gtk.Box):
         self.on_empty = on_empty
         self.get_show_completed = get_show_completed
         self.get_show_progress_rings = get_show_progress_rings
+        self.get_start_week_on_sunday = get_start_week_on_sunday
+        self.on_snooze = on_snooze
         self._prev_stats: dict[str, tuple[int, int]] = {}
         self._collapsed: set[str] = set()
         self._date_rows: dict[str, list[Gtk.ListBoxRow]] = {}
@@ -343,8 +347,12 @@ class Dashboard(Gtk.Box):
 
         today = datetime.date.today()
         _TODAY = today.isoformat()
-        _WEEK_START = (today - datetime.timedelta(days=today.weekday())).isoformat()
-        _WEEK_END = (today + datetime.timedelta(days=6 - today.weekday())).isoformat()
+        if self.get_start_week_on_sunday():
+            _WEEK_START = (today - datetime.timedelta(days=(today.weekday() + 1) % 7)).isoformat()
+            _WEEK_END = (today + datetime.timedelta(days=6 - (today.weekday() + 1) % 7)).isoformat()
+        else:
+            _WEEK_START = (today - datetime.timedelta(days=today.weekday())).isoformat()
+            _WEEK_END = (today + datetime.timedelta(days=6 - today.weekday())).isoformat()
 
         if self._show_completed:
             pool = checkboxes
@@ -637,8 +645,67 @@ class Dashboard(Gtk.Box):
         chip.add_controller(chip_gesture)
         box.append(chip)
 
+        # Right-click snooze menu
+        right_click = Gtk.GestureClick.new()
+        right_click.set_button(3)
+        right_click.connect("pressed", lambda *a, _cb=cb: self._show_snooze_popover(a[0], a[2], a[3], _cb))
+        box.add_controller(right_click)
+
         row.set_child(box)
         return row
+
+    # Snooze
+
+    def _show_snooze_popover(self, gesture: Gtk.GestureClick, x: float, y: float, cb: dict[str, Any]) -> None:
+        self._snooze_cb = cb
+
+        today = datetime.date.today()
+        deadline = cb.get("deadline") or ""
+        time_part = deadline.split(" ")[1] if " " in deadline else ""
+
+        def _dl(days: int) -> str:
+            d = (today + datetime.timedelta(days=days)).isoformat()
+            return f"{d} {time_part}" if time_part else d
+
+        presets: list[tuple[str, str, str]] = [
+            ("Tomorrow", "tomorrow", _dl(1)),
+            ("Next Week", "next-week", _dl(7 - today.weekday())),
+            ("Next Month", "next-month", _dl(30)),
+        ]
+
+        group = Gio.SimpleActionGroup()
+        for _label, action_name, dl in presets:
+            action = Gio.SimpleAction.new(action_name, None)
+            action.connect("activate", lambda *a, _dl=dl: self._apply_snooze(self._snooze_cb, _dl))
+            group.add_action(action)
+
+        pick_action = Gio.SimpleAction.new("pick-date", None)
+        pick_action.connect("activate", lambda *a: self._snooze_pick_date(self._snooze_cb))
+        group.add_action(pick_action)
+
+        gesture.get_widget().insert_action_group("snooze", group)
+
+        preset_section = Gio.Menu()
+        for _label, action_name, _dl in presets:
+            preset_section.append_item(Gio.MenuItem.new(_label, f"snooze.{action_name}"))
+
+        pick_section = Gio.Menu()
+        pick_section.append_item(Gio.MenuItem.new("Pick Date", "snooze.pick-date"))
+
+        menu = Gio.Menu()
+        menu.append_section("Snooze", preset_section)
+        menu.append_section(None, pick_section)
+
+        popover = Gtk.PopoverMenu.new_from_model(menu)
+        popover.set_parent(gesture.get_widget())
+        popover.popup()
+
+    def _apply_snooze(self, cb: dict[str, Any], new_dl: str | None) -> None:
+        if self.on_snooze:
+            self.on_snooze(cb["note"], cb["line"], new_dl)
+
+    def _snooze_pick_date(self, cb: dict[str, Any]) -> None:
+        self.on_deadline_click(cb, 0, 0)
 
     def update_checkbox(self, note_name: str, line_num: int, checked: bool) -> bool:
         """Update a single checkbox row in-place without full rebuild.

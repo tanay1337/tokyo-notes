@@ -144,6 +144,12 @@ class SettingsView(Gtk.Box):
             self._initial_values.get("show_progress_rings", True),
             "show_progress_rings",
         ))
+        group.add(self._make_switch_row(
+            "Start Week on Sunday",
+            "Show Sun - Sat instead of Mon - Sun in the Week filter",
+            self._initial_values.get("start_week_on_sunday", True),
+            "start_week_on_sunday",
+        ))
         return group
 
     def _build_private_group(self) -> Adw.PreferencesGroup:
@@ -359,6 +365,7 @@ class SettingsView(Gtk.Box):
             "show_completed":      True,
             "show_progress_rings": True,
             "show_backlinks":      True,
+            "start_week_on_sunday": True,
             "theme":               "tokyo-night",
         }
         for key, value in defaults.items():

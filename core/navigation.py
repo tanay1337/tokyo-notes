@@ -45,6 +45,8 @@ class NavigationController:
                 self.refresh_dashboard,
                 lambda: app.cfg.get("show_completed", True),
                 lambda: app.cfg.get("show_progress_rings", True),
+                lambda: app.cfg.get("start_week_on_sunday", True),
+                on_snooze=app.handle_snooze,
                 assets_dir=app.base_dir / "assets",
                 default_filter="today",
             )
@@ -53,7 +55,10 @@ class NavigationController:
 
         checkboxes = app.notes_manager.get_all_checkboxes(exclude=app.cfg.archived)
         unchecked = [cb for cb in checkboxes if not cb["checked"]]
-        default_filter = self._compute_default_filter(unchecked)
+        default_filter = self._compute_default_filter(
+            unchecked,
+            start_week_on_sunday=app.cfg.get("start_week_on_sunday", True),
+        )
 
         app.dashboard_view.update_active_filter(default_filter)
         # Pass already-fetched checkboxes to avoid a second get_all_checkboxes call.
@@ -93,7 +98,8 @@ class NavigationController:
         self.app.dashboard_list.append(widget)
 
     @staticmethod
-    def _compute_default_filter(unchecked: list[dict[str, Any]]) -> str:
+    def _compute_default_filter(unchecked: list[dict[str, Any]], *,
+                                start_week_on_sunday: bool = True) -> str:
         """Return the most relevant dashboard filter for the current unchecked tasks.
 
         cb["deadline"] can be None (key present but no value set), so we always
@@ -102,11 +108,16 @@ class NavigationController:
         """
         today = datetime.date.today()
         today_str = today.isoformat()
-        week_end = (today + datetime.timedelta(days=6 - today.weekday())).isoformat()
         if any((cb.get("deadline") or "").startswith(today_str) for cb in unchecked):
             return "today"
+        if start_week_on_sunday:
+            week_start = (today - datetime.timedelta(days=(today.weekday() + 1) % 7)).isoformat()
+            week_end = (today + datetime.timedelta(days=6 - (today.weekday() + 1) % 7)).isoformat()
+        else:
+            week_start = (today - datetime.timedelta(days=today.weekday())).isoformat()
+            week_end = (today + datetime.timedelta(days=6 - today.weekday())).isoformat()
         if any(
-            cb["deadline"] <= week_end
+            week_start <= cb["deadline"] <= week_end
             for cb in unchecked
             if cb.get("deadline")
         ):
