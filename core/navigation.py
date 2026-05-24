@@ -45,6 +45,7 @@ class NavigationController:
                 self.refresh_dashboard,
                 lambda: app.cfg.get("show_completed", True),
                 lambda: app.cfg.get("show_progress_rings", True),
+                assets_dir=app.base_dir / "assets",
                 default_filter="today",
             )
             app.dashboard_list = app.dashboard_view.dashboard_list

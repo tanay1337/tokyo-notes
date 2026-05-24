@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+from pathlib import Path
 from typing import Any, Callable
 
 import gi
@@ -25,6 +26,7 @@ class Dashboard(Gtk.Box):
         refresh_callback: Callable[[str], Any],
         get_show_completed: Callable[[], bool],
         get_show_progress_rings: Callable[[], bool],
+        assets_dir: Path | None = None,
         default_filter: str = "today",
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -41,18 +43,112 @@ class Dashboard(Gtk.Box):
         self._collapsed: set[str] = set()
         self._date_rows: dict[str, list[Gtk.ListBoxRow]] = {}
         self._header_rows: dict[str, Gtk.ListBoxRow] = {}
+        self._search_text: str = ""
+        self._show_overdue: bool = False
+        self._filter_date: str | None = None
+        self._show_completed: bool = self.get_show_completed()
+        self._temp_show_completed: bool = False
 
-        filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         filter_box.add_css_class("toolbar")
-        filter_box.set_halign(Gtk.Align.CENTER)
+
+        # Spacers to keep filter buttons centered
+        left_spacer = Gtk.Box()
+        left_spacer.set_hexpand(True)
+        filter_box.append(left_spacer)
 
         self.buttons: dict[str, Gtk.Button] = {}
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         for label in ("Today", "Week", "All"):
             btn = Gtk.Button(label=label)
             btn.add_css_class("filter-btn")
             btn.connect("clicked", self.on_filter_clicked, label.lower())
-            filter_box.append(btn)
+            btn_box.append(btn)
             self.buttons[label.lower()] = btn
+        filter_box.append(btn_box)
+
+        right_spacer = Gtk.Box()
+        right_spacer.set_hexpand(True)
+        filter_box.append(right_spacer)
+
+        # Advanced filter button — funnel icon with indicator dot
+        self.advanced_btn = Gtk.Button()
+        self.advanced_btn.set_tooltip_text("Advanced filters")
+        self.advanced_btn.add_css_class("flat")
+        self.advanced_btn.add_css_class("advanced-filter-btn")
+
+        # Load SVG icon from assets
+        icon_path = (assets_dir / "dashboard" / "filter.svg") if assets_dir else None
+        funnel_icon: Gtk.Widget
+        if icon_path and icon_path.exists():
+            funnel_icon = Gtk.Image.new_from_file(str(icon_path))
+            funnel_icon.set_pixel_size(16)
+        else:
+            funnel_icon = Gtk.Image.new_from_icon_name("edit-find-symbolic")
+
+        self.advanced_btn.set_child(funnel_icon)
+        self.advanced_btn.connect("clicked", self._on_advanced_filter_clicked)
+
+        # Outer overlay positions the indicator dot at the button's top-right corner
+        self._filter_indicator = Gtk.Label(label="●")
+        self._filter_indicator.add_css_class("filter-indicator-dot")
+        self._filter_indicator.set_halign(Gtk.Align.END)
+        self._filter_indicator.set_valign(Gtk.Align.START)
+        self._filter_indicator.set_margin_end(1)
+        self._filter_indicator.set_margin_top(1)
+        self._filter_indicator.set_visible(False)
+
+        btn_overlay = Gtk.Overlay()
+        btn_overlay.set_child(self.advanced_btn)
+        btn_overlay.add_overlay(self._filter_indicator)
+        filter_box.append(btn_overlay)
+
+        # Popover for advanced filters
+        self._filter_popover = Gtk.Popover()
+        self._filter_popover.set_autohide(True)
+        self._filter_popover.set_parent(self.advanced_btn)
+        popover_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        popover_box.set_margin_top(8)
+        popover_box.set_margin_bottom(8)
+        popover_box.set_margin_start(8)
+        popover_box.set_margin_end(8)
+        popover_box.add_css_class("filter-popover-box")
+
+        self._search_entry = Gtk.SearchEntry()
+        self._search_entry.set_placeholder_text("Search tasks…")
+        self._search_entry.connect("search-changed", self._on_search_changed)
+        popover_box.append(self._search_entry)
+
+        completed_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        completed_label = Gtk.Label(label="Show Completed", xalign=0)
+        completed_label.set_hexpand(True)
+        self._completed_switch = Gtk.Switch()
+        self._completed_switch.set_active(self._show_completed)
+        self._completed_switch.connect("notify::active", self._on_completed_toggled)
+        completed_box.append(completed_label)
+        completed_box.append(self._completed_switch)
+        popover_box.append(completed_box)
+
+        overdue_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        overdue_label = Gtk.Label(label="Show Overdue", xalign=0)
+        overdue_label.set_hexpand(True)
+        self._overdue_switch = Gtk.Switch()
+        self._overdue_switch.set_active(self._show_overdue)
+        self._overdue_switch.connect("notify::active", self._on_overdue_toggled)
+        overdue_box.append(overdue_label)
+        overdue_box.append(self._overdue_switch)
+        popover_box.append(overdue_box)
+
+        self._calendar = Gtk.Calendar()
+        self._calendar.connect("day-selected", self._on_calendar_date_selected)
+        popover_box.append(self._calendar)
+
+        clear_date_btn = Gtk.Button(label="Clear date")
+        clear_date_btn.add_css_class("flat")
+        clear_date_btn.connect("clicked", self._on_clear_date)
+        popover_box.append(clear_date_btn)
+
+        self._filter_popover.set_child(popover_box)
 
         shortcut_ctrl = Gtk.ShortcutController()
         shortcut_ctrl.set_scope(Gtk.ShortcutScope.MANAGED)
@@ -85,6 +181,9 @@ class Dashboard(Gtk.Box):
 
     def update_active_filter(self, active_type: str) -> None:
         self.active_filter = active_type
+        if self._filter_date is not None:
+            self._filter_date = None
+            self._update_filter_indicator()
         for f_type, btn in self.buttons.items():
             if f_type == active_type:
                 btn.add_css_class("active")
@@ -96,23 +195,110 @@ class Dashboard(Gtk.Box):
             self.on_filter_clicked(None, filter_type)
         return True
 
+    # Advanced filter controls
+
+    def _on_advanced_filter_clicked(self, btn: Gtk.Button) -> None:
+        self._completed_switch.set_active(self._show_completed)
+        self._filter_popover.popup()
+
+    def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
+        self._search_text = entry.get_text().strip()
+        self._apply_search_filter()
+        self._update_filter_indicator()
+
+    def _apply_search_filter(self) -> None:
+        if not self._search_text:
+            for rows in self._date_rows.values():
+                for row in rows:
+                    row.set_visible(True)
+            return
+        text = self._search_text.lower()
+        for rows in self._date_rows.values():
+            for row in rows:
+                cb = getattr(row, "checkbox_data", {})
+                match = text in cb.get("text", "").lower()
+                row.set_visible(match)
+
+    def _on_completed_toggled(self, switch: Gtk.Switch, *_) -> None:
+        self._show_completed = switch.get_active()
+        self._temp_show_completed = True
+        self.refresh_callback(self.active_filter)
+        self._update_filter_indicator()
+
+    def _on_overdue_toggled(self, switch: Gtk.Switch, *_) -> None:
+        self._show_overdue = switch.get_active()
+        self.refresh_callback(self.active_filter)
+        self._update_filter_indicator()
+
+    def _on_calendar_date_selected(self, calendar: Gtk.Calendar) -> None:
+        year = calendar.get_year()
+        month = calendar.get_month() + 1
+        day = calendar.get_day()
+        self._filter_date = f"{year:04d}-{month:02d}-{day:02d}"
+        self._update_filter_indicator()
+        for btn in self.buttons.values():
+            btn.remove_css_class("active")
+        self._filter_popover.popdown()
+        self.refresh_callback(self.active_filter)
+
+    def _on_clear_date(self, btn: Gtk.Button) -> None:
+        self._filter_date = None
+        self._update_filter_indicator()
+        self.update_active_filter(self.active_filter)
+        self._filter_popover.popdown()
+        self.refresh_callback(self.active_filter)
+
+    def _has_active_filters(self) -> bool:
+        return bool(
+            self._search_text
+            or self._show_overdue
+            or self._filter_date is not None
+            or self._temp_show_completed
+        )
+
+    def _update_filter_indicator(self) -> None:
+        active = self._has_active_filters()
+        self._filter_indicator.set_visible(active)
+        if active:
+            self.advanced_btn.add_css_class("has-active-filters")
+        else:
+            self.advanced_btn.remove_css_class("has-active-filters")
+
     # Population
 
     def populate(self, checkboxes: list[dict[str, Any]], filter_type: str) -> int:
         """Clear and repopulate the list for *filter_type*. Returns visible item count."""
+        if not self._temp_show_completed:
+            self._show_completed = self.get_show_completed()
         self._clear()
         filtered = self._filter(checkboxes, filter_type)
 
-        if not filtered:
+        # Extract overdue items so they render as a separate section at the top
+        overdue: list[dict[str, Any]] = []
+        if self._show_overdue:
+            today_str = datetime.date.today().isoformat()
+            remaining = []
+            for cb in filtered:
+                dl = cb.get("deadline", "")
+                if dl and dl.split(" ")[0] < today_str and not cb["checked"]:
+                    overdue.append(cb)
+                else:
+                    remaining.append(cb)
+            filtered = remaining
+
+        if not filtered and not overdue:
             self.on_empty(filter_type)
             return 0
 
-        if filter_type in ("week", "all"):
-            self._populate_grouped(filtered, include_misc=(filter_type == "all"), show_year=(filter_type == "all"))
+        if filter_type in ("week", "all") and not self._filter_date:
+            self._populate_grouped(filtered, overdue=overdue,
+                                   include_misc=(filter_type == "all"),
+                                   show_year=(filter_type == "all"))
         else:
-            self._populate_flat(filtered)
+            date_label = self._filter_date if self._filter_date else None
+            self._populate_flat(filtered, overdue=overdue, date_label=date_label)
 
-        return len(filtered)
+        return len(filtered) + len(overdue)
 
     def _clear(self) -> None:
         clear_listbox(self.dashboard_list)
@@ -120,12 +306,23 @@ class Dashboard(Gtk.Box):
     def _filter(
         self, checkboxes: list[dict[str, Any]], filter_type: str
     ) -> list[dict[str, Any]]:
+        # Date override — bypass the date-range filter entirely
+        if self._filter_date:
+            if self._show_completed:
+                pool = checkboxes
+            else:
+                pool = [cb for cb in checkboxes if not cb["checked"]]
+            return [
+                cb for cb in pool
+                if (cb.get("deadline") or "").startswith(self._filter_date)
+            ]
+
         today = datetime.date.today()
         _TODAY = today.isoformat()
         _WEEK_START = (today - datetime.timedelta(days=today.weekday())).isoformat()
         _WEEK_END = (today + datetime.timedelta(days=6 - today.weekday())).isoformat()
 
-        if self.get_show_completed():
+        if self._show_completed:
             pool = checkboxes
         else:
             pool = [cb for cb in checkboxes if not cb["checked"]]
@@ -142,18 +339,46 @@ class Dashboard(Gtk.Box):
             ]
         return pool
 
-    def _populate_flat(self, items: list[dict[str, Any]]) -> None:
-        completed = sum(1 for cb in items if cb["checked"])
-        total = len(items)
+    def _populate_flat(
+        self, items: list[dict[str, Any]], overdue: list[dict[str, Any]] | None = None,
+        date_label: str | None = None,
+    ) -> None:
         today_key = datetime.date.today().isoformat()
         self._date_rows.clear()
         self._header_rows.clear()
+
+        if overdue:
+            od_key = "overdue"
+            od_completed = sum(1 for cb in overdue if cb["checked"])
+            od_total = len(overdue)
+            header_row = self._make_date_header(
+                None, label="Overdue", progress=(od_completed, od_total),
+                show_year=False, animate=False, show_disclosure=False,
+                extra_css="overdue-header",
+            )
+            self.dashboard_list.append(header_row)
+            self._header_rows[od_key] = header_row
+            self._date_rows[od_key] = []
+            for cb in sorted(overdue, key=lambda x: x.get("deadline") or ""):
+                task_row = self._make_row(cb)
+                self.dashboard_list.append(task_row)
+                self._date_rows[od_key].append(task_row)
+
+        completed = sum(1 for cb in items if cb["checked"])
+        total = len(items)
         if total > 0:
-            today = datetime.date.today().strftime("%A, %B %d")
+            if date_label:
+                try:
+                    dt = datetime.datetime.strptime(date_label, "%Y-%m-%d")
+                    header_label = dt.strftime("%A, %B %d")
+                except ValueError:
+                    header_label = date_label
+            else:
+                header_label = datetime.date.today().strftime("%A, %B %d")
             prev = self._prev_stats.get(today_key, (0, 0))
             animate = (completed, total) != prev
             header_row = self._make_date_header(
-                None, label=today, progress=(completed, total),
+                None, label=header_label, progress=(completed, total),
                 show_year=False, animate=animate, show_disclosure=False,
             )
             self.dashboard_list.append(header_row)
@@ -165,7 +390,8 @@ class Dashboard(Gtk.Box):
             self._date_rows.setdefault(today_key, []).append(task_row)
 
     def _populate_grouped(
-        self, items: list[dict[str, Any]], include_misc: bool = False,
+        self, items: list[dict[str, Any]], overdue: list[dict[str, Any]] | None = None,
+        include_misc: bool = False,
         show_year: bool = False,
     ) -> None:
         items_with = sorted(
@@ -184,6 +410,25 @@ class Dashboard(Gtk.Box):
 
         self._date_rows.clear()
         self._header_rows.clear()
+
+        # Overdue section at the top
+        if overdue:
+            od_key = "overdue"
+            od_completed = sum(1 for cb in overdue if cb["checked"])
+            od_total = len(overdue)
+            header_row = self._make_date_header(
+                None, label="Overdue", progress=(od_completed, od_total),
+                show_year=False, animate=False, show_disclosure=False,
+                extra_css="overdue-header",
+            )
+            self.dashboard_list.append(header_row)
+            self._header_rows[od_key] = header_row
+            self._date_rows[od_key] = []
+            for cb in sorted(overdue, key=lambda x: x.get("deadline") or ""):
+                task_row = self._make_row(cb)
+                self.dashboard_list.append(task_row)
+                self._date_rows[od_key].append(task_row)
+
         current_date: str | None = None
         for cb in items_with:
             date_str = cb["deadline"].split(" ")[0]
@@ -241,6 +486,7 @@ class Dashboard(Gtk.Box):
         animate: bool = True,
         collapsed: bool = False,
         show_disclosure: bool = True,
+        extra_css: str | None = None,
     ) -> Gtk.ListBoxRow:
         if label is None:
             try:
@@ -250,7 +496,7 @@ class Dashboard(Gtk.Box):
                 label = date_str or ""
 
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        box.set_margin_top(15)
+        box.set_margin_top(8)
         box.set_margin_bottom(5)
         box.set_margin_start(10)
         box.set_margin_end(10)
@@ -278,6 +524,8 @@ class Dashboard(Gtk.Box):
         row = Gtk.ListBoxRow()
         row.set_child(box)
         row.set_selectable(False)
+        if extra_css:
+            row.add_css_class(extra_css)
         if ring_widget is not None:
             row._progress_ring = ring_widget
         return row
@@ -348,6 +596,9 @@ class Dashboard(Gtk.Box):
         text_label.set_ellipsize(Pango.EllipsizeMode.END)
         if cb["checked"]:
             text_label.add_css_class("task-completed")
+            attrs = Pango.AttrList()
+            attrs.insert(Pango.attr_strikethrough_new(True))
+            text_label.set_attributes(attrs)
         box.append(text_label)
         row._text_label = text_label
 
@@ -409,6 +660,9 @@ class Dashboard(Gtk.Box):
                 text_label.add_css_class("task-completed")
             else:
                 text_label.remove_css_class("task-completed")
+            attrs = Pango.AttrList()
+            attrs.insert(Pango.attr_strikethrough_new(checked))
+            text_label.set_attributes(attrs)
 
         time_label: Gtk.Label | None = getattr(target_row, "_time_label", None)
         if time_label:

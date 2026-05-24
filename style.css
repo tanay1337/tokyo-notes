@@ -132,17 +132,15 @@ text {
 
 .calendar-row {
     padding: 8px 12px;
-    margin: 4px 8px;
+    margin: 2px 8px;
     border-radius: 8px;
     background-color: @header_bg;
-    border-left: 4px solid @accent_color;
+    border-left: 2px solid @accent_color;
 }
 
 .time-column {
-    font-size: 9pt;
+    font-size: 8pt;
     color: @accent_color;
-    font-weight: 600;
-    min-width: 65px;
 }
 
 .day-header {
@@ -474,4 +472,37 @@ button.pill {
 /* Inline images in editor */
 .inline-image {
     margin: 8px 0;
+}
+
+/* Advanced filter funnel button */
+.advanced-filter-btn {
+    padding: 6px;
+    min-width: 0;
+    min-height: 0;
+}
+
+.dark-theme .advanced-filter-btn image {
+    filter: invert(1);
+}
+
+/* Indicator dot on advanced filter button when filters active */
+.filter-indicator-dot {
+    color: @accent_color;
+    font-size: 8pt;
+    font-weight: bold;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+}
+
+/* Popover content box for advanced filters */
+.filter-popover-box {
+    min-width: 220px;
+}
+
+/* Overdue section header */
+.overdue-header .day-header {
+    color: @accent_color;
+    font-weight: 800;
 }
