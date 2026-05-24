@@ -1457,7 +1457,7 @@ class TokyoNotes(Adw.Application):
         )
         rect = Gdk.Rectangle()
         rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
-        picker.set_parent(widget or self.text_view)
+        picker.set_parent(self.text_view)
         picker.set_pointing_to(rect)
         picker.popup()
 

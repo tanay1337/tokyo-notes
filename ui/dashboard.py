@@ -50,7 +50,7 @@ class Dashboard(Gtk.Box):
         self._temp_show_completed: bool = False
 
         filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        filter_box.add_css_class("toolbar")
+        filter_box.add_css_class("dashboard-toolbar")
 
         # Spacers to keep filter buttons centered
         left_spacer = Gtk.Box()
@@ -148,6 +148,17 @@ class Dashboard(Gtk.Box):
         clear_date_btn.add_css_class("flat")
         clear_date_btn.connect("clicked", self._on_clear_date)
         popover_box.append(clear_date_btn)
+
+        collapse_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        collapse_all_btn = Gtk.Button(label="Collapse All")
+        collapse_all_btn.add_css_class("flat")
+        collapse_all_btn.connect("clicked", self._collapse_all)
+        collapse_box.append(collapse_all_btn)
+        expand_all_btn = Gtk.Button(label="Expand All")
+        expand_all_btn.add_css_class("flat")
+        expand_all_btn.connect("clicked", self._expand_all)
+        collapse_box.append(expand_all_btn)
+        popover_box.append(collapse_box)
 
         self._filter_popover.set_child(popover_box)
 
@@ -265,6 +276,18 @@ class Dashboard(Gtk.Box):
         else:
             self.advanced_btn.remove_css_class("has-active-filters")
 
+    def _collapse_all(self, *_) -> None:
+        for date_key, rows in self._date_rows.items():
+            self._collapsed.add(date_key)
+            for task_row in rows:
+                task_row.set_visible(False)
+
+    def _expand_all(self, *_) -> None:
+        self._collapsed.clear()
+        for rows in self._date_rows.values():
+            for task_row in rows:
+                task_row.set_visible(True)
+
     # Population
 
     def populate(self, checkboxes: list[dict[str, Any]], filter_type: str) -> int:
@@ -354,7 +377,7 @@ class Dashboard(Gtk.Box):
             od_total = len(overdue)
             header_row = self._make_date_header(
                 None, label="Overdue", progress=(od_completed, od_total),
-                show_year=False, animate=False, show_disclosure=False,
+                show_year=False, animate=False, collapsible=False,
                 extra_css="overdue-header",
             )
             self.dashboard_list.append(header_row)
@@ -380,7 +403,7 @@ class Dashboard(Gtk.Box):
             animate = (completed, total) != prev
             header_row = self._make_date_header(
                 None, label=header_label, progress=(completed, total),
-                show_year=False, animate=animate, show_disclosure=False,
+                show_year=False, animate=animate, collapsible=False,
             )
             self.dashboard_list.append(header_row)
             self._header_rows[today_key] = header_row
@@ -419,7 +442,7 @@ class Dashboard(Gtk.Box):
             od_total = len(overdue)
             header_row = self._make_date_header(
                 None, label="Overdue", progress=(od_completed, od_total),
-                show_year=False, animate=False, show_disclosure=False,
+                show_year=False, animate=False, collapsible=False,
                 extra_css="overdue-header",
             )
             self.dashboard_list.append(header_row)
@@ -486,7 +509,7 @@ class Dashboard(Gtk.Box):
         show_year: bool = False,
         animate: bool = True,
         collapsed: bool = False,
-        show_disclosure: bool = True,
+        collapsible: bool = True,
         extra_css: str | None = None,
     ) -> Gtk.ListBoxRow:
         if label is None:
@@ -499,47 +522,41 @@ class Dashboard(Gtk.Box):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         box.set_margin_top(8)
         box.set_margin_bottom(5)
-        box.set_margin_start(10)
-        box.set_margin_end(10)
-
-        if show_disclosure:
-            triangle = Gtk.Label(label="▼" if not collapsed else "▶")
-            triangle.add_css_class("disclosure-triangle")
-            box.append(triangle)
 
         ring_widget: ProgressRing | None = None
         if progress is not None and self.get_show_progress_rings():
-            ring_widget = ProgressRing()
+            ring_widget = ProgressRing(size=24)
             ring_widget.set_progress(progress[0], progress[1], animate=animate)
+            ring_widget.set_valign(Gtk.Align.CENTER)
             box.append(ring_widget)
 
         lbl = Gtk.Label(label=label, xalign=0)
         lbl.add_css_class("day-header")
         box.append(lbl)
 
-        if show_disclosure:
+        if collapsible:
             gesture = Gtk.GestureClick.new()
-            gesture.connect("pressed", lambda *a, _d=date_str or "no_deadline", _t=triangle: self._toggle_date(_d, _t))
+            gesture.connect("pressed", lambda *a, _d=date_str or "no_deadline": self._toggle_date(_d))
             box.add_controller(gesture)
+            box.set_cursor_from_name("pointer")
 
         row = Gtk.ListBoxRow()
         row.set_child(box)
         row.set_selectable(False)
+        row.add_css_class("date-header-row")
         if extra_css:
             row.add_css_class(extra_css)
         if ring_widget is not None:
             row._progress_ring = ring_widget
         return row
 
-    def _toggle_date(self, date_key: str, triangle: Gtk.Label) -> None:
+    def _toggle_date(self, date_key: str) -> None:
         if date_key in self._collapsed:
             self._collapsed.discard(date_key)
-            triangle.set_label("▼")
             for task_row in self._date_rows.get(date_key, []):
                 task_row.set_visible(True)
         else:
             self._collapsed.add(date_key)
-            triangle.set_label("▶")
             for task_row in self._date_rows.get(date_key, []):
                 task_row.set_visible(False)
 
@@ -561,10 +578,12 @@ class Dashboard(Gtk.Box):
         else:
             time_str = ""   # date-only or no deadline: show nothing in time column
 
+        time_label: Gtk.Label | None = None
         row._time_label = None
         if time_str:
             time_label = Gtk.Label(label=time_str)
             time_label.add_css_class("time-column")
+            time_label.set_xalign(1)
             if cb["checked"]:
                 time_label.add_css_class("task-completed")
             deadline_gesture = Gtk.GestureClick.new()
@@ -572,7 +591,6 @@ class Dashboard(Gtk.Box):
                 "pressed", lambda *a, _cb=cb: self.on_deadline_click(_cb, a[2], a[3])
             )
             time_label.add_controller(deadline_gesture)
-            box.append(time_label)
             row._time_label = time_label
 
         # Checkbox — Bug fix: block "toggled" signal during programmatic
@@ -603,10 +621,15 @@ class Dashboard(Gtk.Box):
         box.append(text_label)
         row._text_label = text_label
 
+        if time_label is not None:
+            box.append(time_label)
+
         # Note chip — double-click navigates to the source note.
         chip = Gtk.Label(label=cb["note"])
         chip.add_css_class("note-chip")
         chip.add_css_class("dim-chip")
+        chip.set_max_width_chars(8)
+        chip.set_ellipsize(Pango.EllipsizeMode.END)
         chip_gesture = Gtk.GestureClick.new()
         chip_gesture.connect(
             "pressed", lambda *a, _cb=cb: self.on_row_click(a[0], a[1], a[2], a[3], _cb)

@@ -15,6 +15,7 @@ class DeadlinePicker(Gtk.Popover):
 
     def __init__(self, callback: Callable[[str | None], None]) -> None:
         super().__init__()
+        self.set_autohide(False)
         self.add_css_class("deadline-picker-popover")
         self.callback = callback
 
@@ -27,16 +28,9 @@ class DeadlinePicker(Gtk.Popover):
         self.calendar = Gtk.Calendar()
         box.append(self.calendar)
 
-        # Default to date-only — most deadlines are date-based, not time-based.
         self.time_entry = Gtk.Entry()
         self.time_entry.set_placeholder_text("HH:MM (optional)")
-        self.time_entry.connect("changed", self._on_time_changed)
         box.append(self.time_entry)
-
-        self._time_error = Gtk.Label(xalign=0)
-        self._time_error.add_css_class("error-label")
-        self._time_error.set_visible(False)
-        box.append(self._time_error)
 
         # Action row: clear on the left, set on the right.
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -56,17 +50,6 @@ class DeadlinePicker(Gtk.Popover):
 
         box.append(btn_row)
         self.set_child(box)
-
-    def _on_time_changed(self, entry: Gtk.Entry) -> None:
-        text = entry.get_text().strip()
-        if not text:
-            self._time_error.set_visible(False)
-            return
-        if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", text):
-            self._time_error.set_visible(False)
-        else:
-            self._time_error.set_label("Invalid time — use HH:MM format (e.g. 14:30)")
-            self._time_error.set_visible(True)
 
     def on_set_clicked(self, btn: Gtk.Button) -> None:
         year = self.calendar.get_year()
