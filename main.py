@@ -793,7 +793,14 @@ class TokyoNotes(Adw.Application):
         # Build the toggle button before the sidebar so _build_content_header
         # can pack it; connect its "toggled" signal after the sidebar exists.
         # Ordering matters: sidebar_toggle → sidebar → content_header → editor area.
-        self.sidebar_toggle = Gtk.ToggleButton(icon_name="sidebar-show-symbolic")
+        sidebar_toggle_img = Gtk.Image.new_from_file(
+            str(self.base_dir / "assets" / "header" / "sidebar-toggle.svg")
+        )
+        sidebar_toggle_img.set_pixel_size(16)
+        self.sidebar_toggle = Gtk.ToggleButton()
+        self.sidebar_toggle.set_child(sidebar_toggle_img)
+        self.sidebar_toggle.add_css_class("header-btn")
+        self.sidebar_toggle.add_css_class("flat")
         self.sidebar_toggle.set_active(self.cfg.get("show_sidebar"))
 
         self.sidebar = Sidebar(
@@ -870,16 +877,24 @@ class TokyoNotes(Adw.Application):
         header.set_title_widget(self.content_title)
         header.pack_start(self.sidebar_toggle)
 
-        self.settings_btn = Gtk.Button(
-            icon_name="emblem-system-symbolic", tooltip_text="Settings"
+        self.settings_btn = Gtk.Button(tooltip_text="Settings")
+        settings_img = Gtk.Image.new_from_file(
+            str(self.base_dir / "assets" / "header" / "settings.svg")
         )
+        settings_img.set_pixel_size(16)
+        self.settings_btn.set_child(settings_img)
+        self.settings_btn.add_css_class("header-btn")
         self.settings_btn.connect("clicked", self.nav.on_settings_clicked)
         header.pack_end(self.settings_btn)
 
         # Back to Notes button — shown only when a secondary view is active.
-        self.back_btn = Gtk.Button(
-            icon_name="go-previous-symbolic", tooltip_text="Back to Notes"
+        self.back_btn = Gtk.Button(tooltip_text="Back to Notes")
+        back_img = Gtk.Image.new_from_file(
+            str(self.base_dir / "assets" / "header" / "back.svg")
         )
+        back_img.set_pixel_size(16)
+        self.back_btn.set_child(back_img)
+        self.back_btn.add_css_class("header-btn")
         self.back_btn.connect("clicked", lambda _: self.nav.on_escape_shortcut())
         self.back_btn.set_visible(False)
         header.pack_start(self.back_btn)

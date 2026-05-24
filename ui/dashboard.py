@@ -84,7 +84,8 @@ class Dashboard(Gtk.Box):
             funnel_icon = Gtk.Image.new_from_file(str(icon_path))
             funnel_icon.set_pixel_size(16)
         else:
-            funnel_icon = Gtk.Image.new_from_icon_name("edit-find-symbolic")
+            funnel_icon = Gtk.Label(label="⋮")
+            funnel_icon.add_css_class("advanced-filter-fallback")
 
         self.advanced_btn.set_child(funnel_icon)
         self.advanced_btn.connect("clicked", self._on_advanced_filter_clicked)

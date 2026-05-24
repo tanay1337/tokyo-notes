@@ -327,9 +327,11 @@ class Editor(Gtk.Box):
                         img_widget.set_from_pixbuf(pixbuf)
                     except Exception as exc:
                         logger.warning("Failed to load image %s: %s", img_path, exc)
-                        img_widget.set_from_icon_name("image-missing")
+                        broken_path = Path(__file__).parent.parent / "assets" / "editor" / "broken-image.svg"
+                        img_widget.set_from_file(str(broken_path))
                 else:
-                    img_widget.set_from_icon_name("image-missing")
+                    broken_path = Path(__file__).parent.parent / "assets" / "editor" / "broken-image.svg"
+                    img_widget.set_from_file(str(broken_path))
 
                 self.text_view.add_child_at_anchor(img_widget, anchor)
                 self.image_widgets.append(img_widget)

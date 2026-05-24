@@ -15,14 +15,14 @@ A minimal GTK4 Markdown note-taking app.
 - **Templates**: Create notes from reusable templates with auto-filled variables like `{{today}}`, `{{now}}`, `{{time}}`, and `{{weekday}}`.
 
 ## Installation
-Requires Python 3, PyGObject, GTK4, Libadwaita, and Libadwaita Icons.
+Requires Python 3, PyGObject, GTK4, and Libadwaita.
 
 ```bash
 # Arch Linux
 yay -S tokyo-notes-git
 
 # macOS (using Homebrew to install dependencies)
-brew install gtk4 libadwaita pygobject3 adwaita-icon-theme
+brew install gtk4 libadwaita pygobject3
 git clone https://github.com/tanay1337/tokyo-notes.git
 cd tokyo-notes
 python3 main.py

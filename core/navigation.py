@@ -165,6 +165,7 @@ class NavigationController:
                 on_delete_template=app._on_delete_template,
                 on_open_templates_folder=app._on_open_templates_folder,
                 templates=templates,
+                assets_dir=app.base_dir / "assets" / "settings",
             )
             app.content_stack.add_named(app.settings_view, "settings")
         else:

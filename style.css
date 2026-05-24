@@ -506,3 +506,24 @@ button.pill {
     color: @accent_color;
     font-weight: 800;
 }
+
+/* Header bar icon buttons — no background, no border */
+.header-btn {
+    background: none;
+    border: none;
+    box-shadow: none;
+}
+.header-btn:checked,
+.header-btn:active {
+    background: none;
+    border: none;
+    box-shadow: none;
+}
+
+/* Header bar icon buttons — dark-theme inversion */
+.dark-theme .header-btn image,
+.dark-theme .sidebar-icon-btn image,
+.dark-theme .sidebar-icon,
+.dark-theme .settings-icon-btn image {
+    filter: invert(1);
+}

@@ -1,7 +1,6 @@
 """Sidebar UI component — note list, search, and navigation footer."""
 from __future__ import annotations
 
-import functools
 import weakref
 from pathlib import Path
 from typing import Any, Callable, TYPE_CHECKING
@@ -9,18 +8,12 @@ from typing import Any, Callable, TYPE_CHECKING
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, Gtk, Pango
+from gi.repository import Adw, Gio, Gtk, Pango
 
 from core.utils import clear_listbox, create_empty_state_widget
 
 if TYPE_CHECKING:
     from main import TokyoNotes
-
-
-@functools.lru_cache(maxsize=1)
-def _get_pin_icon_name() -> str:
-    theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
-    return "pin-symbolic" if theme.has_icon("pin-symbolic") else "view-pin-symbolic"
 
 
 class Sidebar(Gtk.Box):
@@ -42,9 +35,16 @@ class Sidebar(Gtk.Box):
         sidebar_header = Adw.HeaderBar()
         sidebar_header.set_title_widget(Gtk.Label(label="Tokyo Notes"))
 
-        new_btn = Gtk.MenuButton(icon_name="document-new-symbolic")
+        new_btn = Gtk.MenuButton()
         new_btn.set_tooltip_text("New note")
         new_btn.set_direction(Gtk.ArrowType.DOWN)
+        new_btn.add_css_class("sidebar-icon-btn")
+        new_btn.add_css_class("flat")
+        new_img = Gtk.Image.new_from_file(
+            str(self.app.base_dir / "assets" / "sidebar" / "new-note.svg")
+        )
+        new_img.set_pixel_size(16)
+        new_btn.set_child(new_img)
 
         new_menu = Gio.Menu()
         new_menu.append("New Note", "app.new_note")
@@ -234,14 +234,21 @@ class Sidebar(Gtk.Box):
         label.set_hexpand(True)
         title_box.append(label)
 
-        lock_icon = Gtk.Image.new_from_icon_name("changes-prevent-symbolic")
+        lock_icon = Gtk.Image.new_from_file(
+            str(self.app.base_dir / "assets" / "sidebar" / "lock.svg")
+        )
+        lock_icon.set_pixel_size(16)
         lock_icon.set_visible(is_encrypted)
         lock_icon.add_css_class("lock-icon")
+        lock_icon.add_css_class("sidebar-icon")
         title_box.append(lock_icon)
 
-        pin_icon = Gtk.Image()
-        pin_icon.set_from_icon_name(_get_pin_icon_name())
+        pin_icon = Gtk.Image.new_from_file(
+            str(self.app.base_dir / "assets" / "sidebar" / "pin.svg")
+        )
+        pin_icon.set_pixel_size(16)
         pin_icon.set_visible(is_pinned)
+        pin_icon.add_css_class("sidebar-icon")
         title_box.append(pin_icon)
 
         box.append(title_box)

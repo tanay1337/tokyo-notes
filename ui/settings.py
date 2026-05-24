@@ -40,6 +40,7 @@ class SettingsView(Gtk.Box):
         on_delete_template: Callable[[str], Any] | None = None,
         on_open_templates_folder: Callable[[], Any] | None = None,
         templates: list[dict[str, str]] | None = None,
+        assets_dir: Path | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
 
@@ -47,6 +48,7 @@ class SettingsView(Gtk.Box):
         self.on_config_changed = on_config_changed
         self.on_select_folder_callback = on_select_folder_callback
         self._initial_values = initial_values
+        self._assets_dir = assets_dir
         self._on_change_password = on_change_password
         self._on_set_password = on_set_password
         self._has_encrypted_notes = initial_values.get("has_encrypted_notes", False)
@@ -182,9 +184,15 @@ class SettingsView(Gtk.Box):
             sub_label.set_hexpand(True)
             sub_header_box.append(sub_label)
 
-            new_btn = Gtk.Button(icon_name="document-new-symbolic")
+            new_btn = Gtk.Button()
             new_btn.set_valign(Gtk.Align.CENTER)
             new_btn.set_tooltip_text("New Template")
+            new_btn.add_css_class("settings-icon-btn")
+            new_img = Gtk.Image.new_from_file(
+                str(self._assets_dir / "new-template.svg")
+            )
+            new_img.set_pixel_size(16)
+            new_btn.set_child(new_img)
             new_btn.connect("clicked", lambda _: self._on_new_template())
             sub_header_box.append(new_btn)
 
@@ -198,8 +206,14 @@ class SettingsView(Gtk.Box):
 
         if self._on_open_templates_folder:
             folder_row = Adw.ActionRow(title="Templates Folder", subtitle="Open templates directory in file manager")
-            folder_btn = Gtk.Button(icon_name="folder-symbolic")
+            folder_btn = Gtk.Button()
             folder_btn.set_valign(Gtk.Align.CENTER)
+            folder_btn.add_css_class("settings-icon-btn")
+            folder_img = Gtk.Image.new_from_file(
+                str(self._assets_dir / "open-folder.svg")
+            )
+            folder_img.set_pixel_size(16)
+            folder_btn.set_child(folder_img)
             folder_btn.connect("clicked", lambda _: self._on_open_templates_folder())
             folder_row.add_suffix(folder_btn)
             self._templates_group.add(folder_row)
@@ -421,9 +435,15 @@ class SettingsView(Gtk.Box):
         edit_btn.connect("clicked", lambda _: self._on_edit_template(tmpl["slug"]))
         box.append(edit_btn)
 
-        delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        delete_btn = Gtk.Button()
         delete_btn.set_valign(Gtk.Align.CENTER)
         delete_btn.add_css_class("template-action-btn")
+        delete_btn.add_css_class("settings-icon-btn")
+        delete_img = Gtk.Image.new_from_file(
+            str(self._assets_dir / "delete.svg")
+        )
+        delete_img.set_pixel_size(16)
+        delete_btn.set_child(delete_img)
         delete_btn.connect("clicked", lambda _: self._on_delete_template_confirm(tmpl["slug"], tmpl["name"]))
         box.append(delete_btn)
 
