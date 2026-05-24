@@ -9,6 +9,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Pango
 
+from core.utils import clear_listbox
 from ui.progress_ring import ProgressRing
 
 
@@ -39,6 +40,7 @@ class Dashboard(Gtk.Box):
         self._prev_stats: dict[str, tuple[int, int]] = {}
         self._collapsed: set[str] = set()
         self._date_rows: dict[str, list[Gtk.ListBoxRow]] = {}
+        self._header_rows: dict[str, Gtk.ListBoxRow] = {}
 
         filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         filter_box.add_css_class("toolbar")
@@ -113,8 +115,7 @@ class Dashboard(Gtk.Box):
         return len(filtered)
 
     def _clear(self) -> None:
-        while (child := self.dashboard_list.get_first_child()):
-            self.dashboard_list.remove(child)
+        clear_listbox(self.dashboard_list)
 
     def _filter(
         self, checkboxes: list[dict[str, Any]], filter_type: str
@@ -145,16 +146,23 @@ class Dashboard(Gtk.Box):
         completed = sum(1 for cb in items if cb["checked"])
         total = len(items)
         today_key = datetime.date.today().isoformat()
+        self._date_rows.clear()
+        self._header_rows.clear()
         if total > 0:
             today = datetime.date.today().strftime("%A, %B %d")
             prev = self._prev_stats.get(today_key, (0, 0))
             animate = (completed, total) != prev
-            self.dashboard_list.append(
-                self._make_date_header(None, label=today, progress=(completed, total), show_year=False, animate=animate, show_disclosure=False)
+            header_row = self._make_date_header(
+                None, label=today, progress=(completed, total),
+                show_year=False, animate=animate, show_disclosure=False,
             )
+            self.dashboard_list.append(header_row)
+            self._header_rows[today_key] = header_row
             self._prev_stats[today_key] = (completed, total)
         for cb in sorted(items, key=lambda x: x.get("deadline") or ""):
-            self.dashboard_list.append(self._make_row(cb))
+            task_row = self._make_row(cb)
+            self.dashboard_list.append(task_row)
+            self._date_rows.setdefault(today_key, []).append(task_row)
 
     def _populate_grouped(
         self, items: list[dict[str, Any]], include_misc: bool = False,
@@ -175,6 +183,7 @@ class Dashboard(Gtk.Box):
             date_stats[date_str] = (c + (1 if cb["checked"] else 0), t + 1)
 
         self._date_rows.clear()
+        self._header_rows.clear()
         current_date: str | None = None
         for cb in items_with:
             date_str = cb["deadline"].split(" ")[0]
@@ -190,6 +199,7 @@ class Dashboard(Gtk.Box):
                 )
                 self.dashboard_list.append(header_row)
                 self._date_rows[date_str] = []
+                self._header_rows[date_str] = header_row
             task_row = self._make_row(cb)
             self.dashboard_list.append(task_row)
             self._date_rows[date_str].append(task_row)
@@ -201,6 +211,7 @@ class Dashboard(Gtk.Box):
             nd_total = len(items_without)
             nd_key = "no_deadline"
             nd_stats = (nd_completed, nd_total)
+            date_stats[nd_key] = nd_stats
             prev = self._prev_stats.get(nd_key, (0, 0))
             animate = nd_stats != prev
             is_collapsed = nd_key in self._collapsed
@@ -211,6 +222,7 @@ class Dashboard(Gtk.Box):
             )
             self.dashboard_list.append(header_row)
             self._date_rows[nd_key] = []
+            self._header_rows[nd_key] = header_row
             for cb in items_without:
                 task_row = self._make_row(cb)
                 self.dashboard_list.append(task_row)
@@ -248,10 +260,11 @@ class Dashboard(Gtk.Box):
             triangle.add_css_class("disclosure-triangle")
             box.append(triangle)
 
+        ring_widget: ProgressRing | None = None
         if progress is not None and self.get_show_progress_rings():
-            ring = ProgressRing()
-            ring.set_progress(progress[0], progress[1], animate=animate)
-            box.append(ring)
+            ring_widget = ProgressRing()
+            ring_widget.set_progress(progress[0], progress[1], animate=animate)
+            box.append(ring_widget)
 
         lbl = Gtk.Label(label=label, xalign=0)
         lbl.add_css_class("day-header")
@@ -265,6 +278,8 @@ class Dashboard(Gtk.Box):
         row = Gtk.ListBoxRow()
         row.set_child(box)
         row.set_selectable(False)
+        if ring_widget is not None:
+            row._progress_ring = ring_widget
         return row
 
     def _toggle_date(self, date_key: str, triangle: Gtk.Label) -> None:
@@ -297,6 +312,7 @@ class Dashboard(Gtk.Box):
         else:
             time_str = ""   # date-only or no deadline: show nothing in time column
 
+        row._time_label = None
         if time_str:
             time_label = Gtk.Label(label=time_str)
             time_label.add_css_class("time-column")
@@ -308,21 +324,23 @@ class Dashboard(Gtk.Box):
             )
             time_label.add_controller(deadline_gesture)
             box.append(time_label)
+            row._time_label = time_label
 
         # Checkbox — Bug fix: block "toggled" signal during programmatic
         # set_active() so that rebuilding the list doesn't re-fire toggles
         # for already-checked items and corrupt the underlying note.
         checkbox = Gtk.CheckButton()
-        handler_id = checkbox.connect(
+        row._checkbox_handler_id = checkbox.connect(
             "toggled",
             lambda btn, _cb=cb: self.on_checkbox_toggled(_cb, btn.get_active()),
         )
-        checkbox.handler_block(handler_id)
+        checkbox.handler_block(row._checkbox_handler_id)
         checkbox.set_active(cb["checked"])
-        checkbox.handler_unblock(handler_id)
+        checkbox.handler_unblock(row._checkbox_handler_id)
         if cb["checked"]:
             checkbox.add_css_class("task-completed")
         box.append(checkbox)
+        row._checkbox = checkbox
 
         # Task text — ellipsise long text instead of clipping.
         text_label = Gtk.Label(label=cb["text"], xalign=0)
@@ -331,6 +349,7 @@ class Dashboard(Gtk.Box):
         if cb["checked"]:
             text_label.add_css_class("task-completed")
         box.append(text_label)
+        row._text_label = text_label
 
         # Note chip — double-click navigates to the source note.
         chip = Gtk.Label(label=cb["note"])
@@ -345,3 +364,71 @@ class Dashboard(Gtk.Box):
 
         row.set_child(box)
         return row
+
+    def update_checkbox(self, note_name: str, line_num: int, checked: bool) -> bool:
+        """Update a single checkbox row in-place without full rebuild.
+
+        Returns True if the row was found and updated, False otherwise
+        (caller should fall back to a full refresh).
+        """
+        target_row: Gtk.ListBoxRow | None = None
+        target_date: str | None = None
+        for date_key, rows in self._date_rows.items():
+            for row in rows:
+                cb = getattr(row, "checkbox_data", None)
+                if cb and cb.get("note") == note_name and cb.get("line") == line_num:
+                    target_row = row
+                    target_date = date_key
+                    break
+            if target_row:
+                break
+
+        if not target_row:
+            return False
+
+        target_row.checkbox_data["checked"] = checked
+
+        checkbox: Gtk.CheckButton | None = getattr(target_row, "_checkbox", None)
+        if checkbox:
+            h_id = getattr(target_row, "_checkbox_handler_id", 0)
+            if h_id:
+                checkbox.handler_block(h_id)
+            try:
+                checkbox.set_active(checked)
+            finally:
+                if h_id:
+                    checkbox.handler_unblock(h_id)
+            if checked:
+                checkbox.add_css_class("task-completed")
+            else:
+                checkbox.remove_css_class("task-completed")
+
+        text_label: Gtk.Label | None = getattr(target_row, "_text_label", None)
+        if text_label:
+            if checked:
+                text_label.add_css_class("task-completed")
+            else:
+                text_label.remove_css_class("task-completed")
+
+        time_label: Gtk.Label | None = getattr(target_row, "_time_label", None)
+        if time_label:
+            if checked:
+                time_label.add_css_class("task-completed")
+            else:
+                time_label.remove_css_class("task-completed")
+
+        if checked:
+            target_row.add_css_class("task-completed-row")
+        else:
+            target_row.remove_css_class("task-completed-row")
+
+        if target_date and target_date in self._header_rows:
+            header_row = self._header_rows[target_date]
+            rows = self._date_rows.get(target_date, [])
+            completed = sum(1 for r in rows if getattr(r, "checkbox_data", {}).get("checked", False))
+            total = len(rows)
+            ring: ProgressRing | None = getattr(header_row, "_progress_ring", None)
+            if ring:
+                ring.set_progress(completed, total, animate=True)
+
+        return True

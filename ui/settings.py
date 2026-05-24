@@ -10,6 +10,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango
 
+from core.utils import clear_listbox, confirm_destructive_dialog
+
 logger = logging.getLogger(__name__)
 
 _THEMES: list[dict[str, str]] = [
@@ -377,8 +379,7 @@ class SettingsView(Gtk.Box):
 
     def _populate_templates(self) -> None:
         """Populate the templates list box with action rows."""
-        while (child := self._templates_list.get_first_child()):
-            self._templates_list.remove(child)
+        clear_listbox(self._templates_list)
         self._template_rows = []
 
         if not self._templates:
@@ -431,19 +432,11 @@ class SettingsView(Gtk.Box):
 
     def _on_delete_template_confirm(self, slug: str, name: str) -> None:
         """Show confirmation before deleting a template."""
-        dialog = Adw.MessageDialog(
+        dialog = confirm_destructive_dialog(
             transient_for=self.get_root(),
-            heading=f"Delete Template?",
+            heading="Delete Template?",
             body=f"Are you sure you want to delete '{name}'? This action cannot be undone.",
         )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("delete", "Delete")
-        try:
-            dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-        except AttributeError:
-            logger.debug("set_response_appearance not supported (older Adw version)")
-        dialog.set_default_response("cancel")
-        dialog.set_close_response("cancel")
         dialog.connect("response", self._on_delete_template_response, slug)
         dialog.present()
 

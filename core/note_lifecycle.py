@@ -11,8 +11,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
-from core.services import build_stats, derive_display_title, patch_sidebar_row, update_note_title
-from core.utils import get_snippet
+from core.services import build_stats, clean_title, derive_display_title, patch_sidebar_row, update_note_title
+from core.utils import confirm_destructive_dialog, get_snippet
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +218,7 @@ class NoteLifecycleManager:
         if not content:
             self.confirm_delete(note_name)
         else:
-            dialog = Adw.MessageDialog(
+            dialog = confirm_destructive_dialog(
                 transient_for=app.win,
                 heading="Delete Note?",
                 body=(
@@ -226,12 +226,6 @@ class NoteLifecycleManager:
                     " This action cannot be undone."
                 ),
             )
-            dialog.add_response("cancel", "Cancel")
-            dialog.add_response("delete", "Delete")
-            try:
-                dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-            except AttributeError:
-                logger.debug("set_response_appearance not supported (older Adw version)")
             dialog.connect("response", self.on_delete_dialog_response, note_name)
             dialog.present()
 

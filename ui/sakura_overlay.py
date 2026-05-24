@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import math
 import random
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import gi
 gi.require_version("Gtk", "4.0")

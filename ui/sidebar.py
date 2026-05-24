@@ -11,7 +11,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk, Pango
 
-from core.utils import create_empty_state_widget
+from core.utils import clear_listbox, create_empty_state_widget
 
 if TYPE_CHECKING:
     from main import TokyoNotes
@@ -206,9 +206,9 @@ class Sidebar(Gtk.Box):
 
     # Internal helpers
 
-    def _clear(self, lb: Gtk.ListBox) -> None:
-        while (child := lb.get_first_child()):
-            lb.remove(child)
+    @staticmethod
+    def _clear(lb: Gtk.ListBox) -> None:
+        clear_listbox(lb)
 
     def _make_row(
         self,

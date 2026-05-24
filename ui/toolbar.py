@@ -17,8 +17,8 @@ _GROUPS: list[list[tuple[str, str, str, str]] | None] = [
     None,
     # Inline styles
     [
-        ("**",  "**",  "Bold (Ctrl+B)",      "bold.svg"),
-        ("_",   "_",   "Italic (Ctrl+I)",     "italic.svg"),
+        ("**",  "**",  "Bold",      "bold.svg"),
+        ("_",   "_",   "Italic",     "italic.svg"),
         ("~~",  "~~",  "Strikethrough",        "strikethrough.svg"),
         ("`",   "`",   "Inline code",          "code.svg"),
     ],

@@ -28,7 +28,7 @@ from ui.deadline_picker import DeadlinePicker
 from ui.editor import Editor
 from ui.sakura_overlay import SakuraOverlay
 from ui.sidebar import Sidebar
-from core.utils import CB_ANY_RE
+from core.utils import CB_ANY_RE, confirm_destructive_dialog
 from ui.toolbar import build_toolbar
 
 logger = logging.getLogger(__name__)
@@ -679,29 +679,22 @@ class TokyoNotes(Adw.Application):
             self._show_unlock_popover()
             return
 
-        dialog = Adw.MessageDialog(
+        dialog = confirm_destructive_dialog(
             transient_for=self.win,
             heading="Remove Privacy?",
             body=(
                 f"This will save '{note_name}' as plain text. "
                 "The note will no longer be encrypted. Are you sure?"
             ),
+            confirm_label="Remove Privacy",
         )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("remove", "Remove Privacy")
-        try:
-            dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
-        except AttributeError:
-            logger.debug("set_response_appearance not supported (older Adw version)")
-        dialog.set_default_response("cancel")
-        dialog.set_close_response("cancel")
         dialog.connect("response", self._on_remove_privacy_response, note_name)
         dialog.present()
 
     def _on_remove_privacy_response(
         self, dialog: Adw.MessageDialog, response: str, note_name: str
     ) -> None:
-        if response != "remove":
+        if response != "delete":
             return
         if self._session_password_bytes is None:
             return
@@ -1397,7 +1390,8 @@ class TokyoNotes(Adw.Application):
         if checked and self.cfg.get("sakura_effect"):
             self.sakura_overlay.start_celebration()
         if self.dashboard_view is not None:
-            self.nav.refresh_dashboard(self.dashboard_view.active_filter)
+            if not self.dashboard_view.update_checkbox(cb["note"], cb["line"], checked):
+                self.nav.refresh_dashboard(self.dashboard_view.active_filter)
 
     def _sync_checkbox_in_buffer(self, line_num: int, checked: bool) -> None:
         """Patch a checkbox line in the editor buffer to match *checked*.

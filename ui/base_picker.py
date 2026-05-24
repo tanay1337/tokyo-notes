@@ -7,6 +7,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
+from core.utils import clear_listbox
+
 
 class SearchablePicker(Gtk.Popover):
     """Base class for searchable list popovers.
@@ -61,8 +63,7 @@ class SearchablePicker(Gtk.Popover):
             GLib.idle_add(self._text_view.grab_focus)
 
     def _populate(self, items: list[Any]) -> None:
-        while (child := self.list_box.get_first_child()):
-            self.list_box.remove(child)
+        clear_listbox(self.list_box)
         for item in items:
             row = self._make_row(item)
             self.list_box.append(row)

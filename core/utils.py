@@ -12,6 +12,46 @@ from gi.repository import Gtk
 
 IS_MAC: bool = sys.platform == "darwin"
 
+
+def clear_listbox(lb: Gtk.ListBox) -> None:
+    """Remove all children from a Gtk.ListBox."""
+    while (child := lb.get_first_child()):
+        lb.remove(child)
+
+
+def confirm_destructive_dialog(
+    transient_for: Gtk.Window,
+    heading: str,
+    body: str,
+    confirm_label: str = "Delete",
+    cancel_label: str = "Cancel",
+    _logger: logging.Logger | None = None,
+) -> Any:
+    """Create a confirmation dialog with a destructive-action button.
+
+    Falls back gracefully on older Adw versions that lack set_response_appearance.
+    """
+    import gi
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw, GLib
+
+    dialog = Adw.MessageDialog(
+        transient_for=transient_for,
+        heading=heading,
+        body=body,
+    )
+    dialog.add_response("cancel", cancel_label)
+    dialog.add_response("delete", confirm_label)
+    try:
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+    except AttributeError:
+        (_logger or logging.getLogger(__name__)).debug(
+            "set_response_appearance not supported (older Adw version)"
+        )
+    dialog.set_default_response("cancel")
+    dialog.set_close_response("cancel")
+    return dialog
+
 # Shared regex patterns
 # Centralised here so highlighter.py, click_dispatcher.py, and storage.py
 # all derive from the same definitions rather than duplicating them.
