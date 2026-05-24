@@ -49,6 +49,11 @@ class NavigationController:
                 on_snooze=app.handle_snooze,
                 assets_dir=app.base_dir / "assets",
                 default_filter="today",
+                on_quick_add=app.on_quick_add_task,
+                get_notes_fn=lambda: [
+                    n for n in app.notes_manager.get_notes()
+                    if not app.cfg.is_archived(n)
+                ],
             )
             app.dashboard_list = app.dashboard_view.dashboard_list
             app.content_stack.add_named(app.dashboard_view, "dashboard")

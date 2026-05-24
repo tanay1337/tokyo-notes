@@ -868,6 +868,7 @@ class TokyoNotes(Adw.Application):
             on_settings=self.nav.on_settings_clicked,
             on_lock=self.lock_session,
             on_new_from_template=self._on_new_from_template,
+            on_quick_add=self._on_quick_add_shortcut,
         )
         logger.info("Tokyo Notes started — notes folder: %s", self.notes_folder)
 
@@ -1264,6 +1265,7 @@ class TokyoNotes(Adw.Application):
             ("<Primary><Shift>p", "Pin / unpin note"),
             ("<Primary><Shift>a", "Archive / unarchive note"),
             ("<Primary>l", "Lock private notes"),
+            ("<Primary>t", "Quick add task"),
             ("<Primary><Shift>t", "Insert timestamp"),
             ("<Primary><Shift>z", "Zen mode"),
             ("<Primary>q", "Quit"),
@@ -1441,6 +1443,54 @@ class TokyoNotes(Adw.Application):
             return
         self.buffer.insert(insert_iter, new_text)
         self.buffer.handler_unblock(self.changed_handler_id)
+
+    # Quick Add
+
+    def on_quick_add_task(self, text: str, note_name: str, deadline: str | None) -> None:
+        """Add a task to *note_name*. Creates the note if it doesn't exist."""
+        notes = self.notes_manager.get_notes()
+
+        if note_name not in notes:
+            self.notes_manager.save_note(note_name, f"# {note_name}\n")
+            self.refresh_list()
+
+        if self.notes_manager.is_encrypted(note_name):
+            self._show_toast(f"Cannot add to encrypted note '{note_name}'")
+            return
+
+        if note_name in self.cfg.archived:
+            self.cfg.toggle_archive(note_name)
+
+        content = self.notes_manager.read_note(note_name) or ""
+        if content and not content.endswith("\n"):
+            content += "\n"
+        line = f"- [ ] {text}"
+        if deadline:
+            line += f" @{deadline}"
+        self.notes_manager.save_note(note_name, content + line + "\n")
+
+        if self.current_note == note_name and not self.current_note.startswith(".template:"):
+            self._set_buffer_text(self.notes_manager.read_note(note_name))
+            if self.highlighter:
+                self.highlighter.highlight(start_line=0, end_line=30)
+            self._full_pass_complete = False
+
+        if self.dashboard_view is not None:
+            self.nav.refresh_dashboard(self.dashboard_view.active_filter)
+
+        self._show_toast(f"Task added to {note_name}")
+
+    def _on_quick_add_shortcut(self) -> bool:
+        """Ctrl+T — open Quick Add popover from any view."""
+        if self.dashboard_view is None:
+            self.nav.on_dashboard_clicked()
+        else:
+            self.content_stack.set_visible_child_name("dashboard")
+            self.nav.update_header_ui("Dashboard", is_editor=False)
+            self.sidebar.set_active_view("dashboard")
+            self._set_backlinks_visible(False)
+        GLib.idle_add(self.dashboard_view.open_quick_add_popover)
+        return True
 
     # Deadline picker
 

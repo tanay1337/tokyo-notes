@@ -516,6 +516,33 @@ button.pill {
     font-weight: 800;
 }
 
+/* Quick Add popover */
+.quick-add-popover-box {
+    min-width: 240px;
+}
+
+.quick-add-heading {
+    font-size: 11pt;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.quick-add-entry {
+    margin: 0;
+}
+
+.quick-add-dropdown {
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    font-size: 10pt;
+}
+.quick-add-dropdown button {
+    min-height: 24px;
+    padding: 0 6px;
+    margin: 0;
+}
+
 /* Header bar icon buttons — no background, no border */
 .header-btn {
     background: none;

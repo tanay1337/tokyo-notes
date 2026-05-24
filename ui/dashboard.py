@@ -8,9 +8,10 @@ from typing import Any, Callable
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gio, Gtk, Pango
+from gi.repository import Gdk, Gio, Gtk, Pango
 
 from core.utils import clear_listbox
+from ui.deadline_picker import DeadlinePicker
 from ui.progress_ring import ProgressRing
 
 
@@ -30,6 +31,8 @@ class Dashboard(Gtk.Box):
         on_snooze: Callable[[str, int, str | None], Any] | None = None,
         assets_dir: Path | None = None,
         default_filter: str = "today",
+        on_quick_add: Callable[[str, str, str | None], Any] | None = None,
+        get_notes_fn: Callable[[], list[str]] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add_css_class("dashboard-view")
@@ -43,6 +46,10 @@ class Dashboard(Gtk.Box):
         self.get_show_progress_rings = get_show_progress_rings
         self.get_start_week_on_sunday = get_start_week_on_sunday
         self.on_snooze = on_snooze
+        self.on_quick_add = on_quick_add
+        self.get_notes_fn = get_notes_fn or (lambda: [])
+        self._assets_dir = assets_dir
+        self._quick_add_deadline: str | None = None
         self._prev_stats: dict[str, tuple[int, int]] = {}
         self._collapsed: set[str] = set()
         self._date_rows: dict[str, list[Gtk.ListBoxRow]] = {}
@@ -74,6 +81,19 @@ class Dashboard(Gtk.Box):
         right_spacer = Gtk.Box()
         right_spacer.set_hexpand(True)
         filter_box.append(right_spacer)
+
+        # Quick Add "+" button
+        self.quick_add_btn = Gtk.Button()
+        self.quick_add_btn.set_tooltip_text("Quick Add Task (Ctrl+T)")
+        self.quick_add_btn.add_css_class("flat")
+        self.quick_add_btn.add_css_class("header-btn")
+        quick_add_icon = Gtk.Image.new_from_file(
+            str(assets_dir / "dashboard" / "new.svg")
+        )
+        quick_add_icon.set_pixel_size(16)
+        self.quick_add_btn.set_child(quick_add_icon)
+        self.quick_add_btn.connect("clicked", self._on_quick_add_clicked)
+        filter_box.append(self.quick_add_btn)
 
         # Advanced filter button — funnel icon with indicator dot
         self.advanced_btn = Gtk.Button()
@@ -188,6 +208,119 @@ class Dashboard(Gtk.Box):
         # by gesture controllers on each row's chip and text widgets.
         scrolled.set_child(self.dashboard_list)
         self.append(scrolled)
+
+        self._build_quick_add_popover()
+
+    # ── Quick Add ──
+
+    def _build_quick_add_popover(self) -> None:
+        self._quick_add_popover = Gtk.Popover()
+        self._quick_add_popover.set_autohide(False)
+        self._quick_add_popover.set_parent(self.quick_add_btn)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+        box.add_css_class("quick-add-popover-box")
+
+        heading = Gtk.Label(label="Add Task")
+        heading.add_css_class("quick-add-heading")
+        heading.set_halign(Gtk.Align.START)
+        box.append(heading)
+
+        self._quick_add_entry = Gtk.Entry()
+        self._quick_add_entry.set_placeholder_text("Task content")
+        self._quick_add_entry.set_hexpand(True)
+        self._quick_add_entry.add_css_class("quick-add-entry")
+        self._quick_add_entry.connect("activate", self._on_quick_add_submit)
+        box.append(self._quick_add_entry)
+
+        note_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._quick_add_notes_model = Gtk.StringList.new([])
+        self._quick_add_dropdown = Gtk.DropDown(model=self._quick_add_notes_model)
+        self._quick_add_dropdown.set_hexpand(True)
+        self._quick_add_dropdown.add_css_class("quick-add-dropdown")
+        self._quick_add_dropdown.set_size_request(-1, 24)
+        note_row.append(self._quick_add_dropdown)
+
+        self._quick_add_deadline_btn = Gtk.Button()
+        self._quick_add_deadline_btn.set_tooltip_text("Set deadline")
+        self._quick_add_deadline_btn.add_css_class("flat")
+        self._quick_add_deadline_btn.add_css_class("header-btn")
+        cal_icon = Gtk.Image.new_from_file(
+            str(self._assets_dir / "dashboard" / "calendar.svg")
+        )
+        cal_icon.set_pixel_size(16)
+        self._quick_add_deadline_btn.set_child(cal_icon)
+        self._quick_add_deadline_btn.connect("clicked", self._on_quick_add_deadline_clicked)
+        note_row.append(self._quick_add_deadline_btn)
+        box.append(note_row)
+
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_row.set_margin_top(6)
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda *_: self._quick_add_popover.popdown())
+        btn_row.append(cancel_btn)
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        btn_row.append(spacer)
+        add_btn = Gtk.Button(label="Add")
+        add_btn.add_css_class("suggested-action")
+        add_btn.connect("clicked", self._on_quick_add_submit)
+        btn_row.append(add_btn)
+        box.append(btn_row)
+
+        self._quick_add_popover.set_child(box)
+
+    def _refresh_quick_add_notes(self) -> None:
+        notes = set(self.get_notes_fn())
+        notes.discard("Inbox")
+        sorted_notes = sorted(notes)
+
+        model = self._quick_add_notes_model
+        model.splice(0, model.get_n_items(), [])
+        model.append("Inbox")
+        for n in sorted_notes:
+            model.append(n)
+        self._quick_add_dropdown.set_selected(0)
+
+    def open_quick_add_popover(self) -> None:
+        self._refresh_quick_add_notes()
+        self._quick_add_entry.set_text("")
+        self._quick_add_entry.grab_focus()
+        self._quick_add_deadline = None
+        self._quick_add_popover.popup()
+
+    def _on_quick_add_clicked(self, btn: Gtk.Button) -> None:
+        self.open_quick_add_popover()
+
+    def _on_quick_add_deadline_clicked(self, btn: Gtk.Button) -> None:
+        picker = DeadlinePicker(self._on_quick_add_deadline_selected)
+        rect = Gdk.Rectangle()
+        rect.x, rect.y, rect.width, rect.height = 0, 0, 1, 1
+        picker.set_parent(btn)
+        picker.set_pointing_to(rect)
+        picker.popup()
+
+    def _on_quick_add_deadline_selected(self, deadline: str | None) -> None:
+        self._quick_add_deadline = deadline
+
+    def _on_quick_add_submit(self, *args) -> None:
+        text = self._quick_add_entry.get_text().strip()
+        if not text or not self.on_quick_add:
+            return
+
+        selected = self._quick_add_dropdown.get_selected()
+        if selected == Gtk.INVALID_LIST_POSITION:
+            return
+        note_name = self._quick_add_notes_model.get_string(selected)
+
+        self.on_quick_add(text, note_name, self._quick_add_deadline)
+        self._quick_add_entry.set_text("")
+        self._quick_add_deadline = None
+        self._quick_add_popover.popdown()
 
     # Filter controls
 

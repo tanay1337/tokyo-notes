@@ -28,11 +28,12 @@ def setup_shortcuts(
     on_settings: Callable[[], None] | None = None,
     on_lock: Callable[[], None] | None = None,
     on_new_from_template: Callable[[], None] | None = None,
+    on_quick_add: Callable[[], None] | None = None,
 ) -> None:
     # Ctrl+N  new note          Ctrl+D  dashboard         Ctrl+G  graph
     # Ctrl+F  search (×2=clear) Ctrl+Q  quit              Ctrl+H  help
     # Ctrl+L  lock notes        Ctrl+Shift+T  timestamp   Ctrl+Shift+Z  zen mode
-    # Ctrl+Shift+P  pin note    Ctrl+Shift+A  archive note
+    # Ctrl+T  quick add task    Ctrl+Shift+P  pin note    Ctrl+Shift+A  archive note
     # Ctrl+Shift+S  settings
     # Escape  back / clear      Delete  delete note
     controller = Gtk.ShortcutController()
@@ -61,6 +62,8 @@ def setup_shortcuts(
         bindings.append((get_accel("l"), on_lock))
     if on_new_from_template:
         bindings.append((get_accel("<Shift>n"), on_new_from_template))
+    if on_quick_add:
+        bindings.append((get_accel("t"), on_quick_add))
 
     for trigger_str, callback in bindings:
         controller.add_shortcut(Gtk.Shortcut.new(

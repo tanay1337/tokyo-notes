@@ -42,6 +42,7 @@ python3 main.py
 | `Ctrl/Cmd + F` | Focus Search |
 | `Ctrl/Cmd + G` | Knowledge Graph |
 | `Ctrl/Cmd + L` | Lock Private Notes |
+| `Ctrl/Cmd + T` | Quick Add Task |
 | `Ctrl/Cmd + Shift + T` | Insert Timestamp |
 | `Ctrl/Cmd + Shift + Z` | Zen Mode |
 | `Delete` | Delete selected note (with confirmation) |
