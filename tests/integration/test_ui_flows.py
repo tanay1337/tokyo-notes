@@ -2,7 +2,6 @@ import datetime
 from unittest.mock import MagicMock
 
 import pytest
-from gi.repository import Adw, GLib, Gtk
 
 from main import TokyoNotes
 
@@ -13,11 +12,11 @@ class UIHelper:
     def __init__(self, app: TokyoNotes):
         self.app = app
 
-    def click_button(self, button: Gtk.Button):
+    def click_button(self, button):
         """Simulate a button click."""
         button.emit("clicked")
 
-    def toggle_button(self, button: Gtk.ToggleButton, active: bool):
+    def toggle_button(self, button, active: bool):
         """Simulate a toggle button state change."""
         if button.get_active() != active:
             button.set_active(active)
@@ -49,6 +48,8 @@ class UIHelper:
 class TestUIFlows:
     @pytest.fixture
     def app(self, tmp_path):
+        from gi.repository import Adw
+
         from core.config import ConfigManager
 
         # Setup mock config to point to tmp_path
@@ -157,6 +158,8 @@ class TestUIFlows:
 
     def test_auto_rename_on_title_change(self, app, ui, tmp_path):
         """Verify that changing the H1 heading renames the note file."""
+        from gi.repository import GLib
+
         app.lifecycle.on_new_note(None)
 
         # When a new note is created, it's called 'Untitled'
@@ -220,6 +223,8 @@ class TestUIFlows:
 
     def test_first_time_security_setup(self, app, ui, tmp_path):
         """Verify the first-time master password setup flow."""
+        from gi.repository import GLib, Gtk
+
         (tmp_path / "Public.md").write_text("sensible data")
         app.refresh_list()
 
@@ -287,6 +292,8 @@ class TestUIFlows:
 
     def test_quick_add_task_from_any_view(self, app, ui, tmp_path):
         """Verify Ctrl+T opens Quick Add and adds a task."""
+        from gi.repository import GLib
+
         app.nav.on_settings_clicked()
         assert app.content_stack.get_visible_child_name() == "settings"
 
@@ -347,6 +354,8 @@ class TestUIFlows:
 
     def test_existing_note_unlock_flow(self, app, ui, tmp_path):
         """Verify unlocking an existing encrypted note makes it editable."""
+        from gi.repository import GLib
+
         from core.encryption import derive_key, encrypt
 
         salt = b"0123456789abcdef"
@@ -405,6 +414,8 @@ class TestUIFlows:
 
     def test_settings_impact_propagation(self, app, ui, tmp_path):
         """Verify that changing a setting immediately impacts the Dashboard view."""
+        from gi.repository import Adw
+
         app.nav.on_dashboard_clicked()
         dashboard = app.dashboard_view
 

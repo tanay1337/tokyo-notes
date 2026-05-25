@@ -1,5 +1,4 @@
 import pytest
-from gi.repository import Adw, GLib, Gtk
 
 from main import TokyoNotes
 
@@ -10,7 +9,7 @@ class UIHelper:
     def __init__(self, app: TokyoNotes):
         self.app = app
 
-    def click_button(self, button: Gtk.Button):
+    def click_button(self, button):
         button.emit("clicked")
 
     def get_sidebar_rows(self, main=True):
@@ -34,6 +33,8 @@ class UIHelper:
 class TestAdvancedLifecycles:
     @pytest.fixture
     def app(self, tmp_path):
+        from gi.repository import Adw
+
         from core.config import ConfigManager
 
         # Setup mock config to point to tmp_path
@@ -66,6 +67,8 @@ class TestAdvancedLifecycles:
 
     def test_master_password_change_flow(self, app, ui, tmp_path, monkeypatch):
         """Verify re-encryption of all notes when master password is changed."""
+        from gi.repository import GLib
+
         from core.encryption import derive_key, encrypt
 
         salt = b"0123456789abcdef"
@@ -157,6 +160,8 @@ class TestAdvancedLifecycles:
 
     def test_external_modification_detection_failing_proof(self, app, ui, tmp_path):
         """Proof that the app misses external modifications."""
+        from gi.repository import GLib
+
         note_path = tmp_path / "External.md"
         note_path.write_text("initial")
         app.refresh_list()

@@ -1,7 +1,6 @@
 from unittest.mock import MagicMock
 
 import pytest
-from gi.repository import Gtk
 
 from core.highlighter import MarkdownHighlighter
 from main import TokyoNotes
@@ -10,6 +9,8 @@ from main import TokyoNotes
 @pytest.mark.gtk
 class TestHighlighterIntegration:
     def test_highlighter_applies_tags(self):
+        from gi.repository import Gtk
+
         buffer = Gtk.TextBuffer()
         highlighter = MarkdownHighlighter(buffer)
         buffer.set_text("# Heading\n**bold**")
@@ -33,6 +34,7 @@ class TestHighlighterIntegration:
         assert bold_start.has_tag(bold_tag)
 
     def test_invisible_tags_managed_by_selection(self, monkeypatch):
+        from gi.repository import Gtk
         # We simulate the TokyoNotes environment enough to test the workaround logic.
 
         # Create a real buffer

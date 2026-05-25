@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-from gi.repository import Adw
 
 from main import TokyoNotes
 
@@ -10,8 +9,8 @@ from main import TokyoNotes
 class TestAppIntegration:
     @pytest.fixture
     def app(self, tmp_path):
-        # Create a real app instance with a temporary notes folder
-        # We need to mock ConfigManager to use the tmp_path
+        from gi.repository import Adw
+
         from core.config import ConfigManager
 
         # Monkeypatch ConfigManager.get to return our tmp_path

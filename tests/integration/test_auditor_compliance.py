@@ -3,7 +3,6 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
-from gi.repository import Adw, Gtk
 
 from main import TokyoNotes
 
@@ -12,7 +11,7 @@ class UIHelper:
     def __init__(self, app: TokyoNotes):
         self.app = app
 
-    def click_button(self, button: Gtk.Button):
+    def click_button(self, button):
         button.emit("clicked")
 
 
@@ -20,6 +19,8 @@ class UIHelper:
 class TestAuditorCompliance:
     @pytest.fixture
     def app(self, tmp_path):
+        from gi.repository import Adw
+
         from core.config import ConfigManager
 
         original_get = ConfigManager.get
