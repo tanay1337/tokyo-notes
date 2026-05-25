@@ -136,7 +136,7 @@ def save_note_content(
     if is_encrypted:
         if session_password_bytes is not None:
             try:
-                from gi.repository import GLib
+                from gi.repository import GLib  # type: ignore[import-not-found]
 
                 from core.encryption import encrypt
 
@@ -170,7 +170,7 @@ def save_note_content(
             )
     else:
         if on_done:
-            from gi.repository import GLib
+            from gi.repository import GLib  # type: ignore[import-not-found]
 
             fut = notes_manager.save_note_async(note_name, content)
             fut.add_done_callback(
