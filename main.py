@@ -925,6 +925,8 @@ class TokyoNotes(Adw.Application):
         self.highlighter.highlight()
 
         self.last_cursor_line = -1
+        self._has_selection = False
+        self.buffer.connect("mark-set", self._on_mark_set)
 
         gesture = Gtk.GestureClick.new()
         gesture.set_button(1)
@@ -1311,17 +1313,58 @@ class TokyoNotes(Adw.Application):
         cursor_line = cursor_iter.get_line()
         if cursor_line == self.last_cursor_line:
             return
-        if self.last_cursor_line != -1:
+        # While a selection is active, skip per-line highlight passes entirely.
+        # Those passes would reapply the invisible tag to heading markers mid-drag,
+        # putting Pango and the btree out of sync and causing the byte-index crash.
+        # _on_mark_set will do a full highlight restore once selection clears.
+        if not self._has_selection:
+            if self.last_cursor_line != -1:
+                self.highlighter.highlight(
+                    start_line=self.last_cursor_line,
+                    end_line=self.last_cursor_line + 1,
+                )
             self.highlighter.highlight(
-                start_line=self.last_cursor_line,
-                end_line=self.last_cursor_line + 1,
+                start_line=cursor_line,
+                end_line=cursor_line + 1,
+                cursor_line=cursor_line,
             )
-        self.highlighter.highlight(
-            start_line=cursor_line,
-            end_line=cursor_line + 1,
-            cursor_line=cursor_line,
-        )
         self.last_cursor_line = cursor_line
+
+    def _on_mark_set(self, buffer: Gtk.TextBuffer, _loc, mark) -> None:
+        """Toggle invisible marker tags based on whether a selection is active.
+
+        GTK crashes with 'byte index off the end of the line' when invisible-tagged
+        text is present during mouse selection, because the Pango layout byte indices
+        diverge from the TextBuffer byte indices for invisible spans. We work around
+        this by stripping the invisible tag for the duration of any active selection
+        and restoring it (via a full highlight pass) the moment the selection clears.
+        """
+        if not self.highlighter:
+            return
+
+        # Only act on the selection_bound mark; ignore insert and named marks.
+        if mark.get_name() not in ("selection_bound", "insert"):
+            return
+
+        has_sel = buffer.get_has_selection()
+        if has_sel == self._has_selection:
+            return  # State unchanged — nothing to do.
+
+        self._has_selection = has_sel
+
+        if has_sel:
+            # Selection just started: remove invisible tags so Pango and the
+            # btree stay in sync while the user drags. We do this atomically
+            # to avoid a visible redraw of the intermediate state.
+            buffer.begin_irreversible_action()
+            try:
+                start, end = buffer.get_bounds()
+                buffer.remove_tag_by_name("invisible", start, end)
+            finally:
+                buffer.end_irreversible_action()
+        else:
+            # Selection cleared: restore the full render (invisible markers back).
+            self._do_highlight()
 
     def on_click_pressed(
         self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float
@@ -1577,4 +1620,3 @@ if __name__ == "__main__":
         lock.release()
 
     sys.exit(exit_code)
-
