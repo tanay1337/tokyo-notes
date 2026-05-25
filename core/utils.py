@@ -1,22 +1,66 @@
 """Shared constants, regex patterns, and utility functions."""
+
 from __future__ import annotations
 
+import logging
 import re
 import sys
 from pathlib import Path
 from typing import Any
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 IS_MAC: bool = sys.platform == "darwin"
 
 
+class ErrorLabelMixin:
+    """Mixin for dialogs that display inline error messages via ``_error_label``.
+
+    Usage::
+
+        class MyDialog(ErrorLabelMixin, Adw.Window):
+            def __init__(self):
+                super().__init__()
+                self._error_label = Gtk.Label(xalign=0)
+                self._error_label.add_css_class("error-label")
+                self._error_label.set_visible(False)
+                ...
+    """
+
+    def _show_error(self, message: str) -> None:
+        self._error_label.set_label(message)
+        self._error_label.set_visible(True)
+
+    def _hide_error(self) -> None:
+        self._error_label.set_visible(False)
+
+
 def clear_listbox(lb: Gtk.ListBox) -> None:
     """Remove all children from a Gtk.ListBox."""
-    while (child := lb.get_first_child()):
+    while child := lb.get_first_child():
         lb.remove(child)
+
+
+def set_response_suggested(
+    dialog: Any,
+    response_id: str,
+    _logger: logging.Logger | None = None,
+) -> None:
+    """Mark a dialog response as SUGGESTED with graceful fallback on older Adw."""
+    import gi
+
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw
+
+    try:
+        dialog.set_response_appearance(response_id, Adw.ResponseAppearance.SUGGESTED)
+    except AttributeError:
+        (_logger or logging.getLogger(__name__)).debug(
+            "set_response_appearance not supported (older Adw version)"
+        )
 
 
 def confirm_destructive_dialog(
@@ -32,8 +76,9 @@ def confirm_destructive_dialog(
     Falls back gracefully on older Adw versions that lack set_response_appearance.
     """
     import gi
+
     gi.require_version("Adw", "1")
-    from gi.repository import Adw, GLib
+    from gi.repository import Adw
 
     dialog = Adw.MessageDialog(
         transient_for=transient_for,
@@ -52,6 +97,7 @@ def confirm_destructive_dialog(
     dialog.set_close_response("cancel")
     return dialog
 
+
 # Shared regex patterns
 # Centralised here so highlighter.py, click_dispatcher.py, and storage.py
 # all derive from the same definitions rather than duplicating them.
@@ -60,16 +106,16 @@ def confirm_destructive_dialog(
 H1_TITLE_RE: re.Pattern = re.compile(r"^#\s*(.+)$", re.MULTILINE)
 
 # Wiki-style and standard markdown links (used by snippet cleaner & highlighter).
-WIKI_LINK_RE: re.Pattern  = re.compile(r"\[\[(.*?)\]\]")
-MD_LINK_RE: re.Pattern    = re.compile(r"\[(.*?)\]\(.*?\)")
-MD_FMT_RE: re.Pattern     = re.compile(r"[*_`~]")
+WIKI_LINK_RE: re.Pattern = re.compile(r"\[\[(.*?)\]\]")
+MD_LINK_RE: re.Pattern = re.compile(r"\[(.*?)\]\(.*?\)")
+MD_FMT_RE: re.Pattern = re.compile(r"[*_`~]")
 
 # Click-dispatch patterns (also used by click_dispatcher.py).
-WIKI_CLICK_RE: re.Pattern     = re.compile(r"\[\[([^\]]+)\]\]")
-MD_LINK_CLICK_RE: re.Pattern  = re.compile(r"(!?)\[([^\]]+)\]\(([^)]+)\)")
-URL_RE: re.Pattern            = re.compile(r"https?://[^\s\)]+")
-TAG_RE: re.Pattern            = re.compile(r"(?<!\w)#(\w+)")
-DEADLINE_RE: re.Pattern       = re.compile(r"@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)")
+WIKI_CLICK_RE: re.Pattern = re.compile(r"\[\[([^\]]+)\]\]")
+MD_LINK_CLICK_RE: re.Pattern = re.compile(r"(!?)\[([^\]]+)\]\(([^)]+)\)")
+URL_RE: re.Pattern = re.compile(r"https?://[^\s\)]+")
+TAG_RE: re.Pattern = re.compile(r"(?<!\w)#(\w+)")
+DEADLINE_RE: re.Pattern = re.compile(r"@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)")
 
 # --- Checkbox Patterns ---
 # Extraction: indent, checked_char, text, deadline
@@ -92,10 +138,11 @@ TABLE_ROW_RE: re.Pattern = re.compile(r"^\s*\|.*\|\s*$")
 TABLE_SEP_RE: re.Pattern = re.compile(r"^\s*\|?[\s\-:|]+\|?\s*$")
 HEADER_ATX_RE: re.Pattern = re.compile(r"^(#+)( .+)$")
 SETEXT_RE: re.Pattern = re.compile(r"^(\s*)(={3,}|-{3,})\s*$")
-FENCED_CODE_RE: re.Pattern = re.compile(r"```(\w*)\n?([\s\S]*?)```")
+FENCED_CODE_RE: re.Pattern = re.compile(r"```([\w-]*)\n?([\s\S]*?)```")
 
 
 # Text helpers
+
 
 def get_snippet(content: str, length: int = 50) -> str:
     """Return a short plain-text snippet of *content* for sidebar display."""

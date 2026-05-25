@@ -1,4 +1,5 @@
 """Markdown package for Tokyo Notes."""
+
 from markdown.ast import MdLine
 from markdown.tokenizer import LineTokenizer
 

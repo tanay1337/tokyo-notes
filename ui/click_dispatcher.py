@@ -1,11 +1,12 @@
 """Click dispatcher — maps editor clicks to wiki links, URLs, tags, and deadlines."""
+
 from __future__ import annotations
 
-import re
 import webbrowser
 from typing import TYPE_CHECKING, Any
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
@@ -22,10 +23,10 @@ if TYPE_CHECKING:
 
 # Ordered list of (kind, pattern) pairs checked against the clicked line.
 _CLICK_PATTERNS: list[tuple[str, Any]] = [
-    ("wiki",     WIKI_CLICK_RE),
-    ("mdlink",   MD_LINK_CLICK_RE),
-    ("url",      URL_RE),
-    ("tag",      TAG_RE),
+    ("wiki", WIKI_CLICK_RE),
+    ("mdlink", MD_LINK_CLICK_RE),
+    ("url", URL_RE),
+    ("tag", TAG_RE),
     ("deadline", DEADLINE_RE),
 ]
 
@@ -42,10 +43,12 @@ def _is_safe_url(url: str) -> bool:
 class ClickDispatcher:
     """Resolves a pixel click in the editor to a semantic action."""
 
-    def __init__(self, app: "TokyoNotes") -> None:
+    def __init__(self, app: TokyoNotes) -> None:
         self.app = app
 
-    def handle_click(self, x: float, y: float, gesture: Gtk.GestureClick | None = None) -> None:
+    def handle_click(
+        self, x: float, y: float, gesture: Gtk.GestureClick | None = None
+    ) -> None:
         """Translate window coordinates to a buffer position and dispatch."""
         text_view = self.app.text_view
 

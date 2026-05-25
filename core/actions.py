@@ -1,4 +1,5 @@
 """Actions handler for application commands."""
+
 from __future__ import annotations
 
 import datetime
@@ -8,9 +9,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gdk, GLib, Gio, Gtk
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 if TYPE_CHECKING:
     from main import TokyoNotes
@@ -21,7 +23,7 @@ logger = logging.getLogger(__name__)
 class ActionsHandler:
     """Handles clipboard, zen mode, and other app-level actions."""
 
-    def __init__(self, app: "TokyoNotes") -> None:
+    def __init__(self, app: TokyoNotes) -> None:
         self.app = app
         self.in_zen_mode: bool = False
 

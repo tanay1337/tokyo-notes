@@ -1,10 +1,13 @@
 """Animated progress ring widget for dashboard date headers."""
+
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import cairo
 import gi
+
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
@@ -20,6 +23,7 @@ class ProgressRing(Gtk.DrawingArea):
         self._total = 0
         self._target_ratio = 0.0
         self._current_ratio = 0.0
+        self._start_ratio: float = 0.0
         self._animating = False
         self._tick_id: int | None = None
         self.set_size_request(size, size)
@@ -36,6 +40,7 @@ class ProgressRing(Gtk.DrawingArea):
             self.queue_draw()
             return
 
+        self._start_ratio = self._current_ratio
         self._animating = True
         self._start_time: float | None = None
         if self._tick_id is not None:
@@ -60,11 +65,15 @@ class ProgressRing(Gtk.DrawingArea):
 
         progress = elapsed / duration
         eased = 1.0 - (1.0 - progress) ** 3
-        self._current_ratio = self._current_ratio + (self._target_ratio - self._current_ratio) * eased
+        self._current_ratio = (
+            self._start_ratio + (self._target_ratio - self._start_ratio) * eased
+        )
         self.queue_draw()
         return True
 
-    def on_draw(self, area: Gtk.DrawingArea, cr: cairo.Context, width: int, height: int) -> None:
+    def on_draw(
+        self, area: Gtk.DrawingArea, cr: cairo.Context, width: int, height: int
+    ) -> None:
         """Draw the progress ring with counter text inside."""
         if self._total == 0:
             return

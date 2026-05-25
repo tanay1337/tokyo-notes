@@ -1,15 +1,18 @@
 """Navigation controller — owns all content-stack view switching."""
+
 from __future__ import annotations
 
 import datetime
 from typing import TYPE_CHECKING, Any
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import GLib, Gtk
 
 from core.graph_manager import GraphManager
+from core.services import get_week_boundaries
 from core.utils import create_empty_state_widget
 from ui.dashboard import Dashboard
 from ui.graph_view import GraphView
@@ -22,7 +25,7 @@ if TYPE_CHECKING:
 class NavigationController:
     """Manages all transitions between editor, dashboard, graph, and settings views."""
 
-    def __init__(self, app: "TokyoNotes") -> None:
+    def __init__(self, app: TokyoNotes) -> None:
         self.app = app
 
     # Sidebar archive toggle
@@ -39,7 +42,9 @@ class NavigationController:
         if app.dashboard_view is None:
             app.dashboard_view = Dashboard(
                 app.on_dashboard_checkbox_toggled,
-                lambda cb, x, y: app.handle_deadline_click(x, y, cb["note"], cb["line"]),
+                lambda cb, x, y: app.handle_deadline_click(
+                    x, y, cb["note"], cb["line"]
+                ),
                 app.lifecycle.handle_row_click,
                 self.on_dashboard_empty,
                 self.refresh_dashboard,
@@ -51,7 +56,8 @@ class NavigationController:
                 default_filter="today",
                 on_quick_add=app.on_quick_add_task,
                 get_notes_fn=lambda: [
-                    n for n in app.notes_manager.get_notes()
+                    n
+                    for n in app.notes_manager.get_notes()
                     if not app.cfg.is_archived(n)
                 ],
             )
@@ -82,9 +88,7 @@ class NavigationController:
         )
         self._populate_dashboard(checkboxes, filter_type)
 
-    def _populate_dashboard(
-        self, checkboxes: list[dict], filter_type: str
-    ) -> None:
+    def _populate_dashboard(self, checkboxes: list[dict], filter_type: str) -> None:
         """Render *checkboxes* into the dashboard for *filter_type*.
 
         Separated from refresh_dashboard so on_dashboard_clicked can pass
@@ -98,13 +102,18 @@ class NavigationController:
 
     def on_dashboard_empty(self, filter_type: str) -> None:
         """Insert an empty-state widget when the dashboard has no items."""
-        msg = "No tasks found." if filter_type == "all" else f"No tasks for {filter_type}."
+        msg = (
+            "No tasks found."
+            if filter_type == "all"
+            else f"No tasks for {filter_type}."
+        )
         widget = create_empty_state_widget(msg, self.app.base_dir)
         self.app.dashboard_list.append(widget)
 
     @staticmethod
-    def _compute_default_filter(unchecked: list[dict[str, Any]], *,
-                                start_week_on_sunday: bool = True) -> str:
+    def _compute_default_filter(
+        unchecked: list[dict[str, Any]], *, start_week_on_sunday: bool = True
+    ) -> str:
         """Return the most relevant dashboard filter for the current unchecked tasks.
 
         cb["deadline"] can be None (key present but no value set), so we always
@@ -115,12 +124,7 @@ class NavigationController:
         today_str = today.isoformat()
         if any((cb.get("deadline") or "").startswith(today_str) for cb in unchecked):
             return "today"
-        if start_week_on_sunday:
-            week_start = (today - datetime.timedelta(days=(today.weekday() + 1) % 7)).isoformat()
-            week_end = (today + datetime.timedelta(days=6 - (today.weekday() + 1) % 7)).isoformat()
-        else:
-            week_start = (today - datetime.timedelta(days=today.weekday())).isoformat()
-            week_end = (today + datetime.timedelta(days=6 - today.weekday())).isoformat()
+        week_start, week_end = get_week_boundaries(start_week_on_sunday)
         if any(
             week_start <= cb["deadline"] <= week_end
             for cb in unchecked
@@ -154,8 +158,7 @@ class NavigationController:
         app = self.app
         if app.settings_view is None:
             has_encrypted = any(
-                app.notes_manager.is_encrypted(n)
-                for n in app.notes_manager.get_notes()
+                app.notes_manager.is_encrypted(n) for n in app.notes_manager.get_notes()
             )
             templates = app.template_manager.get_all_templates()
             app.settings_view = SettingsView(
@@ -186,8 +189,7 @@ class NavigationController:
             app.content_stack.add_named(app.settings_view, "settings")
         else:
             has_encrypted = any(
-                app.notes_manager.is_encrypted(n)
-                for n in app.notes_manager.get_notes()
+                app.notes_manager.is_encrypted(n) for n in app.notes_manager.get_notes()
             )
             app.settings_view.refresh_privacy_state(has_encrypted)
             templates = app.template_manager.get_all_templates()

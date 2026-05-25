@@ -1,9 +1,11 @@
 """Debounced search controller for the sidebar search entry."""
+
 from __future__ import annotations
 
 from typing import Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
@@ -17,6 +19,7 @@ class SearchController:
         self._debouncer = Debouncer(delay_ms, on_search)
 
     def on_search_changed(self, entry: Gtk.SearchEntry) -> None:
+        """Debounced handler for Gtk.SearchEntry changes."""
         self._debouncer.schedule(entry.get_text())
 
     def cancel(self) -> None:
@@ -24,4 +27,5 @@ class SearchController:
         self._debouncer.cancel()
 
     def is_pending(self) -> bool:
+        """Return True if a debounced search is waiting to fire."""
         return self._debouncer.is_pending()

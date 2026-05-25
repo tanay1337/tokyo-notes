@@ -1,9 +1,11 @@
 """Base class for searchable picker popovers."""
+
 from __future__ import annotations
 
 from typing import Any, Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
@@ -24,7 +26,7 @@ class SearchablePicker(Gtk.Popover):
         self,
         items: list[Any],
         on_selected: Callable[[Any], None],
-        text_view: "Gtk.Widget | None" = None,
+        text_view: Gtk.Widget | None = None,
         placeholder: str = "Search…",
         width: int = 320,
         height: int = 320,
@@ -57,7 +59,7 @@ class SearchablePicker(Gtk.Popover):
         self.connect("map", lambda _: GLib.idle_add(self.search_entry.grab_focus))
         self.connect("closed", self._on_closed)
 
-    def _on_closed(self, popover: "SearchablePicker") -> None:
+    def _on_closed(self, popover: SearchablePicker) -> None:
         """Return keyboard focus to the editor when the picker is dismissed."""
         if self._text_view is not None:
             GLib.idle_add(self._text_view.grab_focus)
@@ -77,7 +79,9 @@ class SearchablePicker(Gtk.Popover):
 
     def on_search_changed(self, entry: Gtk.SearchEntry) -> None:
         text = entry.get_text().lower()
-        filtered = [item for item in self._items if text in self._item_text(item).lower()]
+        filtered = [
+            item for item in self._items if text in self._item_text(item).lower()
+        ]
         self._populate(filtered)
 
     def _item_text(self, item: Any) -> str:

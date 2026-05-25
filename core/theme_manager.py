@@ -1,10 +1,11 @@
 """Theme and CSS management for Tokyo Notes."""
+
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gtk
@@ -16,14 +17,14 @@ if TYPE_CHECKING:
 class ThemeManager:
     """Manages CSS providers and theme switching."""
 
-    def __init__(self, app: "TokyoNotes") -> None:
+    def __init__(self, app: TokyoNotes) -> None:
         self.app = app
         self.theme_provider = Gtk.CssProvider()
         self.style_provider = Gtk.CssProvider()
 
     def setup_providers(self) -> None:
         """Register CSS providers with GTK.
-        
+
         The theme provider gets a slightly higher priority than the base
         style provider, allowing themes to override the default rules in
         style.css.
@@ -31,7 +32,9 @@ class ThemeManager:
         display = Gdk.Display.get_default()
         if display:
             Gtk.StyleContext.add_provider_for_display(
-                display, self.theme_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1
+                display,
+                self.theme_provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
             )
             Gtk.StyleContext.add_provider_for_display(
                 display, self.style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION

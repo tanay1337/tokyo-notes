@@ -11,6 +11,7 @@ Usage:
 The lock is automatically released when the process exits, even without an
 explicit release() call, because the OS closes all file descriptors on exit.
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,11 +54,18 @@ class InstanceLock:
             return False
 
     def release(self) -> None:
-        """Release the lock. Safe to call even if acquire() was never called."""
+        """Release the lock. Safe to call even if acquire() was never called.
+
+        We do NOT unlink the lock file: on Linux the flock survives the unlink
+        via the open fd, but unlinking lets a concurrently-opening next instance
+        race to create a new lockfile with a new inode, allowing two instances.
+        Closing the fd is sufficient — the kernel cleans up on process exit.
+        """
         if self._lock_file is None:
             return
         try:
             import fcntl
+
             if not getattr(self._lock_file, "closed", False):
                 fcntl.flock(self._lock_file, fcntl.LOCK_UN)
         except (ImportError, OSError):
@@ -68,5 +76,4 @@ class InstanceLock:
             except OSError:
                 pass
             self._lock_file = None
-            _LOCK_PATH.unlink(missing_ok=True)
             logger.debug("Instance lock released")

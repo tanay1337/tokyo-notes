@@ -1,9 +1,11 @@
 """Global keyboard shortcut registration."""
+
 from __future__ import annotations
 
 from typing import Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk
@@ -40,15 +42,15 @@ def setup_shortcuts(
     controller.set_scope(Gtk.ShortcutScope.GLOBAL)
 
     bindings: list[tuple[str, Callable]] = [
-        ("Delete",              on_delete),
-        (get_accel("q"),        quit_app),
-        (get_accel("n"),        on_new_note),
-        (get_accel("d"),        on_dashboard),
-        (get_accel("g"),        on_graph),
-        (get_accel("f"),        on_search),
+        ("Delete", on_delete),
+        (get_accel("q"), quit_app),
+        (get_accel("n"), on_new_note),
+        (get_accel("d"), on_dashboard),
+        (get_accel("g"), on_graph),
+        (get_accel("f"), on_search),
         (get_accel("<Shift>t"), on_timestamp),
         (get_accel("<Shift>z"), on_zen_mode),
-        ("Escape",              on_escape),
+        ("Escape", on_escape),
     ]
     if on_help:
         bindings.append((get_accel("h"), on_help))
@@ -66,9 +68,11 @@ def setup_shortcuts(
         bindings.append((get_accel("t"), on_quick_add))
 
     for trigger_str, callback in bindings:
-        controller.add_shortcut(Gtk.Shortcut.new(
-            Gtk.ShortcutTrigger.parse_string(trigger_str),
-            Gtk.CallbackAction.new(lambda *_, cb=callback: cb() or True),
-        ))
+        controller.add_shortcut(
+            Gtk.Shortcut.new(
+                Gtk.ShortcutTrigger.parse_string(trigger_str),
+                Gtk.CallbackAction.new(lambda *_, cb=callback: cb() or True),
+            )
+        )
 
     win.add_controller(controller)

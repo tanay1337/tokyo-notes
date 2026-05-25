@@ -1,10 +1,12 @@
 """Tokyo Notes — main application entry point."""
+
 import logging
 import sys
 from pathlib import Path
 from typing import Any, Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
@@ -22,13 +24,13 @@ from core.startup_checks import validate_notes_folder
 from core.storage import NotesManager
 from core.template_manager import TemplateManager
 from core.theme_manager import ThemeManager
+from core.utils import CB_ANY_RE, confirm_destructive_dialog, set_response_suggested
 from core.window_manager import WindowManager
 from ui.click_dispatcher import ClickDispatcher
 from ui.deadline_picker import DeadlinePicker
 from ui.editor import Editor
 from ui.sakura_overlay import SakuraOverlay
 from ui.sidebar import Sidebar
-from core.utils import CB_ANY_RE, confirm_destructive_dialog
 from ui.toolbar import build_toolbar
 
 logger = logging.getLogger(__name__)
@@ -66,7 +68,10 @@ class TokyoNotes(Adw.Application):
         self.changed_handler_id: int = 0
         self.last_cursor_line: int = -1
         self._pending_highlight_id: int = 0
+        self._has_selection: bool = False
         self._has_images: bool = False
+        self._buffer_mod_counter: int = 0
+        self._last_sidebar_update_counter: int = -1
         self._full_pass_complete: bool = False
         self.split_view: Adw.OverlaySplitView | None = None  # set in do_activate
 
@@ -92,32 +97,30 @@ class TokyoNotes(Adw.Application):
 
     def do_shutdown(self) -> None:
         """Flush any pending config writes and note saves before the process exits."""
+        from core.encryption import shutdown_pool
+
         self._cancel_lock_timer()
         self._flush_pending_save()
-        if self.current_note and self.notes_manager.is_encrypted(self.current_note) and hasattr(self, "buffer"):
+        if (
+            self.current_note
+            and self.notes_manager.is_encrypted(self.current_note)
+            and hasattr(self, "buffer")
+        ):
             self.buffer.set_text("")
         self._zero_session_password()
         self.cfg.flush_immediate()
+        shutdown_pool()
         logger.info("Tokyo Notes shutting down")
         Adw.Application.do_shutdown(self)
 
     def _apply_security_mitigations(self) -> None:
-        """Prevent core dumps and attempt to lock process memory."""
+        """Prevent core dumps."""
         try:
             import resource
+
             resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         except Exception as e:
             logger.warning("Could not disable core dumps: %s", e)
-
-        try:
-            import ctypes
-            libc = ctypes.CDLL("libc.so.6", use_errno=True)
-            result = libc.mlockall(1 | 2)
-            if result != 0:
-                errno = ctypes.get_errno()
-                logger.warning("mlockall failed (errno=%d) — continuing anyway", errno)
-        except Exception as e:
-            logger.warning("Could not lock memory pages: %s", e)
 
     # Session management for private notes
 
@@ -128,10 +131,11 @@ class TokyoNotes(Adw.Application):
         the first encrypted note and attempting to decrypt it.
         The password is stored in memory so keys can be derived per-note.
         """
-        from core.encryption import derive_key_async, _SALT_LEN
+        from core.encryption import _SALT_LEN, derive_key_async
 
         encrypted_notes = [
-            n for n in self.notes_manager.get_notes()
+            n
+            for n in self.notes_manager.get_notes()
             if self.notes_manager.is_encrypted(n)
         ]
         if not encrypted_notes:
@@ -140,47 +144,61 @@ class TokyoNotes(Adw.Application):
 
         first_note = encrypted_notes[0]
         try:
-            raw = self.notes_manager.read_note(first_note)
-            ciphertext_bytes = raw.encode("latin-1")
-        except UnicodeEncodeError:
-            logger.warning("Encrypted note '%s' contains non-latin-1 bytes — corrupted?", first_note)
+            ciphertext_bytes = self.notes_manager.read_encrypted_raw(first_note)
+        except FileNotFoundError:
+            logger.warning("Encrypted note '%s' not found on disk", first_note)
             self._show_toast("Corrupted encrypted note — cannot unlock")
             return
 
+        password_bytes = bytearray(password.encode("utf-8"))
+
         def _on_key_derived(key: bytes) -> None:
-            """Called from a background thread — schedule work back to the main loop."""
-            GLib.idle_add(self._finish_unlock, password, key, ciphertext_bytes, first_note)
+            """Called from the GTK main thread (marshalled by derive_key_async)."""
+            self._finish_unlock(password_bytes, key, ciphertext_bytes, first_note)
 
-        derive_key_async(password, ciphertext_bytes[:_SALT_LEN], _on_key_derived)
+        derive_key_async(password_bytes, ciphertext_bytes[:_SALT_LEN], _on_key_derived)
 
-    def _pre_derive_remaining_keys(self, password: str, skip: tuple[str, ...]) -> None:
+    def _pre_derive_remaining_keys(
+        self, password: bytearray, skip: tuple[str, ...]
+    ) -> None:
         """Pre-derive keys for all encrypted notes (except *skip*) in the background."""
-        from core.encryption import derive_key_async, _SALT_LEN
+        from core.encryption import _SALT_LEN, derive_key_async
+
         for note_name in self.notes_manager.get_notes():
             if not self.notes_manager.is_encrypted(note_name) or note_name in skip:
                 continue
             try:
-                raw = self.notes_manager.read_note(note_name)
-                ciphertext_bytes = raw.encode("latin-1")
+                ciphertext_bytes = self.notes_manager.read_encrypted_raw(note_name)
             except Exception:
-                logger.warning("Could not read encrypted note '%s' for key pre-derivation", note_name)
+                logger.warning(
+                    "Could not read encrypted note '%s' for key pre-derivation",
+                    note_name,
+                )
                 continue
             salt = ciphertext_bytes[:_SALT_LEN]
 
             def _cache_key(n: str, ct: bytes) -> Callable[[bytes], None]:
                 def _on_done(key: bytes) -> None:
-                    GLib.idle_add(self._set_cached_key, n, key, ct)
+                    self._set_cached_key(n, key, ct)
+
                 return _on_done
 
             derive_key_async(password, salt, _cache_key(note_name, ciphertext_bytes))
 
-    def _set_cached_key(self, note_name: str, key: bytes, ciphertext_bytes: bytes) -> None:
-        """Store a pre-derived key in the cache (called from main thread via idle_add)."""
+    def _set_cached_key(
+        self, note_name: str, key: bytes, ciphertext_bytes: bytes
+    ) -> None:
+        """Store a pre-derived key in the cache
+        (called from main thread via idle_add)."""
+        if self._is_session_locked:
+            return
         if note_name in self._encryption_key_cache:
             return
         self._encryption_key_cache[note_name] = bytearray(key)
 
-    def _finish_unlock(self, password: str, key: bytes, ciphertext_bytes: bytes, first_note: str) -> None:
+    def _finish_unlock(
+        self, password: bytearray, key: bytes, ciphertext_bytes: bytes, first_note: str
+    ) -> None:
         """Complete unlock on the main thread after async key derivation."""
         from core.encryption import decrypt
 
@@ -191,10 +209,14 @@ class TokyoNotes(Adw.Application):
             self._wrong_unlock_attempts += 1
             if self._wrong_unlock_attempts >= 3:
                 self._start_unlock_cooldown()
-            self._show_toast("Wrong password")
+
+            if hasattr(self, "_unlock_dialog") and self._unlock_dialog is not None:
+                self._unlock_dialog.on_verification_failed("Wrong password")
+            else:
+                self._show_toast("Wrong password")
             return
 
-        self._session_password_bytes = bytearray(password.encode("utf-8"))
+        self._session_password_bytes = password
         self._is_session_locked = False
         self._wrong_unlock_attempts = 0
         self._cancel_unlock_cooldown()
@@ -202,6 +224,9 @@ class TokyoNotes(Adw.Application):
         self._reset_lock_timer()
         self._show_toast("Private notes unlocked")
         self.editor.set_editable(True)
+
+        if hasattr(self, "_unlock_dialog") and self._unlock_dialog is not None:
+            self._unlock_dialog.close()
 
         # Cache the key for the note used to verify and pre-derive all others
         self._encryption_key_cache[first_note] = bytearray(key)
@@ -221,7 +246,9 @@ class TokyoNotes(Adw.Application):
             try:
                 self._encrypt_note(note_name)
             except Exception as e:
-                logger.error("Failed to encrypt pending note '%s' after unlock: %s", note_name, e)
+                logger.error(
+                    "Failed to encrypt pending note '%s' after unlock: %s", note_name, e
+                )
 
     def _show_unlock_popover(self) -> None:
         """Show the unlock dialog."""
@@ -229,6 +256,7 @@ class TokyoNotes(Adw.Application):
             self._unlock_dialog.present()
             return
         from ui.unlock_popover import UnlockDialog
+
         dialog = UnlockDialog(self)
         dialog.connect("response", lambda *_: setattr(self, "_unlock_dialog", None))
         self._unlock_dialog = dialog
@@ -246,22 +274,34 @@ class TokyoNotes(Adw.Application):
                 self.buffer.set_text("")
         self.editor.set_editable(False)
         self._zero_session_password()
+        for v in self._encryption_key_cache.values():
+            v[:] = b"\x00" * len(v)
         self._encryption_key_cache.clear()
         self._is_session_locked = True
         self._update_sidebar_lock_state()
-        self._show_toast("Private notes locked", action_label="Unlock", action=self._show_unlock_popover)
+        # Re-highlight plain note buffer — GTK may drop tag visuals after
+        # set_editable(False) and sidebar layout changes.
+        if self.current_note and not self.notes_manager.is_encrypted(self.current_note):
+            if self.highlighter:
+                self.highlighter.highlight()
+        self._show_toast(
+            "Private notes locked",
+            action_label="Unlock",
+            action=self._show_unlock_popover,
+        )
 
     def _zero_session_password(self) -> None:
         """Zero out the session password bytearray before releasing it."""
-        if self._session_password_bytes is not None:
-            for i in range(len(self._session_password_bytes)):
-                self._session_password_bytes[i] = 0
-            self._session_password_bytes = None
+        from core.encryption import zero_bytearray
+
+        zero_bytearray(self._session_password_bytes)
+        self._session_password_bytes = None
 
     def _cancel_lock_timer(self) -> None:
         if self._lock_timer_id:
-            GLib.source_remove(self._lock_timer_id)
+            tid = self._lock_timer_id
             self._lock_timer_id = 0
+            GLib.source_remove(tid)
 
     def _reset_lock_timer(self) -> None:
         """Reset the inactivity timer. Only active when an encrypted note is open."""
@@ -280,19 +320,9 @@ class TokyoNotes(Adw.Application):
     def _sync_encrypted_config(self) -> None:
         """Rebuild encrypted.json from actual .md.enc files on disk."""
         actual_encrypted = {
-            Path(p.stem).stem
-            for p in self.notes_manager.notes_dir.glob("*.md.enc")
+            Path(p.stem).stem for p in self.notes_manager.notes_dir.glob("*.md.enc")
         }
-        stale = self.cfg.encrypted - actual_encrypted
-        missing = actual_encrypted - self.cfg.encrypted
-        if stale:
-            for name in stale:
-                self.cfg.encrypted.discard(name)
-            self.cfg._save_json(self.cfg.encrypted_path, self.cfg.encrypted)
-        if missing:
-            for name in missing:
-                self.cfg.encrypted.add(name)
-            self.cfg._save_json(self.cfg.encrypted_path, self.cfg.encrypted)
+        self.cfg.sync_encrypted_set(actual_encrypted)
 
     def _on_lock_timeout(self) -> bool:
         self._lock_timer_id = 0
@@ -315,9 +345,10 @@ class TokyoNotes(Adw.Application):
 
     def _cancel_unlock_cooldown(self) -> None:
         if self._unlock_cooldown_id:
-            GLib.source_remove(self._unlock_cooldown_id)
+            tid = self._unlock_cooldown_id
             self._unlock_cooldown_id = 0
             self._unlock_cooldown_remaining = 0
+            GLib.source_remove(tid)
 
     def is_unlock_cooldown_active(self) -> bool:
         return self._unlock_cooldown_remaining > 0
@@ -344,17 +375,16 @@ class TokyoNotes(Adw.Application):
         cached = self._encryption_key_cache.get(note_name)
         if cached is not None:
             from core.encryption import _SALT_LEN
-            raw = self.notes_manager.read_note(note_name)
-            ciphertext_bytes = raw.encode("latin-1")
+
+            ciphertext_bytes = self.notes_manager.read_encrypted_raw(note_name)
             file_salt = ciphertext_bytes[:_SALT_LEN]
             return cached, file_salt, ciphertext_bytes
 
-        from core.encryption import derive_key_from_file, _SALT_LEN
-        raw = self.notes_manager.read_note(note_name)
-        ciphertext_bytes = raw.encode("latin-1")
+        from core.encryption import _SALT_LEN, derive_key_from_file
+
+        ciphertext_bytes = self.notes_manager.read_encrypted_raw(note_name)
         file_salt = ciphertext_bytes[:_SALT_LEN]
-        password = self._session_password_bytes.decode("utf-8")
-        key = derive_key_from_file(password, ciphertext_bytes)
+        key = derive_key_from_file(self._session_password_bytes, ciphertext_bytes)
         key_bytes = bytearray(key)
         self._encryption_key_cache[note_name] = key_bytes
         return key_bytes, file_salt, ciphertext_bytes
@@ -366,36 +396,33 @@ class TokyoNotes(Adw.Application):
         start, end = self.buffer.get_bounds()
         plaintext = self.buffer.get_text(start, end, True)
         from core.encryption import encrypt
+
         key_bytes, file_salt, _ = self._derive_encryption_key(self.current_note)
         ciphertext = encrypt(plaintext, key_bytes, file_salt)
-        self.notes_manager.save_note(self.current_note, ciphertext.decode("latin-1"), encrypt=True)
+        self.notes_manager.save_encrypted(self.current_note, ciphertext)
         self.cfg.mark_encrypted(self.current_note)
 
     def _encrypt_note(self, note_name: str) -> None:
         """Encrypt an existing plain note using the stored session password."""
         if self._session_password_bytes is None:
             return
-        content = self.notes_manager.read_note(note_name)
-        from core.encryption import encrypt, secure_delete, derive_key
-        import os
-        from core.encryption import _SALT_LEN
-        salt = os.urandom(_SALT_LEN)
-        password = self._session_password_bytes.decode("utf-8")
-        key = derive_key(password, salt)
-        key_bytes = bytearray(key)
+        from core.services import encrypt_note_on_disk
+
+        content, key_bytes = encrypt_note_on_disk(
+            note_name=note_name,
+            password=self._session_password_bytes,
+            notes_manager=self.notes_manager,
+            cfg=self.cfg,
+        )
         self._encryption_key_cache[note_name] = key_bytes
-        ciphertext = encrypt(content, key_bytes, salt)
-        plain_path = self.notes_manager.notes_dir / f"{note_name}.md"
-        self.notes_manager.save_note(note_name, ciphertext.decode("latin-1"), encrypt=True)
-        self.cfg.mark_encrypted(note_name)
-        if plain_path.exists():
-            secure_delete(plain_path)
-        self.notes_manager._content_cache.pop(note_name, None)
-        self.notes_manager._metadata_cache.pop(note_name, None)
-        self.refresh_list()
-        if self.current_note == note_name:
-            self._set_buffer_text(content)
-            self._schedule_full_highlight()
+        self.sidebar.set_row_encrypted(note_name, True)
+        self.current_note = note_name
+        self._select_sidebar_row(note_name)
+        self._set_buffer_text(content)
+        if self.highlighter:
+            self.highlighter.highlight()
+            self._full_pass_complete = True
+            self._pending_highlight_id = 0
         self._show_toast(f"'{note_name}' is now private")
 
     def _load_encrypted_note(self, note_name: str) -> None:
@@ -404,6 +431,7 @@ class TokyoNotes(Adw.Application):
             return
         try:
             from core.encryption import decrypt
+
             key_bytes, _, ciphertext = self._derive_encryption_key(note_name)
             plaintext = decrypt(ciphertext, key_bytes)
             self._set_buffer_text(plaintext)
@@ -431,16 +459,16 @@ class TokyoNotes(Adw.Application):
     def _schedule_full_highlight(self) -> None:
         """Trigger a full-parse highlight asynchronously."""
         self._full_pass_complete = False
-        if self._pending_highlight_id:
-            GLib.source_remove(self._pending_highlight_id)
-            self._pending_highlight_id = 0
+        self._safe_source_remove("_pending_highlight_id")
         current = self.current_note
         if self.highlighter and current:
             self._pending_highlight_id = GLib.idle_add(
                 self.lifecycle._highlight_chunk, current, 0
             )
 
-    def _show_toast(self, message: str, action_label: str | None = None, action=None) -> None:
+    def _show_toast(
+        self, message: str, action_label: str | None = None, action=None
+    ) -> None:
         """Show an Adw.Toast with optional action button."""
         toast = Adw.Toast(title=message, timeout=3)
         if action_label and action:
@@ -464,12 +492,15 @@ class TokyoNotes(Adw.Application):
             if content is None:
                 return
             from core.template_manager import TemplateManager
+
             substituted = TemplateManager.substitute_variables(content)
             self.lifecycle.on_new_note(None)
             self.notes_manager.save_note(self.current_note, substituted)
             from core.services import update_note_title
+
             new_name, did_rename = update_note_title(
-                old_name=self.current_note, content=substituted,
+                old_name=self.current_note,
+                content=substituted,
                 notes_manager=self.notes_manager,
             )
             if did_rename:
@@ -509,7 +540,7 @@ class TokyoNotes(Adw.Application):
     def _on_save_as_template_action(self, action, parameter) -> None:
         """Save a note as a template."""
         note_name = parameter.get_string()
-        content = self.notes_manager.read_note(note_name)
+        content = self.notes_manager.read_plain(note_name)
         self._show_save_template_dialog(note_name, content)
 
     def _show_save_template_dialog(self, note_name: str, content: str) -> None:
@@ -525,10 +556,7 @@ class TokyoNotes(Adw.Application):
         dialog.set_extra_child(entry)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("save", "Save")
-        try:
-            dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
-        except AttributeError:
-            logger.debug("set_response_appearance not supported (older Adw version)")
+        set_response_suggested(dialog, "save")
         dialog.set_default_response("save")
         dialog.set_close_response("cancel")
         dialog.connect("response", self._on_save_template_response, content, entry)
@@ -580,8 +608,9 @@ class TokyoNotes(Adw.Application):
 
     def _on_open_templates_folder(self) -> None:
         """Open the templates folder in the file manager."""
-        import subprocess
         import shutil
+        import subprocess
+
         templates_dir = str(self.template_manager.templates_dir)
         opener = "xdg-open"
         if shutil.which("xdg-open") is None:
@@ -595,11 +624,11 @@ class TokyoNotes(Adw.Application):
 
     def _setup_actions(self) -> None:
         for name, handler in (
-            ("delete",        self.lifecycle.on_delete_action),
-            ("pin",           self.on_pin_note),
-            ("unpin",         self.on_unpin_note),
-            ("archive",       self.on_toggle_archive_note),
-            ("make_private",  self.on_make_private),
+            ("delete", self.lifecycle.on_delete_action),
+            ("pin", self.on_pin_note),
+            ("unpin", self.on_unpin_note),
+            ("archive", self.on_toggle_archive_note),
+            ("make_private", self.on_make_private),
             ("remove_privacy", self.on_remove_privacy),
             ("save_as_template", self._on_save_as_template_action),
         ):
@@ -608,7 +637,7 @@ class TokyoNotes(Adw.Application):
             self.add_action(action)
 
         for name, handler in (
-            ("new_note",      self.lifecycle.on_new_note_global),
+            ("new_note", self.lifecycle.on_new_note_global),
             ("new_from_template", self._on_new_from_template),
         ):
             action = Gio.SimpleAction.new(name, None)
@@ -623,15 +652,11 @@ class TokyoNotes(Adw.Application):
         self.sidebar.maybe_exit_archive_view()
         self.refresh_list(self.sidebar.search_entry.get_text())
 
-    def on_pin_note(
-        self, action: Gio.SimpleAction, parameter: GLib.Variant
-    ) -> None:
+    def on_pin_note(self, action: Gio.SimpleAction, parameter: GLib.Variant) -> None:
         self.cfg.pin(parameter.get_string())
         self.refresh_list(self.sidebar.search_entry.get_text())
 
-    def on_unpin_note(
-        self, action: Gio.SimpleAction, parameter: GLib.Variant
-    ) -> None:
+    def on_unpin_note(self, action: Gio.SimpleAction, parameter: GLib.Variant) -> None:
         self.cfg.unpin(parameter.get_string())
         self.refresh_list(self.sidebar.search_entry.get_text())
 
@@ -645,7 +670,8 @@ class TokyoNotes(Adw.Application):
             self._encrypt_note(note_name)
         elif self._is_session_locked and self._session_password_bytes is None:
             has_any_encrypted = any(
-                self.notes_manager.is_encrypted(n) for n in self.notes_manager.get_notes()
+                self.notes_manager.is_encrypted(n)
+                for n in self.notes_manager.get_notes()
             )
             if not has_any_encrypted:
                 self._show_setup_dialog(note_name)
@@ -665,11 +691,13 @@ class TokyoNotes(Adw.Application):
 
     def _show_setup_dialog(self, note_name: str) -> None:
         from ui.setup_dialog import SetupDialog
+
         dialog = SetupDialog(self, note_name)
         dialog.present()
 
     def _show_password_change_dialog(self) -> None:
         from ui.password_change_dialog import PasswordChangeDialog
+
         dialog = PasswordChangeDialog(self)
         dialog.present()
 
@@ -701,24 +729,26 @@ class TokyoNotes(Adw.Application):
 
         # Read the actual note content from disk (decrypt it), not the buffer
         from core.encryption import decrypt
+
         key_bytes, _, ciphertext_bytes = self._derive_encryption_key(note_name)
         content = decrypt(ciphertext_bytes, key_bytes)
         self._encryption_key_cache.pop(note_name, None)
 
-        plain_path = self.notes_manager.notes_dir / f"{note_name}.md"
         enc_path = self.notes_manager.notes_dir / f"{note_name}.md.enc"
 
         self.notes_manager.save_note(note_name, content)
         self.cfg.mark_decrypted(note_name)
 
         if enc_path.exists():
-            from core.encryption import secure_delete
-            secure_delete(enc_path)
+            from core.encryption import best_effort_overwrite
 
-        self.refresh_list()
-        if self.current_note == note_name:
-            self._set_buffer_text(content)
-            self._schedule_full_highlight()
+            best_effort_overwrite(enc_path)
+
+        self.sidebar.set_row_encrypted(note_name, False)
+        self.current_note = note_name
+        self._select_sidebar_row(note_name)
+        self._set_buffer_text(content)
+        self._schedule_full_highlight()
 
     # Folder selection
 
@@ -727,9 +757,7 @@ class TokyoNotes(Adw.Application):
         dialog.set_title("Select Notes Folder")
         # Use home directory as initial folder to avoid GTK4 bug where
         # selecting a parent of the initial folder fails silently.
-        dialog.set_initial_folder(
-            Gio.File.new_for_path(str(Path.home()))
-        )
+        dialog.set_initial_folder(Gio.File.new_for_path(str(Path.home())))
         dialog.select_folder(self.win, None, self._on_folder_selected)
 
     def _on_folder_selected(self, dialog, result) -> None:
@@ -756,9 +784,15 @@ class TokyoNotes(Adw.Application):
 
         if self.settings_view:
             self.settings_view.update_folder_path(new_folder)
+            self.content_stack.remove(self.settings_view)
 
-        self.graph_view = None
+        if self.graph_view:
+            self.content_stack.remove(self.graph_view)
         self.graph_manager = None
+        self.graph_view = None
+
+        if self.dashboard_view:
+            self.content_stack.remove(self.dashboard_view)
         self.dashboard_view = None
         self.dashboard_list = None
 
@@ -815,7 +849,9 @@ class TokyoNotes(Adw.Application):
             "toggled", self.sidebar.on_sidebar_toggled
         )
         self.sidebar.main_list.connect("row-selected", self.lifecycle.on_note_selected)
-        self.sidebar.archive_list.connect("row-selected", self.lifecycle.on_note_selected)
+        self.sidebar.archive_list.connect(
+            "row-selected", self.lifecycle.on_note_selected
+        )
         self.split_view.set_sidebar(self.sidebar)
 
         self.content_header = self._build_content_header()
@@ -842,7 +878,8 @@ class TokyoNotes(Adw.Application):
         self.win.set_content(self.toast_overlay)
 
     def _finalize_startup(self) -> None:
-        """Complete startup: show window, validate folder, load notes, setup shortcuts."""
+        """Complete startup: show window, validate folder,
+        load notes, setup shortcuts."""
         self.win.present()
         self.window_manager.setup_breakpoint()
 
@@ -935,7 +972,9 @@ class TokyoNotes(Adw.Application):
         self.text_view.add_controller(gesture)
         self.text_view.set_focus_on_click(True)
 
-        scroll_ctrl = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+        scroll_ctrl = Gtk.EventControllerScroll.new(
+            Gtk.EventControllerScrollFlags.VERTICAL
+        )
         scroll_ctrl.connect("scroll", self._on_editor_scroll)
         scroll_ctrl.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
         self.text_view.add_controller(scroll_ctrl)
@@ -964,7 +1003,9 @@ class TokyoNotes(Adw.Application):
         self.backlinks_btn.set_visible(False)
 
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        icon = Gtk.Image.new_from_file(str(self.base_dir / "assets" / "toolbar" / "link.svg"))
+        icon = Gtk.Image.new_from_file(
+            str(self.base_dir / "assets" / "toolbar" / "link.svg")
+        )
         icon.set_pixel_size(18)
         btn_box.append(icon)
 
@@ -1025,6 +1066,7 @@ class TokyoNotes(Adw.Application):
         if not self.current_note:
             return
         from ui.backlinks_popover import BacklinksPopover
+
         backlinks = self.notes_manager.get_backlinks(
             self.current_note, self.cfg.archived
         )
@@ -1104,7 +1146,9 @@ class TokyoNotes(Adw.Application):
         )
 
         template_section = Gio.Menu()
-        template_section.append("Save as Template", f"app.save_as_template::{note_name}")
+        template_section.append(
+            "Save as Template", f"app.save_as_template::{note_name}"
+        )
         menu.append_section(None, template_section)
 
         privacy_section = Gio.Menu()
@@ -1121,9 +1165,9 @@ class TokyoNotes(Adw.Application):
         popover = Gtk.PopoverMenu.new_from_model(menu)
         popover.set_parent(row)
         row_rect = Gdk.Rectangle()
-        row_rect.x      = 0
-        row_rect.y      = row.get_height()
-        row_rect.width  = row.get_allocated_width()
+        row_rect.x = 0
+        row_rect.y = row.get_height()
+        row_rect.width = row.get_allocated_width()
         row_rect.height = 1
         popover.set_pointing_to(row_rect)
         popover.set_position(Gtk.PositionType.BOTTOM)
@@ -1146,6 +1190,13 @@ class TokyoNotes(Adw.Application):
 
     # Save helpers
 
+    def _safe_source_remove(self, attr: str) -> None:
+        """Cancel a GLib source by attr name, without warning if already removed."""
+        tid = getattr(self, attr)
+        if tid > 0:
+            setattr(self, attr, 0)
+            GLib.source_remove(tid)
+
     def _flush_pending_save(self) -> None:
         """Write buffered changes to disk and cancel all pending timeouts."""
         for attr in (
@@ -1156,10 +1207,7 @@ class TokyoNotes(Adw.Application):
             "search_timeout_id",
             "_pending_highlight_id",
         ):
-            tid = getattr(self, attr)
-            if tid > 0:
-                GLib.source_remove(tid)
-                setattr(self, attr, 0)
+            self._safe_source_remove(attr)
 
         if self.current_note and self.current_note.startswith(".template:"):
             tmpl_slug = self.current_note.split(":", 1)[1]
@@ -1170,28 +1218,33 @@ class TokyoNotes(Adw.Application):
             return
 
         if self.current_note:
+            from core.services import save_note_content
+
             start, end = self.buffer.get_bounds()
             content = self.buffer.get_text(start, end, True)
             if content:
-                if self.notes_manager.is_encrypted(self.current_note):
-                    if self._session_password_bytes is not None:
-                        try:
-                            from core.encryption import encrypt
-                            key_bytes, file_salt, _ = self._derive_encryption_key(self.current_note)
-                            ciphertext = encrypt(content, key_bytes, file_salt)
-                            self.notes_manager.save_note(self.current_note, ciphertext.decode("latin-1"), encrypt=True)
-                        except Exception as e:
-                            logger.error("Failed to encrypt note '%s' on save: %s", self.current_note, e)
-                    else:
-                        logger.warning("Skipping save of encrypted note '%s' — session locked", self.current_note)
-                else:
-                    self.notes_manager.save_note(self.current_note, content)
+                try:
+                    save_note_content(
+                        note_name=self.current_note,
+                        content=content,
+                        is_encrypted=self.notes_manager.is_encrypted(self.current_note),
+                        derive_encryption_key=self._derive_encryption_key,
+                        notes_manager=self.notes_manager,
+                        session_password_bytes=self._session_password_bytes,
+                    )
+                except OSError as e:
+                    logger.error("Critical save failure: %s", e)
+                    self.show_export_dialog(
+                        "Save Failed",
+                        f"Could not save note '{self.current_note}'.\n\n"
+                        f"Reason: {e.strerror or str(e)}\n\n"
+                        "Your changes are still in memory.",
+                        is_error=True,
+                    )
 
     def _reschedule(self, timeout_attr: str, delay_ms: int, callback: Callable) -> None:
         """Cancel any pending GLib timeout and schedule a fresh one."""
-        current_id = getattr(self, timeout_attr)
-        if current_id > 0:
-            GLib.source_remove(current_id)
+        self._safe_source_remove(timeout_attr)
         setattr(self, timeout_attr, GLib.timeout_add(delay_ms, callback))
 
     # Search
@@ -1252,32 +1305,47 @@ class TokyoNotes(Adw.Application):
                 group.append(item)
             return group
 
-        section.append(_group("Navigation", [
-            ("<Primary>n", "New note"),
-            ("<Primary><Shift>n", "New from template"),
-            ("<Primary>d", "Dashboard"),
-            ("<Primary>g", "Knowledge graph"),
-            ("<Primary>f", "Search  (press again to clear)"),
-            ("<Primary>h", "This shortcuts window"),
-            ("<Primary><Shift>s", "Settings"),
-            ("Escape", "Back to editor / clear search"),
-        ]))
-        section.append(_group("Notes", [
-            ("Delete", "Delete selected note"),
-            ("<Primary><Shift>p", "Pin / unpin note"),
-            ("<Primary><Shift>a", "Archive / unarchive note"),
-            ("<Primary>l", "Lock private notes"),
-            ("<Primary>t", "Quick add task"),
-            ("<Primary><Shift>t", "Insert timestamp"),
-            ("<Primary><Shift>z", "Zen mode"),
-            ("<Primary>q", "Quit"),
-        ]))
-        section.append(_group("Editor", [
-            ("bracketleft bracketleft", "Open note link picker  ( [[ )"),
-            ("at", "Open deadline picker  ( @ )"),
-            ("braceleft braceleft", "Open variable picker  ( {{ )"),
-            ("Return", "Continue list or task on new line"),
-        ]))
+        section.append(
+            _group(
+                "Navigation",
+                [
+                    ("<Primary>n", "New note"),
+                    ("<Primary><Shift>n", "New from template"),
+                    ("<Primary>d", "Dashboard"),
+                    ("<Primary>g", "Knowledge graph"),
+                    ("<Primary>f", "Search  (press again to clear)"),
+                    ("<Primary>h", "This shortcuts window"),
+                    ("<Primary><Shift>s", "Settings"),
+                    ("Escape", "Back to editor / clear search"),
+                ],
+            )
+        )
+        section.append(
+            _group(
+                "Notes",
+                [
+                    ("Delete", "Delete selected note"),
+                    ("<Primary><Shift>p", "Pin / unpin note"),
+                    ("<Primary><Shift>a", "Archive / unarchive note"),
+                    ("<Primary>l", "Lock private notes"),
+                    ("<Primary>t", "Quick add task"),
+                    ("<Primary><Shift>t", "Insert timestamp"),
+                    ("<Primary><Shift>z", "Zen mode"),
+                    ("<Primary>q", "Quit"),
+                ],
+            )
+        )
+        section.append(
+            _group(
+                "Editor",
+                [
+                    ("bracketleft bracketleft", "Open note link picker  ( [[ )"),
+                    ("at", "Open deadline picker  ( @ )"),
+                    ("braceleft braceleft", "Open variable picker  ( {{ )"),
+                    ("Return", "Continue list or task on new line"),
+                ],
+            )
+        )
 
         win.add_section(section)
         win.present()
@@ -1404,7 +1472,10 @@ class TokyoNotes(Adw.Application):
     def do_delayed_highlight(self) -> bool:
         """Re-highlight only the current line and neighbours (incremental)."""
         self.highlight_timeout_id = 0
-        if not self.highlighter or self.content_stack.get_visible_child_name() != "editor":
+        if (
+            not self.highlighter
+            or self.content_stack.get_visible_child_name() != "editor"
+        ):
             return False
         if not self._full_pass_complete:
             return False
@@ -1418,7 +1489,9 @@ class TokyoNotes(Adw.Application):
         end_line = min(total - 1, cursor_line + 1)
         self.buffer.handler_block(self.changed_handler_id)
         try:
-            self.highlighter.highlight_line_range(start_line, end_line, cursor_line=cursor_line)
+            self.highlighter.highlight_line_range(
+                start_line, end_line, cursor_line=cursor_line
+            )
         finally:
             self.buffer.handler_unblock(self.changed_handler_id)
         self.last_cursor_line = cursor_line
@@ -1489,7 +1562,9 @@ class TokyoNotes(Adw.Application):
 
     # Quick Add
 
-    def on_quick_add_task(self, text: str, note_name: str, deadline: str | None) -> None:
+    def on_quick_add_task(
+        self, text: str, note_name: str, deadline: str | None
+    ) -> None:
         """Add a task to *note_name*. Creates the note if it doesn't exist."""
         notes = self.notes_manager.get_notes()
 
@@ -1504,7 +1579,7 @@ class TokyoNotes(Adw.Application):
         if note_name in self.cfg.archived:
             self.cfg.toggle_archive(note_name)
 
-        content = self.notes_manager.read_note(note_name) or ""
+        content = self.notes_manager.read_plain(note_name) or ""
         if content and not content.endswith("\n"):
             content += "\n"
         line = f"- [ ] {text}"
@@ -1512,8 +1587,10 @@ class TokyoNotes(Adw.Application):
             line += f" @{deadline}"
         self.notes_manager.save_note(note_name, content + line + "\n")
 
-        if self.current_note == note_name and not self.current_note.startswith(".template:"):
-            self._set_buffer_text(self.notes_manager.read_note(note_name))
+        if self.current_note == note_name and not self.current_note.startswith(
+            ".template:"
+        ):
+            self._set_buffer_text(self.notes_manager.read_plain(note_name))
             if self.highlighter:
                 self.highlighter.highlight(start_line=0, end_line=30)
             self._full_pass_complete = False
@@ -1554,7 +1631,9 @@ class TokyoNotes(Adw.Application):
         picker.set_pointing_to(rect)
         picker.popup()
 
-    def handle_snooze(self, note_name: str, line_num: int, deadline: str | None) -> None:
+    def handle_snooze(
+        self, note_name: str, line_num: int, deadline: str | None
+    ) -> None:
         """Snooze a task by updating its deadline."""
         self._apply_deadline_update(note_name, line_num, deadline)
 
@@ -1572,7 +1651,7 @@ class TokyoNotes(Adw.Application):
         self.refresh_list(self.sidebar.search_entry.get_text())
         if self.current_note == note_name:
             # Re-read just the updated line from cache (no full disk read).
-            content = self.notes_manager.read_note(note_name)
+            content = self.notes_manager.read_plain(note_name)
             lines = content.split("\n")
             if 0 < line_num <= len(lines):
                 self._update_deadline_line_in_buffer(line_num, lines[line_num - 1])
@@ -1596,8 +1675,10 @@ class TokyoNotes(Adw.Application):
         self.update_highlighting()
 
 
-if __name__ == "__main__":
+def main() -> int:
+    """Run the Tokyo Notes application and return a process exit code."""
     from core.logging_setup import configure_logging
+
     configure_logging()
 
     lock = InstanceLock()
@@ -1607,8 +1688,7 @@ if __name__ == "__main__":
         # overhead outweighs the benefit of a GUI dialog that the user may
         # not even see (e.g. when launched from a script or file manager).
         print(
-            "Tokyo Notes is already running. "
-            "Check your taskbar or system tray.",
+            "Tokyo Notes is already running. Check your taskbar or system tray.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -1616,7 +1696,14 @@ if __name__ == "__main__":
     try:
         app = TokyoNotes()
         exit_code = app.run(sys.argv)
+    except KeyboardInterrupt:
+        print("\nTokyo Notes: interrupted by user.", file=sys.stderr)
+        exit_code = 130
     finally:
         lock.release()
 
-    sys.exit(exit_code)
+    return exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

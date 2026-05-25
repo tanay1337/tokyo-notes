@@ -3,14 +3,18 @@
 Call validate_notes_folder() after the main window is created so that
 any recovery dialog has a window to attach to.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import gi
+
+from core.utils import set_response_suggested
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk
@@ -21,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def validate_notes_folder(app: "TokyoNotes") -> None:
+def validate_notes_folder(app: TokyoNotes) -> None:
     """Check that the configured notes folder exists and is read/write accessible.
 
     If not, show a recovery dialog offering to locate the folder or fall back
@@ -31,7 +35,7 @@ def validate_notes_folder(app: "TokyoNotes") -> None:
     GLib.idle_add(lambda: _do_validate(app) or False)
 
 
-def _do_validate(app: "TokyoNotes") -> None:
+def _do_validate(app: TokyoNotes) -> None:
     folder = app.cfg.get("notes_folder")
     path = Path(folder)
 
@@ -52,16 +56,17 @@ def _do_validate(app: "TokyoNotes") -> None:
     )
     dialog.add_response("default", "Use Default Location")
     dialog.add_response("locate", "Locate Folder…")
-    dialog.set_response_appearance("locate", Adw.ResponseAppearance.SUGGESTED)
+    set_response_suggested(dialog, "locate")
     dialog.connect("response", _on_recovery_response, app)
     dialog.present()
 
 
 def _on_recovery_response(
-    dialog: Adw.MessageDialog, response: str, app: "TokyoNotes"
+    dialog: Adw.MessageDialog, response: str, app: TokyoNotes
 ) -> None:
     if response == "default":
         from core.config import _default_notes_folder
+
         new_folder = _default_notes_folder()
         _apply_folder(app, new_folder)
     elif response == "locate":
@@ -73,7 +78,7 @@ def _on_recovery_response(
 def _on_folder_chosen(
     file_dialog: Gtk.FileDialog,
     result: Gio.AsyncResult,
-    app: "TokyoNotes",
+    app: TokyoNotes,
 ) -> None:
     try:
         folder = file_dialog.select_folder_finish(result)
@@ -83,7 +88,7 @@ def _on_folder_chosen(
         pass  # user cancelled — leave things as they are
 
 
-def _apply_folder(app: "TokyoNotes", new_folder: str) -> None:
+def _apply_folder(app: TokyoNotes, new_folder: str) -> None:
     """Switch the app to *new_folder* and refresh the note list."""
     from core.storage import NotesManager
 

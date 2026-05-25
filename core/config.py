@@ -1,4 +1,5 @@
 """Configuration management for Tokyo Notes."""
+
 from __future__ import annotations
 
 import json
@@ -12,15 +13,15 @@ logger = logging.getLogger(__name__)
 
 # Keys and their types are fixed — update _DEFAULTS and _migrate together.
 _DEFAULTS: dict[str, Any] = {
-    "notes_folder":      None,   # resolved lazily in __init__
-    "show_sidebar":      True,
-    "show_toolbar":      True,
-    "show_stats":        False,
-    "sakura_effect":     True,
-    "theme":             "tokyo-night",
-    "show_completed":    True,
+    "notes_folder": None,  # resolved lazily in __init__
+    "show_sidebar": True,
+    "show_toolbar": True,
+    "show_stats": False,
+    "sakura_effect": True,
+    "theme": "tokyo-night",
+    "show_completed": True,
     "show_progress_rings": True,
-    "show_backlinks":    True,
+    "show_backlinks": True,
     "lock_timeout_minutes": 5,
     "start_week_on_sunday": True,
 }
@@ -80,7 +81,9 @@ class ConfigManager:
                     return data
                 logger.warning(
                     "Config %s has wrong type (%s), expected %s — using default",
-                    path, type(data).__name__, type(default).__name__,
+                    path,
+                    type(data).__name__,
+                    type(default).__name__,
                 )
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning("Could not read %s: %s", path, e)
@@ -89,6 +92,7 @@ class ConfigManager:
     def _save_json(self, path: Path, data: dict | set | list) -> None:
         """Atomic JSON write — write temp then rename to avoid corruption on crash."""
         self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.config_dir.chmod(0o700)
         save_data: Any = sorted(data) if isinstance(data, set) else data
         tmp = path.with_suffix(path.suffix + ".tmp")
         try:
@@ -100,6 +104,7 @@ class ConfigManager:
     # General settings — debounced writes
 
     def get(self, key: str, fallback: Any = None) -> Any:
+        """Return the config value for *key*, or *fallback* if not set."""
         return self.data.get(key, _DEFAULTS.get(key, fallback))
 
     def set(self, key: str, value: Any) -> None:
@@ -114,8 +119,10 @@ class ConfigManager:
             return
         self.data[key] = value
         self._dirty = True
-        if self._flush_timer > 0:
-            GLib.source_remove(self._flush_timer)
+        tid = self._flush_timer
+        self._flush_timer = 0
+        if tid > 0:
+            GLib.source_remove(tid)
         self._flush_timer = GLib.timeout_add(_DEBOUNCE_MS, self._flush)
 
     def _flush(self) -> bool:
@@ -133,9 +140,10 @@ class ConfigManager:
         Call before app shutdown to ensure nothing is lost if the debounce
         timer has not yet fired.
         """
-        if self._flush_timer > 0:
-            GLib.source_remove(self._flush_timer)
-            self._flush_timer = 0
+        tid = self._flush_timer
+        self._flush_timer = 0
+        if tid > 0:
+            GLib.source_remove(tid)
         if self._dirty:
             self._save_json(self.config_path, self.data)
             self._dirty = False
@@ -144,11 +152,13 @@ class ConfigManager:
     # Pinned notes — immediate writes
 
     def pin(self, note_name: str) -> None:
+        """Persist *note_name* as pinned."""
         if note_name not in self.pinned:
             self.pinned.add(note_name)
             self._save_json(self.pinned_path, self.pinned)
 
     def unpin(self, note_name: str) -> None:
+        """Remove *note_name* from the pinned set."""
         if note_name in self.pinned:
             self.pinned.discard(note_name)
             self._save_json(self.pinned_path, self.pinned)
@@ -156,6 +166,7 @@ class ConfigManager:
     # Archived notes — immediate writes
 
     def toggle_archive(self, note_name: str) -> None:
+        """Toggle the archived state of *note_name*."""
         if note_name in self.archived:
             self.archived.discard(note_name)
         else:
@@ -163,6 +174,7 @@ class ConfigManager:
         self._save_json(self.archive_path, self.archived)
 
     def is_archived(self, note_name: str) -> bool:
+        """Return True if *note_name* is archived."""
         return note_name in self.archived
 
     def remove_note(self, note_name: str) -> None:
@@ -183,11 +195,24 @@ class ConfigManager:
     # Encrypted notes — immediate writes
 
     def mark_encrypted(self, note_name: str) -> None:
+        """Record *note_name* as encrypted."""
         if note_name not in self.encrypted:
             self.encrypted.add(note_name)
             self._save_json(self.encrypted_path, self.encrypted)
 
     def mark_decrypted(self, note_name: str) -> None:
+        """Remove the encrypted flag from *note_name*."""
         if note_name in self.encrypted:
             self.encrypted.discard(note_name)
             self._save_json(self.encrypted_path, self.encrypted)
+
+    def sync_encrypted_set(self, actual: set[str]) -> None:
+        """Replace the encrypted set with the actual set of .md.enc files on disk.
+
+        This is the canonical way to reconcile encrypted.json with the filesystem
+        (e.g. after a folder change, external deletion, or re-encryption pass).
+        """
+        if self.encrypted == actual:
+            return
+        self.encrypted = set(actual)
+        self._save_json(self.encrypted_path, self.encrypted)

@@ -4,6 +4,7 @@ These are provisioned into the user's .templates/ directory on first access.
 Each template is a dict with 'name', 'content', and optional 'description'.
 Content supports {{variable}} substitution at insertion time.
 """
+
 from __future__ import annotations
 
 BUILTIN_TEMPLATES: dict[str, dict[str, str]] = {

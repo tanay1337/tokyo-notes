@@ -6,7 +6,7 @@ A minimal GTK4 Markdown note-taking app.
 
 ## Features
 - **Task Management**: Dashboard with Today, Week, and All views, featuring deadline tracking and jump-to-line navigation.
-- **Private Notes**: AES-256-GCM encrypted notes with per-file salt, inactivity auto-lock, and brute-force protection.
+- **Private Notes**: AES-256-GCM encrypted notes with per-file salt, Argon2id key derivation, and inactivity auto-lock.
 - **Thematic Animations**: "Sakura Celebration" particle effect when completing tasks in Dashboard.
 - **Archive System**: Keep your workspace clean by archiving finished notes.
 - **Knowledge Graph**: Visualize and navigate connections between your notes.
@@ -15,7 +15,7 @@ A minimal GTK4 Markdown note-taking app.
 - **Templates**: Create notes from reusable templates with auto-filled variables like `{{today}}`, `{{now}}`, `{{time}}`, and `{{weekday}}`.
 
 ## Installation
-Requires Python 3, PyGObject, GTK4, and Libadwaita.
+Requires Python 3.12+, PyGObject, GTK4, and Libadwaita.
 
 ```bash
 # Arch Linux
@@ -52,7 +52,7 @@ python3 main.py
 ## Smart Syntax
 - **Deadlines**: Type `@` to open a date/time picker for task deadlines.
 - **Note Links**: Type `[[` to pick a note to link to.
-- **Lists**: Press `Enter` on a list item to automatically continue the list. Press `Enter` twice to discontinue the lists. 
+- **Lists**: Press `Enter` on a list item to automatically continue the list. Press `Enter` twice to discontinue the lists.
 - **Task Markers**: Press `Enter` on a task `- [ ]` to create a new unchecked task.
 
 ## License

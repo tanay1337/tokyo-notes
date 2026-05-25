@@ -20,6 +20,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Test artifacts
+.pytest_cache/
+
 # Temporary files
 *.tmp
 *.bak

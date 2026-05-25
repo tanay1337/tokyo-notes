@@ -1,15 +1,18 @@
 """Sidebar UI component — note list, search, and navigation footer."""
+
 from __future__ import annotations
 
 import weakref
 from pathlib import Path
-from typing import Any, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, Gtk, Pango
 
+from core.services import patch_sidebar_row
 from core.utils import clear_listbox, create_empty_state_widget
 
 if TYPE_CHECKING:
@@ -21,7 +24,7 @@ class Sidebar(Gtk.Box):
 
     def __init__(
         self,
-        app: "TokyoNotes",
+        app: TokyoNotes,
         on_new_note: Callable[..., Any],
         on_new_from_template: Callable[..., Any],
         on_dashboard_clicked: Callable[..., Any],
@@ -57,7 +60,10 @@ class Sidebar(Gtk.Box):
         self.search_entry = Gtk.SearchEntry(placeholder_text="Search notes…")
         self.search_entry.set_can_focus(True)
         self.search_entry.connect("search-changed", self.on_search_changed)
-        self.search_entry.connect("stop-search", lambda _: (self.app.refresh_list(), self.app.text_view.grab_focus()))
+        self.search_entry.connect(
+            "stop-search",
+            lambda _: (self.app.refresh_list(), self.app.text_view.grab_focus()),
+        )
         self.append(self.search_entry)
 
         self.stack = Gtk.Stack()
@@ -101,7 +107,7 @@ class Sidebar(Gtk.Box):
 
         self._nav_buttons = {
             "dashboard": self._dashboard_btn,
-            "graph":     self._graph_btn,
+            "graph": self._graph_btn,
         }
 
     # Search
@@ -166,19 +172,28 @@ class Sidebar(Gtk.Box):
         encrypted_set = self.app.notes_manager.get_encrypted_notes()
 
         pinned_notes = [n for n in main_notes if n in pinned]
-        other_notes  = [n for n in main_notes if n not in pinned]
+        other_notes = [n for n in main_notes if n not in pinned]
 
         for note in pinned_notes:
             self.main_list.append(
-                self._make_row(note, snippet_fn(note), is_pinned=True,
-                               is_encrypted=note in encrypted_set,
-                               on_right_click=on_right_click, base_dir=base_dir)
+                self._make_row(
+                    note,
+                    snippet_fn(note),
+                    is_pinned=True,
+                    is_encrypted=note in encrypted_set,
+                    on_right_click=on_right_click,
+                    base_dir=base_dir,
+                )
             )
         for note in other_notes:
             self.main_list.append(
-                self._make_row(note, snippet_fn(note),
-                               is_encrypted=note in encrypted_set,
-                               on_right_click=on_right_click, base_dir=base_dir)
+                self._make_row(
+                    note,
+                    snippet_fn(note),
+                    is_encrypted=note in encrypted_set,
+                    on_right_click=on_right_click,
+                    base_dir=base_dir,
+                )
             )
 
         if not pinned_notes and not other_notes:
@@ -194,15 +209,99 @@ class Sidebar(Gtk.Box):
             else:
                 snippet = snippet_fn(note)
             self.archive_list.append(
-                self._make_row(note, snippet, is_archived=True,
-                               is_encrypted=note in encrypted_set,
-                               on_right_click=on_right_click, base_dir=base_dir)
+                self._make_row(
+                    note,
+                    snippet,
+                    is_archived=True,
+                    is_encrypted=note in encrypted_set,
+                    on_right_click=on_right_click,
+                    base_dir=base_dir,
+                )
             )
 
         self.archived_nav_btn.set_sensitive(bool(archived_notes))
 
         if adj:
             adj.set_value(scroll_pos)
+
+    # In-place row mutations (avoids full rebuild)
+
+    def set_row_encrypted(self, note_name: str, is_encrypted: bool) -> bool:
+        """Toggle the encrypted/locked state of a sidebar row in-place.
+
+        Updates the lock icon visibility, CSS classes, and snippet text.
+        Returns True if the row was found and updated.
+        """
+        for lb in (self.main_list, self.archive_list):
+            child = lb.get_first_child()
+            while child:
+                if getattr(child, "note_name", None) == note_name:
+                    child.is_encrypted = is_encrypted
+                    box = child.get_child()
+                    if isinstance(box, Gtk.Box):
+                        if is_encrypted:
+                            box.add_css_class("private-note-locked")
+                        else:
+                            box.remove_css_class("private-note-locked")
+                    icon = getattr(child, "lock_icon", None)
+                    if icon is not None:
+                        icon.set_visible(is_encrypted)
+                    if is_encrypted and hasattr(child, "snippet_label"):
+                        child.snippet_label.set_label("Private note")
+                    elif hasattr(child, "snippet_label"):
+                        meta = self.app.notes_manager.get_metadata(note_name)
+                        child.snippet_label.set_label(meta.get("snippet", ""))
+                    return True
+                child = child.get_next_sibling()
+        return False
+
+    def update_row(self, note_name: str, title: str, snippet: str) -> bool:
+        """Update a single sidebar row's title and snippet in-place.
+
+        Returns True if the row was found and updated.
+        """
+        for lb in (self.main_list, self.archive_list):
+            child = lb.get_first_child()
+            while child:
+                if getattr(child, "note_name", None) == note_name:
+                    patch_sidebar_row(child, title=title, snippet=snippet)
+                    return True
+                child = child.get_next_sibling()
+        return False
+
+    def add_row(
+        self,
+        note_name: str,
+        snippet: str,
+        is_pinned: bool = False,
+        is_archived: bool = False,
+        is_encrypted: bool = False,
+        on_right_click: Callable[..., Any] | None = None,
+        base_dir: Path | None = None,
+    ) -> None:
+        """Insert a single row into the appropriate list box."""
+        row = self._make_row(
+            note_name,
+            snippet,
+            is_pinned=is_pinned,
+            is_archived=is_archived,
+            is_encrypted=is_encrypted,
+            on_right_click=on_right_click,
+            base_dir=base_dir,
+        )
+        target = self.archive_list if is_archived else self.main_list
+        target.prepend(row)
+
+    def remove_row(self, note_name: str) -> bool:
+        """Remove a single row by note name. Returns True if found."""
+        for lb in (self.main_list, self.archive_list):
+            child = lb.get_first_child()
+            while child:
+                if getattr(child, "note_name", None) == note_name:
+                    lb.remove(child)
+                    return True
+                child = child.get_next_sibling()
+        return False
 
     # Internal helpers
 
@@ -264,16 +363,19 @@ class Sidebar(Gtk.Box):
         row.title_label = label
         row.snippet_label = snippet
         row.is_encrypted = is_encrypted
+        row.lock_icon = lock_icon
 
         if is_encrypted:
             box.add_css_class("private-note-locked")
 
         _app_ref = weakref.ref(self.app)
         hover = Gtk.EventControllerMotion()
+
         def _on_hover_enter(*_):
             app = _app_ref()
             if app is not None and not (is_encrypted and app._is_session_locked):
-                app.notes_manager.read_note(note_name)
+                app.notes_manager.read_plain(note_name)
+
         hover.connect("enter", _on_hover_enter)
         row.add_controller(hover)
 

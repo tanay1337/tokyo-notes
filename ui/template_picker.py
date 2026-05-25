@@ -1,9 +1,11 @@
 """Template picker popover widget."""
+
 from __future__ import annotations
 
 from typing import Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango
 
@@ -17,7 +19,7 @@ class TemplatePicker(SearchablePicker):
         self,
         templates: list[dict[str, str]],
         on_selected: Callable[[str], None],
-        text_view: "Gtk.Widget | None" = None,
+        text_view: Gtk.Widget | None = None,
     ) -> None:
         super().__init__(
             items=templates,

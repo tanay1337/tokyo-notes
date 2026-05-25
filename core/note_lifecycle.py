@@ -1,8 +1,8 @@
 """Note lifecycle manager — owns open, create, delete, save, and rename logic."""
+
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import gi
@@ -11,7 +11,13 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
-from core.services import build_stats, clean_title, derive_display_title, patch_sidebar_row, update_note_title
+from core.services import (
+    build_stats,
+    clean_title,
+    derive_display_title,
+    patch_sidebar_row,
+    update_note_title,
+)
 from core.utils import confirm_destructive_dialog, get_snippet
 
 logger = logging.getLogger(__name__)
@@ -21,9 +27,10 @@ if TYPE_CHECKING:
 
 
 class NoteLifecycleManager:
-    """Coordinates note open/create/delete/save/rename between the UI and NotesManager."""
+    """Coordinates note open/create/delete/save/rename
+    between the UI and NotesManager."""
 
-    def __init__(self, app: "TokyoNotes") -> None:
+    def __init__(self, app: TokyoNotes) -> None:
         self.app = app
 
     # Startup
@@ -97,7 +104,10 @@ class NoteLifecycleManager:
             app.nav.update_header_ui(app.current_note, is_editor=True)
             app.sidebar.set_active_view("editor")
 
-            if app.notes_manager.is_encrypted(app.current_note) and app._session_password_bytes is not None:
+            if (
+                app.notes_manager.is_encrypted(app.current_note)
+                and app._session_password_bytes is not None
+            ):
                 try:
                     app._load_encrypted_note(app.current_note)
                     content = app.buffer.get_text(*app.buffer.get_bounds(), True)
@@ -113,10 +123,14 @@ class NoteLifecycleManager:
                         app.sidebar.main_list.unselect_all()
                     return
                 except Exception as e:
-                    logger.error("Failed to decrypt note '%s' on selection: %s", app.current_note, e)
+                    logger.error(
+                        "Failed to decrypt note '%s' on selection: %s",
+                        app.current_note,
+                        e,
+                    )
                     content = ""
             else:
-                content = app.notes_manager.read_note(app.current_note)
+                content = app.notes_manager.read_plain(app.current_note)
 
             app._has_images = "![" in content
 
@@ -131,9 +145,7 @@ class NoteLifecycleManager:
                 app.highlighter.highlight(start_line=0, end_line=30)
 
             app._full_pass_complete = False
-            if app._pending_highlight_id:
-                GLib.source_remove(app._pending_highlight_id)
-                app._pending_highlight_id = 0
+            app._safe_source_remove("_pending_highlight_id")
             if app.highlighter:
                 app._pending_highlight_id = GLib.idle_add(
                     self._highlight_chunk,
@@ -154,6 +166,7 @@ class NoteLifecycleManager:
     def _highlight_chunk(self, expected_note: str, start_line: int) -> bool:
         app = self.app
         if not app.highlighter or app.current_note != expected_note:
+            app._pending_highlight_id = 0
             return False
         total = app.buffer.get_line_count()
         end_line = min(start_line + 50, total)
@@ -163,9 +176,12 @@ class NoteLifecycleManager:
         finally:
             app.buffer.handler_unblock(app.changed_handler_id)
         if end_line < total:
-            GLib.idle_add(self._highlight_chunk, expected_note, end_line)
+            app._pending_highlight_id = GLib.idle_add(
+                self._highlight_chunk, expected_note, end_line
+            )
         else:
             app._full_pass_complete = True
+            app._pending_highlight_id = 0
         return False
 
     # Navigate
@@ -214,7 +230,7 @@ class NoteLifecycleManager:
     def on_delete_action(self, action: Any, parameter: GLib.Variant) -> None:
         app = self.app
         note_name = parameter.get_string()
-        content = app.notes_manager.read_note(note_name).strip()
+        content = app.notes_manager.read_plain(note_name).strip()
         if not content:
             self.confirm_delete(note_name)
         else:
@@ -241,10 +257,7 @@ class NoteLifecycleManager:
         # re-create the deleted file.
         if app.current_note == note_name:
             for attr in ("rename_timeout_id", "sidebar_update_timeout_id"):
-                tid = getattr(app, attr)
-                if tid > 0:
-                    GLib.source_remove(tid)
-                    setattr(app, attr, 0)
+                app._safe_source_remove(attr)
         app.notes_manager.delete_note(note_name)
         app.cfg.remove_note(note_name)
         app.sidebar.maybe_exit_archive_view()
@@ -264,15 +277,23 @@ class NoteLifecycleManager:
     # Live sidebar update (150 ms debounce)
 
     def _update_sidebar_and_stats(self) -> bool:
-        """Fast debounce callback: update sidebar row and status bar in-place."""
+        """Debounce callback: update sidebar row and status bar in-place."""
         app = self.app
         app.sidebar_update_timeout_id = 0
         current = app.current_note
         if not current:
             return False
 
+        if app._buffer_mod_counter == app._last_sidebar_update_counter:
+            return False
+
+        app._last_sidebar_update_counter = app._buffer_mod_counter
         start, end = app.buffer.get_bounds()
         content = app.buffer.get_text(start, end, True)
+
+        if not app._has_images and "![" in content:
+            app._has_images = True
+
         display_title = derive_display_title(content, current)
         snippet = get_snippet(content)
 
@@ -289,9 +310,6 @@ class NoteLifecycleManager:
                 break
 
         if not row_found and content.strip():
-            # Only trigger a full refresh for existing notes that somehow
-            # lost their sidebar row. New unsaved notes don't have a row yet,
-            # so skip to avoid rebuilding the entire list on every keystroke.
             app.refresh_list(app.sidebar.search_entry.get_text())
             if current in app.notes_manager.get_notes():
                 app._select_sidebar_row(current)
@@ -344,17 +362,23 @@ class NoteLifecycleManager:
 
         old_name = app.current_note
 
-        if app.notes_manager.is_encrypted(app.current_note):
-            if app._session_password_bytes is not None:
-                from core.encryption import encrypt
-                key_bytes, file_salt, _ = app._derive_encryption_key(app.current_note)
-                ciphertext = encrypt(content, key_bytes, file_salt)
-                app.notes_manager.save_note(app.current_note, ciphertext.decode("latin-1"), encrypt=True)
-            else:
-                logger.warning("Skipping save of encrypted note '%s' — session locked", app.current_note)
-        else:
-            app.notes_manager.save_note(app.current_note, content)
+        from core.services import save_note_content
 
+        save_note_content(
+            note_name=app.current_note,
+            content=content,
+            is_encrypted=app.notes_manager.is_encrypted(app.current_note),
+            derive_encryption_key=app._derive_encryption_key,
+            notes_manager=app.notes_manager,
+            session_password_bytes=app._session_password_bytes,
+            on_done=lambda: self._finish_save(old_name, content),
+        )
+
+        return False
+
+    def _finish_save(self, old_name: str, content: str) -> None:
+        """Post-save callback on the main thread after async I/O."""
+        app = self.app
         new_name, did_rename = update_note_title(
             old_name=old_name,
             content=content,
@@ -367,12 +391,11 @@ class NoteLifecycleManager:
             if app.notes_manager.is_encrypted(new_name):
                 app.cfg.encrypted.discard(old_name)
                 app.cfg.encrypted.add(new_name)
-                app.cfg._save_json(app.cfg.encrypted_path, app.cfg.encrypted)
-
-        app.refresh_list(app.sidebar.search_entry.get_text())
-        app._select_sidebar_row(app.current_note)
-
-        return False
+                app.cfg.sync_encrypted_set(app.cfg.encrypted)
+            app.refresh_list(app.sidebar.search_entry.get_text())
+            app._select_sidebar_row(app.current_note)
+        elif not app.sidebar.search_entry.has_focus():
+            app._select_sidebar_row(app.current_note)
 
     # Text-changed coordination
 
@@ -380,14 +403,11 @@ class NoteLifecycleManager:
         app = self.app
         if app.is_loading or not app.current_note or app.editor.is_updating_images:
             return
+        app._buffer_mod_counter += 1
         app._reset_lock_timer_on_activity()
-        app._reschedule("sidebar_update_timeout_id", 150, self._update_sidebar_and_stats)
+        app._reschedule(
+            "sidebar_update_timeout_id", 150, self._update_sidebar_and_stats
+        )
         app._reschedule("highlight_timeout_id", 100, app.do_delayed_highlight)
-        if not app._has_images:
-            start, end = app.buffer.get_bounds()
-            if "![" in app.buffer.get_text(start, end, False):
-                app._has_images = True
-        if app._has_images:
-            app._reschedule("image_timeout_id", 2000, app.do_delayed_images)
+        app._reschedule("image_timeout_id", 2000, app.do_delayed_images)
         app._reschedule("rename_timeout_id", 1000, self.do_delayed_save)
-

@@ -1,9 +1,11 @@
 """Window creation and responsive breakpoint management."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gtk
@@ -15,7 +17,7 @@ if TYPE_CHECKING:
 class WindowManager:
     """Manages window creation and responsive breakpoints."""
 
-    def __init__(self, app: "TokyoNotes") -> None:
+    def __init__(self, app: TokyoNotes) -> None:
         self.app = app
 
     def create_window(self) -> Adw.ApplicationWindow:
@@ -33,7 +35,8 @@ class WindowManager:
         return win
 
     def setup_breakpoint(self) -> None:
-        """Register a responsive breakpoint that collapses the sidebar on narrow screens."""
+        """Register a responsive breakpoint that collapses
+        the sidebar on narrow screens."""
         display = Gdk.Display.get_default()
         if not display:
             return

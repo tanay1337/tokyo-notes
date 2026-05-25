@@ -1,4 +1,5 @@
 """Dashboard view for task management."""
+
 from __future__ import annotations
 
 import datetime
@@ -6,10 +7,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gdk, Gio, Gtk, Pango
 
+from core.services import get_week_boundaries
 from core.utils import clear_listbox
 from ui.deadline_picker import DeadlinePicker
 from ui.progress_ring import ProgressRing
@@ -190,7 +193,9 @@ class Dashboard(Gtk.Box):
         shortcut_ctrl.set_scope(Gtk.ShortcutScope.MANAGED)
         for key, filter_type in (("1", "today"), ("2", "week"), ("3", "all")):
             trigger = Gtk.ShortcutTrigger.parse_string(f"<Primary>{key}")
-            action = Gtk.CallbackAction.new(lambda *_a, ft=filter_type: self._activate_filter(ft))
+            action = Gtk.CallbackAction.new(
+                lambda *_a, ft=filter_type: self._activate_filter(ft)
+            )
             shortcut_ctrl.add_shortcut(Gtk.Shortcut(trigger=trigger, action=action))
         self.add_controller(shortcut_ctrl)
 
@@ -254,7 +259,9 @@ class Dashboard(Gtk.Box):
         )
         cal_icon.set_pixel_size(16)
         self._quick_add_deadline_btn.set_child(cal_icon)
-        self._quick_add_deadline_btn.connect("clicked", self._on_quick_add_deadline_clicked)
+        self._quick_add_deadline_btn.connect(
+            "clicked", self._on_quick_add_deadline_clicked
+        )
         note_row.append(self._quick_add_deadline_btn)
         box.append(note_row)
 
@@ -428,38 +435,46 @@ class Dashboard(Gtk.Box):
     # Population
 
     def populate(self, checkboxes: list[dict[str, Any]], filter_type: str) -> int:
-        """Clear and repopulate the list for *filter_type*. Returns visible item count."""
+        """Clear and repopulate the list for *filter_type*.
+        Returns visible item count."""
         if not self._temp_show_completed:
             self._show_completed = self.get_show_completed()
         self._clear()
-        filtered = self._filter(checkboxes, filter_type)
+        try:
+            filtered = self._filter(checkboxes, filter_type)
 
-        # Extract overdue items so they render as a separate section at the top
-        overdue: list[dict[str, Any]] = []
-        if self._show_overdue:
-            today_str = datetime.date.today().isoformat()
-            remaining = []
-            for cb in filtered:
-                dl = cb.get("deadline", "")
-                if dl and dl.split(" ")[0] < today_str and not cb["checked"]:
-                    overdue.append(cb)
-                else:
-                    remaining.append(cb)
-            filtered = remaining
+            # Extract overdue items so they render as a separate section at the top
+            overdue: list[dict[str, Any]] = []
+            if self._show_overdue:
+                today_str = datetime.date.today().isoformat()
+                remaining = []
+                for cb in filtered:
+                    dl = cb.get("deadline", "")
+                    if dl and dl.split(" ")[0] < today_str and not cb["checked"]:
+                        overdue.append(cb)
+                    else:
+                        remaining.append(cb)
+                filtered = remaining
 
-        if not filtered and not overdue:
+            if not filtered and not overdue:
+                self.on_empty(filter_type)
+                return 0
+
+            if filter_type in ("week", "all") and not self._filter_date:
+                self._populate_grouped(
+                    filtered,
+                    overdue=overdue,
+                    include_misc=(filter_type == "all"),
+                    show_year=(filter_type == "all"),
+                )
+            else:
+                date_label = self._filter_date if self._filter_date else None
+                self._populate_flat(filtered, overdue=overdue, date_label=date_label)
+
+            return len(filtered) + len(overdue)
+        except Exception:
             self.on_empty(filter_type)
-            return 0
-
-        if filter_type in ("week", "all") and not self._filter_date:
-            self._populate_grouped(filtered, overdue=overdue,
-                                   include_misc=(filter_type == "all"),
-                                   show_year=(filter_type == "all"))
-        else:
-            date_label = self._filter_date if self._filter_date else None
-            self._populate_flat(filtered, overdue=overdue, date_label=date_label)
-
-        return len(filtered) + len(overdue)
+            raise
 
     def _clear(self) -> None:
         clear_listbox(self.dashboard_list)
@@ -474,18 +489,14 @@ class Dashboard(Gtk.Box):
             else:
                 pool = [cb for cb in checkboxes if not cb["checked"]]
             return [
-                cb for cb in pool
+                cb
+                for cb in pool
                 if (cb.get("deadline") or "").startswith(self._filter_date)
             ]
 
         today = datetime.date.today()
         _TODAY = today.isoformat()
-        if self.get_start_week_on_sunday():
-            _WEEK_START = (today - datetime.timedelta(days=(today.weekday() + 1) % 7)).isoformat()
-            _WEEK_END = (today + datetime.timedelta(days=6 - (today.weekday() + 1) % 7)).isoformat()
-        else:
-            _WEEK_START = (today - datetime.timedelta(days=today.weekday())).isoformat()
-            _WEEK_END = (today + datetime.timedelta(days=6 - today.weekday())).isoformat()
+        _WEEK_START, _WEEK_END = get_week_boundaries(self.get_start_week_on_sunday())
 
         if self._show_completed:
             pool = checkboxes
@@ -493,41 +504,49 @@ class Dashboard(Gtk.Box):
             pool = [cb for cb in checkboxes if not cb["checked"]]
 
         if filter_type == "today":
-            return [
-                cb for cb in pool
-                if (cb.get("deadline") or "").startswith(_TODAY)
-            ]
+            return [cb for cb in pool if (cb.get("deadline") or "").startswith(_TODAY)]
         if filter_type == "week":
             return [
-                cb for cb in pool
+                cb
+                for cb in pool
                 if cb.get("deadline") and _WEEK_START <= cb["deadline"] <= _WEEK_END
             ]
         return pool
 
+    def _populate_overdue_section(self, overdue: list[dict[str, Any]]) -> None:
+        if not overdue:
+            return
+        od_key = "overdue"
+        od_completed = sum(1 for cb in overdue if cb["checked"])
+        od_total = len(overdue)
+        header_row = self._make_date_header(
+            None,
+            label="Overdue",
+            progress=(od_completed, od_total),
+            show_year=False,
+            animate=False,
+            collapsible=False,
+            extra_css="overdue-header",
+        )
+        self.dashboard_list.append(header_row)
+        self._header_rows[od_key] = header_row
+        self._date_rows[od_key] = []
+        for cb in sorted(overdue, key=lambda x: x.get("deadline") or ""):
+            task_row = self._make_row(cb)
+            self.dashboard_list.append(task_row)
+            self._date_rows[od_key].append(task_row)
+
     def _populate_flat(
-        self, items: list[dict[str, Any]], overdue: list[dict[str, Any]] | None = None,
+        self,
+        items: list[dict[str, Any]],
+        overdue: list[dict[str, Any]] | None = None,
         date_label: str | None = None,
     ) -> None:
         today_key = datetime.date.today().isoformat()
         self._date_rows.clear()
         self._header_rows.clear()
 
-        if overdue:
-            od_key = "overdue"
-            od_completed = sum(1 for cb in overdue if cb["checked"])
-            od_total = len(overdue)
-            header_row = self._make_date_header(
-                None, label="Overdue", progress=(od_completed, od_total),
-                show_year=False, animate=False, collapsible=False,
-                extra_css="overdue-header",
-            )
-            self.dashboard_list.append(header_row)
-            self._header_rows[od_key] = header_row
-            self._date_rows[od_key] = []
-            for cb in sorted(overdue, key=lambda x: x.get("deadline") or ""):
-                task_row = self._make_row(cb)
-                self.dashboard_list.append(task_row)
-                self._date_rows[od_key].append(task_row)
+        self._populate_overdue_section(overdue or [])
 
         completed = sum(1 for cb in items if cb["checked"])
         total = len(items)
@@ -543,8 +562,12 @@ class Dashboard(Gtk.Box):
             prev = self._prev_stats.get(today_key, (0, 0))
             animate = (completed, total) != prev
             header_row = self._make_date_header(
-                None, label=header_label, progress=(completed, total),
-                show_year=False, animate=animate, collapsible=False,
+                None,
+                label=header_label,
+                progress=(completed, total),
+                show_year=False,
+                animate=animate,
+                collapsible=False,
             )
             self.dashboard_list.append(header_row)
             self._header_rows[today_key] = header_row
@@ -555,7 +578,9 @@ class Dashboard(Gtk.Box):
             self._date_rows.setdefault(today_key, []).append(task_row)
 
     def _populate_grouped(
-        self, items: list[dict[str, Any]], overdue: list[dict[str, Any]] | None = None,
+        self,
+        items: list[dict[str, Any]],
+        overdue: list[dict[str, Any]] | None = None,
         include_misc: bool = False,
         show_year: bool = False,
     ) -> None:
@@ -576,23 +601,7 @@ class Dashboard(Gtk.Box):
         self._date_rows.clear()
         self._header_rows.clear()
 
-        # Overdue section at the top
-        if overdue:
-            od_key = "overdue"
-            od_completed = sum(1 for cb in overdue if cb["checked"])
-            od_total = len(overdue)
-            header_row = self._make_date_header(
-                None, label="Overdue", progress=(od_completed, od_total),
-                show_year=False, animate=False, collapsible=False,
-                extra_css="overdue-header",
-            )
-            self.dashboard_list.append(header_row)
-            self._header_rows[od_key] = header_row
-            self._date_rows[od_key] = []
-            for cb in sorted(overdue, key=lambda x: x.get("deadline") or ""):
-                task_row = self._make_row(cb)
-                self.dashboard_list.append(task_row)
-                self._date_rows[od_key].append(task_row)
+        self._populate_overdue_section(overdue or [])
 
         current_date: str | None = None
         for cb in items_with:
@@ -603,8 +612,10 @@ class Dashboard(Gtk.Box):
                 prev = self._prev_stats.get(date_str, (0, 0))
                 animate = date_stats[date_str] != prev
                 header_row = self._make_date_header(
-                    date_str, progress=date_stats[date_str],
-                    show_year=show_year, animate=animate,
+                    date_str,
+                    progress=date_stats[date_str],
+                    show_year=show_year,
+                    animate=animate,
                     collapsed=is_collapsed,
                 )
                 self.dashboard_list.append(header_row)
@@ -626,8 +637,11 @@ class Dashboard(Gtk.Box):
             animate = nd_stats != prev
             is_collapsed = nd_key in self._collapsed
             header_row = self._make_date_header(
-                None, label="No Deadline", progress=nd_stats,
-                show_year=False, animate=animate,
+                None,
+                label="No Deadline",
+                progress=nd_stats,
+                show_year=False,
+                animate=animate,
                 collapsed=is_collapsed,
             )
             self.dashboard_list.append(header_row)
@@ -645,7 +659,9 @@ class Dashboard(Gtk.Box):
     # Row builders
 
     def _make_date_header(
-        self, date_str: str | None, label: str | None = None,
+        self,
+        date_str: str | None,
+        label: str | None = None,
         progress: tuple[int, int] | None = None,
         show_year: bool = False,
         animate: bool = True,
@@ -677,7 +693,10 @@ class Dashboard(Gtk.Box):
 
         if collapsible:
             gesture = Gtk.GestureClick.new()
-            gesture.connect("pressed", lambda *a, _d=date_str or "no_deadline": self._toggle_date(_d))
+            gesture.connect(
+                "pressed",
+                lambda *a, _d=date_str or "no_deadline": self._toggle_date(_d),
+            )
             box.add_controller(gesture)
             box.set_cursor_from_name("pointer")
 
@@ -717,7 +736,7 @@ class Dashboard(Gtk.Box):
         if " " in deadline:
             time_str = deadline.split(" ")[1]
         else:
-            time_str = ""   # date-only or no deadline: show nothing in time column
+            time_str = ""  # date-only or no deadline: show nothing in time column
 
         time_label: Gtk.Label | None = None
         row._time_label = None
@@ -781,7 +800,10 @@ class Dashboard(Gtk.Box):
         # Right-click snooze menu
         right_click = Gtk.GestureClick.new()
         right_click.set_button(3)
-        right_click.connect("pressed", lambda *a, _cb=cb: self._show_snooze_popover(a[0], a[2], a[3], _cb))
+        right_click.connect(
+            "pressed",
+            lambda *a, _cb=cb: self._show_snooze_popover(a[0], a[2], a[3], _cb),
+        )
         box.add_controller(right_click)
 
         row.set_child(box)
@@ -789,7 +811,9 @@ class Dashboard(Gtk.Box):
 
     # Snooze
 
-    def _show_snooze_popover(self, gesture: Gtk.GestureClick, x: float, y: float, cb: dict[str, Any]) -> None:
+    def _show_snooze_popover(
+        self, gesture: Gtk.GestureClick, x: float, y: float, cb: dict[str, Any]
+    ) -> None:
         self._snooze_cb = cb
 
         today = datetime.date.today()
@@ -809,18 +833,24 @@ class Dashboard(Gtk.Box):
         group = Gio.SimpleActionGroup()
         for _label, action_name, dl in presets:
             action = Gio.SimpleAction.new(action_name, None)
-            action.connect("activate", lambda *a, _dl=dl: self._apply_snooze(self._snooze_cb, _dl))
+            action.connect(
+                "activate", lambda *a, _dl=dl: self._apply_snooze(self._snooze_cb, _dl)
+            )
             group.add_action(action)
 
         pick_action = Gio.SimpleAction.new("pick-date", None)
-        pick_action.connect("activate", lambda *a: self._snooze_pick_date(self._snooze_cb))
+        pick_action.connect(
+            "activate", lambda *a: self._snooze_pick_date(self._snooze_cb)
+        )
         group.add_action(pick_action)
 
         gesture.get_widget().insert_action_group("snooze", group)
 
         preset_section = Gio.Menu()
         for _label, action_name, _dl in presets:
-            preset_section.append_item(Gio.MenuItem.new(_label, f"snooze.{action_name}"))
+            preset_section.append_item(
+                Gio.MenuItem.new(_label, f"snooze.{action_name}")
+            )
 
         pick_section = Gio.Menu()
         pick_section.append_item(Gio.MenuItem.new("Pick Date", "snooze.pick-date"))
@@ -903,7 +933,9 @@ class Dashboard(Gtk.Box):
         if target_date and target_date in self._header_rows:
             header_row = self._header_rows[target_date]
             rows = self._date_rows.get(target_date, [])
-            completed = sum(1 for r in rows if getattr(r, "checkbox_data", {}).get("checked", False))
+            completed = sum(
+                1 for r in rows if getattr(r, "checkbox_data", {}).get("checked", False)
+            )
             total = len(rows)
             ring: ProgressRing | None = getattr(header_row, "_progress_ring", None)
             if ring:

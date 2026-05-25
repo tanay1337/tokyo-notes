@@ -1,4 +1,5 @@
 """Settings view for configuring application preferences."""
+
 from __future__ import annotations
 
 import logging
@@ -6,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango
@@ -15,12 +17,42 @@ from core.utils import clear_listbox, confirm_destructive_dialog
 logger = logging.getLogger(__name__)
 
 _THEMES: list[dict[str, str]] = [
-    {"id": "tokyo-light",    "name": "Tokyo Light",    "preview": "Clean and bright, inspired by Tokyo Day",   "type": "light"},
-    {"id": "tokyo-night",    "name": "Tokyo Night",    "preview": "Deep blues and vibrant accents",             "type": "dark"},
-    {"id": "cyberpunk-2077", "name": "Cyberpunk 2077", "preview": "Night City vibes: Yellow, Cyan, and Black", "type": "dark"},
-    {"id": "nord",           "name": "Nord",           "preview": "Arctic blue, clean and elegant",             "type": "dark"},
-    {"id": "gruvbox",        "name": "Gruvbox",        "preview": "Retro warm tones, easy on the eyes",         "type": "dark"},
-    {"id": "dracula",        "name": "Dracula",        "preview": "High contrast, vibrant purple tones",        "type": "dark"},
+    {
+        "id": "tokyo-light",
+        "name": "Tokyo Light",
+        "preview": "Clean and bright, inspired by Tokyo Day",
+        "type": "light",
+    },
+    {
+        "id": "tokyo-night",
+        "name": "Tokyo Night",
+        "preview": "Deep blues and vibrant accents",
+        "type": "dark",
+    },
+    {
+        "id": "cyberpunk-2077",
+        "name": "Cyberpunk 2077",
+        "preview": "Night City vibes: Yellow, Cyan, and Black",
+        "type": "dark",
+    },
+    {
+        "id": "nord",
+        "name": "Nord",
+        "preview": "Arctic blue, clean and elegant",
+        "type": "dark",
+    },
+    {
+        "id": "gruvbox",
+        "name": "Gruvbox",
+        "preview": "Retro warm tones, easy on the eyes",
+        "type": "dark",
+    },
+    {
+        "id": "dracula",
+        "name": "Dracula",
+        "preview": "High contrast, vibrant purple tones",
+        "type": "dark",
+    },
 ]
 
 
@@ -100,56 +132,70 @@ class SettingsView(Gtk.Box):
         self.folder_row.add_suffix(folder_btn)
         group.add(self.folder_row)
 
-        group.add(self._make_switch_row(
-            "Sakura Celebration",
-            "Show cherry blossoms when completing tasks",
-            self._initial_values.get("sakura_effect", True),
-            "sakura_effect",
-        ))
+        group.add(
+            self._make_switch_row(
+                "Sakura Celebration",
+                "Show cherry blossoms when completing tasks",
+                self._initial_values.get("sakura_effect", True),
+                "sakura_effect",
+            )
+        )
         return group
 
     def _build_editor_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title="Editor")
-        group.add(self._make_switch_row(
-            "Formatting Bar",
-            "Show markdown formatting tools above the editor",
-            self._initial_values.get("show_toolbar", True),
-            "show_toolbar",
-        ))
-        group.add(self._make_switch_row(
-            "Status Bar",
-            "Show word count and reading time at the bottom",
-            self._initial_values.get("show_stats", False),
-            "show_stats",
-        ))
-        group.add(self._make_switch_row(
-            "Backlinks Button",
-            "Show floating backlinks button in the editor",
-            self._initial_values.get("show_backlinks", True),
-            "show_backlinks",
-        ))
+        group.add(
+            self._make_switch_row(
+                "Formatting Bar",
+                "Show markdown formatting tools above the editor",
+                self._initial_values.get("show_toolbar", True),
+                "show_toolbar",
+            )
+        )
+        group.add(
+            self._make_switch_row(
+                "Status Bar",
+                "Show word count and reading time at the bottom",
+                self._initial_values.get("show_stats", False),
+                "show_stats",
+            )
+        )
+        group.add(
+            self._make_switch_row(
+                "Backlinks Button",
+                "Show floating backlinks button in the editor",
+                self._initial_values.get("show_backlinks", True),
+                "show_backlinks",
+            )
+        )
         return group
 
     def _build_dashboard_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title="Dashboard")
-        group.add(self._make_switch_row(
-            "Show Completed Tasks",
-            "Include completed tasks in the dashboard",
-            self._initial_values.get("show_completed", True),
-            "show_completed",
-        ))
-        group.add(self._make_switch_row(
-            "Progress Indicators",
-            "Show completion rings on date headers",
-            self._initial_values.get("show_progress_rings", True),
-            "show_progress_rings",
-        ))
-        group.add(self._make_switch_row(
-            "Start Week on Sunday",
-            "Show Sun - Sat instead of Mon - Sun in the Week filter",
-            self._initial_values.get("start_week_on_sunday", True),
-            "start_week_on_sunday",
-        ))
+        group.add(
+            self._make_switch_row(
+                "Show Completed Tasks",
+                "Include completed tasks in the dashboard",
+                self._initial_values.get("show_completed", True),
+                "show_completed",
+            )
+        )
+        group.add(
+            self._make_switch_row(
+                "Progress Indicators",
+                "Show completion rings on date headers",
+                self._initial_values.get("show_progress_rings", True),
+                "show_progress_rings",
+            )
+        )
+        group.add(
+            self._make_switch_row(
+                "Start Week on Sunday",
+                "Show Sun - Sat instead of Mon - Sun in the Week filter",
+                self._initial_values.get("start_week_on_sunday", True),
+                "start_week_on_sunday",
+            )
+        )
         return group
 
     def _build_private_group(self) -> Adw.PreferencesGroup:
@@ -157,7 +203,9 @@ class SettingsView(Gtk.Box):
 
         self._change_password_row = Adw.ActionRow(
             title="Master password",
-            subtitle="Make a note private first to enable private notes." if not self._has_encrypted_notes else "",
+            subtitle="Make a note private first to enable private notes."
+            if not self._has_encrypted_notes
+            else "",
         )
         self._change_password_btn = Gtk.Button(
             label="Set password" if not self._has_encrypted_notes else "Change password"
@@ -211,7 +259,10 @@ class SettingsView(Gtk.Box):
         self._populate_templates()
 
         if self._on_open_templates_folder:
-            folder_row = Adw.ActionRow(title="Templates Folder", subtitle="Open templates directory in file manager")
+            folder_row = Adw.ActionRow(
+                title="Templates Folder",
+                subtitle="Open templates directory in file manager",
+            )
             folder_btn = Gtk.Button()
             folder_btn.set_valign(Gtk.Align.CENTER)
             folder_btn.add_css_class("settings-icon-btn")
@@ -245,7 +296,7 @@ class SettingsView(Gtk.Box):
         self.dark_theme_list = Gtk.ListBox()
         self.dark_theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
 
-        theme_stack.add_titled(self.dark_theme_list,  "dark",  "Dark Mode")
+        theme_stack.add_titled(self.dark_theme_list, "dark", "Dark Mode")
         theme_stack.add_titled(self.light_theme_list, "light", "Light Mode")
 
         self.theme_rows: dict[str, Gtk.ListBoxRow] = {}
@@ -253,11 +304,17 @@ class SettingsView(Gtk.Box):
 
         for theme in _THEMES:
             row = self._make_theme_row(theme, theme["id"] == current_theme)
-            target_list = self.light_theme_list if theme["type"] == "light" else self.dark_theme_list
+            target_list = (
+                self.light_theme_list
+                if theme["type"] == "light"
+                else self.dark_theme_list
+            )
             target_list.append(row)
             self.theme_rows[theme["id"]] = row
 
-        theme_stack.set_visible_child_name("light" if "light" in current_theme else "dark")
+        theme_stack.set_visible_child_name(
+            "light" if "light" in current_theme else "dark"
+        )
         theme_box.append(theme_stack)
         group.add(theme_box)
         return group
@@ -267,7 +324,8 @@ class SettingsView(Gtk.Box):
 
         reset_row = Adw.ActionRow(
             title="Reset to Defaults",
-            subtitle="Restore all settings to their original values. Notes are not affected.",
+            subtitle="Restore all settings to their original values."
+            " Notes are not affected.",
         )
         reset_btn = Gtk.Button(label="Reset")
         reset_btn.set_valign(Gtk.Align.CENTER)
@@ -287,7 +345,9 @@ class SettingsView(Gtk.Box):
         row.set_active(active)
         row.connect(
             "notify::active",
-            lambda r, _pspec, key=config_key: self.on_config_changed(key, r.get_active()),
+            lambda r, _pspec, key=config_key: self.on_config_changed(
+                key, r.get_active()
+            ),
         )
         return row
 
@@ -307,7 +367,11 @@ class SettingsView(Gtk.Box):
             model.append(options[minutes])
 
         row = Adw.ComboRow(title="Lock after inactivity", model=model)
-        current_idx = (0, 5, 15, 30, 60).index(current_minutes) if current_minutes in options else 1
+        current_idx = (
+            (0, 5, 15, 30, 60).index(current_minutes)
+            if current_minutes in options
+            else 1
+        )
         row.set_selected(current_idx)
         row.connect(
             "notify::selected",
@@ -359,14 +423,14 @@ class SettingsView(Gtk.Box):
     def on_reset_clicked(self, button: Gtk.Button) -> None:
         """Reset all settings to their default values and confirm visually."""
         defaults = {
-            "show_toolbar":        True,
-            "show_stats":          False,
-            "sakura_effect":       True,
-            "show_completed":      True,
+            "show_toolbar": True,
+            "show_stats": False,
+            "sakura_effect": True,
+            "show_completed": True,
             "show_progress_rings": True,
-            "show_backlinks":      True,
+            "show_backlinks": True,
             "start_week_on_sunday": True,
-            "theme":               "tokyo-night",
+            "theme": "tokyo-night",
         }
         for key, value in defaults.items():
             self.on_config_changed(key, value)
@@ -374,10 +438,12 @@ class SettingsView(Gtk.Box):
 
         button.set_label("Reset ✓")
         button.set_sensitive(False)
+
         def _reset_btn() -> bool:
             button.set_label("Reset")
             button.set_sensitive(True)
             return False
+
         GLib.timeout_add(1500, _reset_btn)
 
     def update_folder_path(self, new_path: str) -> None:
@@ -390,7 +456,9 @@ class SettingsView(Gtk.Box):
         )
         self._change_password_btn.set_sensitive(has_encrypted)
         self._change_password_row.set_subtitle(
-            "Make a note private first to enable private notes." if not has_encrypted else ""
+            "Make a note private first to enable private notes."
+            if not has_encrypted
+            else ""
         )
 
     def _on_change_password_clicked(self, *_args) -> None:
@@ -406,7 +474,9 @@ class SettingsView(Gtk.Box):
         if not self._templates:
             empty = Gtk.ListBoxRow()
             empty.set_sensitive(False)
-            label = Gtk.Label(label="No templates yet. Click the + button to create one.", xalign=0.5)
+            label = Gtk.Label(
+                label="No templates yet. Click the + button to create one.", xalign=0.5
+            )
             label.add_css_class("dim-label")
             label.set_margin_top(8)
             label.set_margin_bottom(8)
@@ -446,12 +516,13 @@ class SettingsView(Gtk.Box):
         delete_btn.set_valign(Gtk.Align.CENTER)
         delete_btn.add_css_class("template-action-btn")
         delete_btn.add_css_class("settings-icon-btn")
-        delete_img = Gtk.Image.new_from_file(
-            str(self._assets_dir / "delete.svg")
-        )
+        delete_img = Gtk.Image.new_from_file(str(self._assets_dir / "delete.svg"))
         delete_img.set_pixel_size(16)
         delete_btn.set_child(delete_img)
-        delete_btn.connect("clicked", lambda _: self._on_delete_template_confirm(tmpl["slug"], tmpl["name"]))
+        delete_btn.connect(
+            "clicked",
+            lambda _: self._on_delete_template_confirm(tmpl["slug"], tmpl["name"]),
+        )
         box.append(delete_btn)
 
         row.set_child(box)
@@ -462,7 +533,8 @@ class SettingsView(Gtk.Box):
         dialog = confirm_destructive_dialog(
             transient_for=self.get_root(),
             heading="Delete Template?",
-            body=f"Are you sure you want to delete '{name}'? This action cannot be undone.",
+            body=f"Are you sure you want to delete '{name}'?"
+            " This action cannot be undone.",
         )
         dialog.connect("response", self._on_delete_template_response, slug)
         dialog.present()

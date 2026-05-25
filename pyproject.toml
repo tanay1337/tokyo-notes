@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tokyo-notes"
+version = "0.1.0"
+description = "A minimal, modern GTK4 Markdown note-taking application"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Tanay" }]
+dependencies = [
+    "pygobject==3.56.3",
+    "pycairo==1.29.0",
+    "cryptography==48.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit>=4.0",
+    "pytest>=8.0",
+    "pytest-cov>=6.0",
+    "ruff>=0.5.0",
+    "pyright>=1.1",
+]
+
+[project.scripts]
+tokyo-notes = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+packages = ["core", "markdown", "ui"]
+include-package-data = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"core/*.py" = ["E402"]
+"ui/*.py" = ["E402"]
+"main.py" = ["E402"]
+"tests/test_encryption.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gtk: tests that require a real GTK/GObject runtime",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["core", "markdown", "ui", "main"]
+omit = [
+    "tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 70
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+include = [
+    "core/services.py",
+    "core/storage.py",
+    "core/template_manager.py",
+    "markdown",
+]
+exclude = [
+    "**/__pycache__",
+    ".venv",
+]
+reportMissingImports = false

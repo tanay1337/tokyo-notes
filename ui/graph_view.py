@@ -1,4 +1,5 @@
 """Graph view — zoomable, pannable force-directed note relationship graph."""
+
 from __future__ import annotations
 
 import math
@@ -6,17 +7,18 @@ import random
 from typing import Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo
 
-_REPULSION   = 8_000.0   # node-node repulsion constant
-_ATTRACTION  = 0.06      # edge spring constant
-_DAMPING     = 0.85      # velocity damping per step
-_STEPS       = 120       # simulation steps before display
+_REPULSION = 8_000.0  # node-node repulsion constant
+_ATTRACTION = 0.06  # edge spring constant
+_DAMPING = 0.85  # velocity damping per step
+_STEPS = 120  # simulation steps before display
 
 _BASE_RADIUS = 6.0
-_MAX_RADIUS  = 20.0
+_MAX_RADIUS = 20.0
 
 
 class GraphView(Gtk.Box):
@@ -78,9 +80,7 @@ class GraphView(Gtk.Box):
         self.canvas.connect("unrealize", self._on_unrealize)
 
         # Scroll -> zoom
-        scroll = Gtk.EventControllerScroll.new(
-            Gtk.EventControllerScrollFlags.VERTICAL
-        )
+        scroll = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
         scroll.connect("scroll", self._on_scroll)
         self.canvas.add_controller(scroll)
 
@@ -196,8 +196,8 @@ class GraphView(Gtk.Box):
                 dy = self._pos[t][1] - self._pos[node][1]
                 forces[node][0] += _ATTRACTION * dx
                 forces[node][1] += _ATTRACTION * dy
-                forces[t][0]    -= _ATTRACTION * dx
-                forces[t][1]    -= _ATTRACTION * dy
+                forces[t][0] -= _ATTRACTION * dx
+                forces[t][1] -= _ATTRACTION * dy
 
         for node in self.nodes:
             self._vel[node][0] = (self._vel[node][0] + forces[node][0]) * _DAMPING
@@ -259,8 +259,12 @@ class GraphView(Gtk.Box):
             t = elapsed / duration
             eased = 1.0 - (1.0 - t) ** 3
             self._scale = start_scale + (target_scale - start_scale) * eased
-            self._offset[0] = start_offset[0] + (target_offset_x - start_offset[0]) * eased
-            self._offset[1] = start_offset[1] + (target_offset_y - start_offset[1]) * eased
+            self._offset[0] = (
+                start_offset[0] + (target_offset_x - start_offset[0]) * eased
+            )
+            self._offset[1] = (
+                start_offset[1] + (target_offset_y - start_offset[1]) * eased
+            )
             self.canvas.queue_draw()
             return True
 
@@ -270,13 +274,17 @@ class GraphView(Gtk.Box):
 
     # Coordinate helpers
 
-    def _graph_to_canvas(self, gx: float, gy: float, w: int, h: int) -> tuple[float, float]:
+    def _graph_to_canvas(
+        self, gx: float, gy: float, w: int, h: int
+    ) -> tuple[float, float]:
         return (
             gx * self._scale + w / 2 + self._offset[0],
             gy * self._scale + h / 2 + self._offset[1],
         )
 
-    def _canvas_to_graph(self, cx: float, cy: float, w: int, h: int) -> tuple[float, float]:
+    def _canvas_to_graph(
+        self, cx: float, cy: float, w: int, h: int
+    ) -> tuple[float, float]:
         return (
             (cx - w / 2 - self._offset[0]) / self._scale,
             (cy - h / 2 - self._offset[1]) / self._scale,
@@ -284,9 +292,7 @@ class GraphView(Gtk.Box):
 
     # Drawing
 
-    def _on_draw(
-        self, area: Gtk.DrawingArea, cr, width: int, height: int
-    ) -> None:
+    def _on_draw(self, area: Gtk.DrawingArea, cr, width: int, height: int) -> None:
         if not self.nodes:
             return
 
@@ -321,7 +327,9 @@ class GraphView(Gtk.Box):
         # Compute label bounding boxes for collision detection
         label_bboxes: dict[str, tuple[float, float, float, float]] = {}
         node_radii: dict[str, float] = {}
-        sorted_nodes = sorted(self.nodes, key=lambda n: self._degrees.get(n, 0), reverse=True)
+        sorted_nodes = sorted(
+            self.nodes, key=lambda n: self._degrees.get(n, 0), reverse=True
+        )
         for node in sorted_nodes:
             if node not in positions:
                 continue
@@ -350,15 +358,14 @@ class GraphView(Gtk.Box):
                 visible = False
             else:
                 candidates = [
-                    (0.0, 0.0),           # right (default)
-                    (0.0, -lh - r - 4),   # above
-                    (0.0, lh + r + 4),    # below
-                    (-lw - r - 8, 0.0),   # left
+                    (0.0, 0.0),  # right (default)
+                    (0.0, -lh - r - 4),  # above
+                    (0.0, lh + r + 4),  # below
+                    (-lw - r - 8, 0.0),  # left
                 ]
                 for dx, dy in candidates:
                     test_lx = lx + dx
                     test_ly = ly + dy
-                    test_bbox = (test_lx, test_ly, lw, lh)
                     collision = False
                     for other in sorted_nodes:
                         if other == node or other not in label_bboxes:
@@ -377,8 +384,12 @@ class GraphView(Gtk.Box):
                             olx, oly, olw, olh = label_bboxes[other]
                             olx += odx
                             oly += ody
-                            if not (test_lx + lw < olx or olx + olw < test_lx or
-                                    test_ly + lh < oly or oly + olh < test_ly):
+                            if not (
+                                test_lx + lw < olx
+                                or olx + olw < test_lx
+                                or test_ly + lh < oly
+                                or oly + olh < test_ly
+                            ):
                                 collision = True
                                 break
                     if not collision:
@@ -403,7 +414,7 @@ class GraphView(Gtk.Box):
                 x2, y2 = positions[t]
 
                 if has_hover:
-                    is_connected = (node == self._hovered or t == self._hovered)
+                    is_connected = node == self._hovered or t == self._hovered
                     if is_connected:
                         cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.6)
                         cr.set_line_width(2.0)
@@ -425,9 +436,13 @@ class GraphView(Gtk.Box):
                 ay = y2 - (r_t + 2) * math.sin(angle)
                 hl, ha = 8, math.pi / 6
                 cr.move_to(ax, ay)
-                cr.line_to(ax - hl * math.cos(angle - ha), ay - hl * math.sin(angle - ha))
+                cr.line_to(
+                    ax - hl * math.cos(angle - ha), ay - hl * math.sin(angle - ha)
+                )
                 cr.move_to(ax, ay)
-                cr.line_to(ax - hl * math.cos(angle + ha), ay - hl * math.sin(angle + ha))
+                cr.line_to(
+                    ax - hl * math.cos(angle + ha), ay - hl * math.sin(angle + ha)
+                )
                 cr.stroke()
 
         # Nodes
@@ -481,7 +496,9 @@ class GraphView(Gtk.Box):
                 return node
         return None
 
-    def _on_motion(self, controller: Gtk.EventControllerMotion, x: float, y: float) -> None:
+    def _on_motion(
+        self, controller: Gtk.EventControllerMotion, x: float, y: float
+    ) -> None:
         node = self._node_at(x, y)
         if node == self._hovered:
             return
@@ -507,9 +524,7 @@ class GraphView(Gtk.Box):
             return
         if self._pending_navigate:
             GLib.source_remove(self._pending_navigate)
-        self._pending_navigate = GLib.timeout_add(
-            400, self._do_navigate, node
-        )
+        self._pending_navigate = GLib.timeout_add(400, self._do_navigate, node)
 
     def _do_navigate(self, node: str) -> bool:
         self._pending_navigate = 0

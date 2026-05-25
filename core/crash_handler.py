@@ -5,6 +5,7 @@ that reaches the top of the call stack (rather than being caught inside a
 GTK signal callback) will be logged, saved to disk, and shown to the user
 as a non-fatal dialog where possible.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -33,6 +34,7 @@ except ImportError:
 def _write_crash_report(exc_type: type, exc_value: Exception, exc_tb: Any) -> Path:
     """Serialise the exception to a timestamped file and return its path."""
     _CRASH_DIR.mkdir(parents=True, exist_ok=True)
+    _CRASH_DIR.chmod(0o700)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     crash_path = _CRASH_DIR / f"crash_{timestamp}.txt"
 
@@ -44,18 +46,23 @@ def _write_crash_report(exc_type: type, exc_value: Exception, exc_tb: Any) -> Pa
     ]
     try:
         crash_path.write_text("\n".join(report_lines), encoding="utf-8")
+        crash_path.chmod(0o600)
     except OSError as e:
         logger.error("Could not write crash report: %s", e)
 
     return crash_path
 
 
-def install(app: "TokyoNotes") -> None:
+def install(app: TokyoNotes) -> None:
     """Replace sys.excepthook with one that logs, saves, and surfaces crashes."""
     original_hook = sys.excepthook
 
     def _hook(exc_type: type, exc_value: Exception, exc_tb: Any) -> None:
-        # Always log the full traceback.
+        # Let KeyboardInterrupt pass through without logging or dialog.
+        if issubclass(exc_type, KeyboardInterrupt):
+            original_hook(exc_type, exc_value, exc_tb)
+            return
+
         logger.critical(
             "Unhandled exception",
             exc_info=(exc_type, exc_value, exc_tb),
@@ -70,8 +77,10 @@ def install(app: "TokyoNotes") -> None:
                 win = None
             else:
                 import gi as _gi
+
                 _gi.require_version("Adw", "1")
                 from gi.repository import Adw, GLib
+
                 win = getattr(app, "win", None)
                 if win is not None and GLib.main_depth() > 0:
                     dialog = Adw.MessageDialog(

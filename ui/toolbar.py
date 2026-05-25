@@ -1,7 +1,9 @@
 """Toolbar widget construction for Tokyo Notes editor."""
+
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from gi.repository import Gtk
 
@@ -10,30 +12,30 @@ from gi.repository import Gtk
 _GROUPS: list[list[tuple[str, str, str, str]] | None] = [
     # Headings
     [
-        ("# ",   "", "Heading 1 (H1)", "h1.svg"),
-        ("## ",  "", "Heading 2 (H2)", "h2.svg"),
+        ("# ", "", "Heading 1 (H1)", "h1.svg"),
+        ("## ", "", "Heading 2 (H2)", "h2.svg"),
         ("### ", "", "Heading 3 (H3)", "h3.svg"),
     ],
     None,
     # Inline styles
     [
-        ("**",  "**",  "Bold",      "bold.svg"),
-        ("_",   "_",   "Italic",     "italic.svg"),
-        ("~~",  "~~",  "Strikethrough",        "strikethrough.svg"),
-        ("`",   "`",   "Inline code",          "code.svg"),
+        ("**", "**", "Bold", "bold.svg"),
+        ("_", "_", "Italic", "italic.svg"),
+        ("~~", "~~", "Strikethrough", "strikethrough.svg"),
+        ("`", "`", "Inline code", "code.svg"),
     ],
     None,
     # Block elements
     [
-        ("```\n", "\n```", "Code block",      "block.svg"),
-        ("> ",    "",      "Block quote",     "quote.svg"),
-        ("- ",    "",      "Bullet list",     "list.svg"),
-        ("- [ ] ","",      "Task / checkbox", "checkbox.svg"),
+        ("```\n", "\n```", "Code block", "block.svg"),
+        ("> ", "", "Block quote", "quote.svg"),
+        ("- ", "", "Bullet list", "list.svg"),
+        ("- [ ] ", "", "Task / checkbox", "checkbox.svg"),
     ],
     None,
     # Links & media
     [
-        ("[Link](url)", "", "Insert link",  "link.svg"),
+        ("[Link](url)", "", "Insert link", "link.svg"),
         ("![Alt](url)", "", "Insert image", "image.svg"),
     ],
 ]

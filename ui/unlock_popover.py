@@ -1,10 +1,14 @@
 """Unlock dialog for private notes."""
+
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
 import gi
+
+from core.utils import ErrorLabelMixin, set_response_suggested
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
@@ -15,16 +19,16 @@ if TYPE_CHECKING:
     from main import TokyoNotes
 
 
-class UnlockDialog(Adw.MessageDialog):
+class UnlockDialog(ErrorLabelMixin, Adw.MessageDialog):
     """Modal password prompt for unlocking private notes.
 
     Features:
     - Single password entry field (visibility hidden)
-    - Wrong password: shake animation, field clears, error label
-    - Three consecutive wrong attempts: 5-second cooldown with countdown
+    - Wrong password: error label, field clears
+    - Three consecutive wrong attempts: short pause (5 s cooldown)
     """
 
-    def __init__(self, app: "TokyoNotes") -> None:
+    def __init__(self, app: TokyoNotes) -> None:
         super().__init__(
             transient_for=app.win,
             modal=True,
@@ -36,10 +40,7 @@ class UnlockDialog(Adw.MessageDialog):
 
         self.add_response("cancel", "Cancel")
         self.add_response("unlock", "Unlock")
-        try:
-            self.set_response_appearance("unlock", Adw.ResponseAppearance.SUGGESTED)
-        except AttributeError:
-            logger.debug("set_response_appearance not supported (older Adw version)")
+        set_response_suggested(self, "unlock")
         self.set_default_response("unlock")
         self.set_close_response("cancel")
 
@@ -89,22 +90,33 @@ class UnlockDialog(Adw.MessageDialog):
         if not password:
             return
 
-        self._entry.set_text("")
         self._hide_error()
-        self.close()
+        self._set_ui_sensitive(False)
         self.app.unlock_session(password)
 
+    def _set_ui_sensitive(self, sensitive: bool) -> None:
+        self._entry.set_sensitive(sensitive)
+        self.set_response_enabled("unlock", sensitive)
+
+    def on_verification_failed(self, message: str) -> None:
+        """Called by app when unlock fails."""
+        self._set_ui_sensitive(True)
+        self._entry.set_text("")
+        self._entry.grab_focus()
+        self._show_error(message)
+
+        if self.app.is_unlock_cooldown_active():
+            self._enter_cooldown()
+
     def _enter_cooldown(self) -> None:
-        self._entry.set_sensitive(False)
-        self.set_response_enabled("unlock", False)
+        self._set_ui_sensitive(False)
         remaining = self.app.get_unlock_cooldown_remaining()
 
         def _tick() -> bool:
             remaining = self.app.get_unlock_cooldown_remaining()
             if remaining <= 0:
                 self._cooldown_check_id = 0
-                self._entry.set_sensitive(True)
-                self.set_response_enabled("unlock", True)
+                self._set_ui_sensitive(True)
                 self._hide_error()
                 GLib.idle_add(lambda: (self._entry.grab_focus(), False)[1])
                 return False
@@ -113,10 +125,3 @@ class UnlockDialog(Adw.MessageDialog):
 
         self._show_error(f"Too many attempts. Wait {remaining}s…")
         self._cooldown_check_id = GLib.timeout_add_seconds(1, _tick)
-
-    def _show_error(self, message: str) -> None:
-        self._error_label.set_label(message)
-        self._error_label.set_visible(True)
-
-    def _hide_error(self) -> None:
-        self._error_label.set_visible(False)

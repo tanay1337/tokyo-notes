@@ -1,4 +1,5 @@
 """Debounce utility for frequent UI events."""
+
 from __future__ import annotations
 
 from typing import Any, Callable
@@ -15,6 +16,7 @@ class Debouncer:
         self._delay_ms = delay_ms
 
     def schedule(self, *args: Any) -> None:
+        """Reset the debounce timer; callback will fire after *delay_ms* of quiet."""
         self.cancel()
         self._timeout_id = GLib.timeout_add(self._delay_ms, self._fire, args)
 
@@ -24,12 +26,15 @@ class Debouncer:
         return False
 
     def cancel(self) -> None:
+        """Cancel any pending scheduled callback."""
         if self._timeout_id:
             GLib.source_remove(self._timeout_id)
             self._timeout_id = 0
 
     def is_pending(self) -> bool:
+        """Return True if a callback is scheduled and waiting."""
         return self._timeout_id > 0
 
     def set_delay(self, delay_ms: int) -> None:
+        """Update the debounce delay. Does not affect an already-scheduled timer."""
         self._delay_ms = delay_ms

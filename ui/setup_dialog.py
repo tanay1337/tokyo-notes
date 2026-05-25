@@ -1,20 +1,22 @@
 """First-time setup dialog for private notes."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 
-from core.utils import assess_password_strength
+from core.utils import ErrorLabelMixin, assess_password_strength
 
 if TYPE_CHECKING:
     from main import TokyoNotes
 
 
-class SetupDialog(Adw.Window):
+class SetupDialog(ErrorLabelMixin, Adw.Window):
     """First-time master password setup dialog.
 
     Features:
@@ -23,7 +25,7 @@ class SetupDialog(Adw.Window):
     - After setup: offers optional recovery key export
     """
 
-    def __init__(self, app: "TokyoNotes", note_name: str) -> None:
+    def __init__(self, app: TokyoNotes, note_name: str) -> None:
         super().__init__(transient_for=app.win, modal=True)
         self.set_default_size(400, 320)
         self.set_title("Set up Private Notes")
@@ -58,7 +60,8 @@ class SetupDialog(Adw.Window):
                 "You will be asked for it each time you open the app "
                 "and after periods of inactivity."
             ),
-            xalign=0, wrap=True,
+            xalign=0,
+            wrap=True,
         )
         desc_label.add_css_class("dim-label")
         heading_box.append(desc_label)
@@ -129,8 +132,8 @@ class SetupDialog(Adw.Window):
         if password != confirm:
             self._show_error("Passwords do not match.")
             return
-        if len(password) < 4:
-            self._show_error("Password is too short (min 4 characters).")
+        if len(password) < 8:
+            self._show_error("Password is too short (min 8 characters).")
             return
 
         if self._note_name:
@@ -142,45 +145,31 @@ class SetupDialog(Adw.Window):
         self.close()
 
     def _encrypt_note(self, note_name: str, password: str) -> None:
-        import os
-        from core.encryption import encrypt, secure_delete, derive_key, _SALT_LEN
+        from core.services import encrypt_note_on_disk
 
-        salt = os.urandom(_SALT_LEN)
-        key = derive_key(password, salt)
-        key_bytes = bytearray(key)
+        password_bytes = bytearray(password.encode("utf-8"))
+        content, key_bytes = encrypt_note_on_disk(
+            note_name=note_name,
+            password=password_bytes,
+            notes_manager=self.app.notes_manager,
+            cfg=self.app.cfg,
+        )
 
-        content = self.app.notes_manager.read_note(note_name)
-        ciphertext = encrypt(content, key_bytes, salt)
-
-        plain_path = self.app.notes_manager.notes_dir / f"{note_name}.md"
-        self.app.notes_manager.save_note(note_name, ciphertext.decode("latin-1"), encrypt=True)
-        self.app.cfg.mark_encrypted(note_name)
-
-        if plain_path.exists():
-            secure_delete(plain_path)
-
-        self.app._session_password_bytes = bytearray(password.encode("utf-8"))
-        self.app._session_key = key_bytes
+        self.app._session_password_bytes = password_bytes
+        self.app._encryption_key_cache[note_name] = key_bytes
         self.app._is_session_locked = False
+        self.app.sidebar.set_row_encrypted(note_name, True)
         self.app._update_sidebar_lock_state()
         self.app._reset_lock_timer()
-        self.app.refresh_list()
+        self.app.current_note = note_name
+        self.app._select_sidebar_row(note_name)
+        self.app._set_buffer_text(content)
+        if self.app.highlighter:
+            self.app.highlighter.highlight()
+        self.app.buffer.handler_unblock(self.app.changed_handler_id)
 
         if hasattr(self.app, "settings_view") and self.app.settings_view:
             self.app.settings_view._has_encrypted_notes = True
             self.app.settings_view._change_password_btn.set_label("Change password")
             self.app.settings_view._change_password_btn.set_sensitive(True)
             self.app.settings_view._change_password_row.set_subtitle("")
-
-        if self.app.current_note == note_name:
-            self.app._set_buffer_text(content)
-            self.app.buffer.handler_unblock(self.app.changed_handler_id)
-
-    def _show_error(self, message: str) -> None:
-        self._error_label.set_label(message)
-        self._error_label.set_visible(True)
-
-    def _hide_error(self) -> None:
-        self._error_label.set_visible(False)
-
-

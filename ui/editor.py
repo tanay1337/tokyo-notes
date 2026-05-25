@@ -1,4 +1,5 @@
 """Markdown editor component with syntax highlighting and image support."""
+
 from __future__ import annotations
 
 import logging
@@ -7,8 +8,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
 from ui.deadline_picker import DeadlinePicker
 from ui.link_picker import LinkPicker
@@ -20,9 +22,18 @@ logger = logging.getLogger(__name__)
 # come before plain list so the more-specific pattern matches first.
 _CONTINUATION_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^(\s*-\s*\[[ xX]\])(.*)$"), "task"),
-    (re.compile(r"^(\s*[-*+])\s+"),            "list"),
-    (re.compile(r"^(\s*\d+\.)\s+"),            "ordered"),
+    (re.compile(r"^(\s*[-*+])\s+"), "list"),
+    (re.compile(r"^(\s*\d+\.)\s+"), "ordered"),
 ]
+
+
+def resolve_image_path(notes_dir: Path, image_path: str) -> Path | None:
+    """Resolve an image path only if it stays inside *notes_dir*."""
+    notes_dir_resolved = notes_dir.resolve()
+    full_path = (notes_dir / image_path).resolve()
+    if not full_path.is_relative_to(notes_dir_resolved):
+        return None
+    return full_path
 
 
 class Editor(Gtk.Box):
@@ -94,7 +105,12 @@ class Editor(Gtk.Box):
         self._picker_open: bool = False
 
     def _build_lock_overlay(self) -> Gtk.Box:
-        overlay_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16, valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER)
+        overlay_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=16,
+            valign=Gtk.Align.CENTER,
+            halign=Gtk.Align.CENTER,
+        )
         overlay_box.add_css_class("lock-overlay")
 
         icon_path = Path(__file__).parent.parent / "assets" / "tokyo_notes_icon.svg"
@@ -105,7 +121,8 @@ class Editor(Gtk.Box):
             overlay_box.append(icon)
 
         label = Gtk.Label(
-            label="This note is private. Click the sidebar row and enter your password to unlock.",
+            label="This note is private. Click the sidebar row"
+            " and enter your password to unlock.",
             xalign=0.5,
         )
         label.add_css_class("lock-overlay-label")
@@ -174,12 +191,15 @@ class Editor(Gtk.Box):
                 # Reset checked state on continuation.
                 new_prefix = re.sub(r"\[[xX ]\]", "[ ]", marker_only) + " "
             elif p_type == "ordered":
-                new_prefix = re.sub(
-                    r"(\d+)",
-                    lambda m: str(int(m.group(1)) + 1),
-                    marker_only,
-                    count=1,
-                ) + " "
+                new_prefix = (
+                    re.sub(
+                        r"(\d+)",
+                        lambda m: str(int(m.group(1)) + 1),
+                        marker_only,
+                        count=1,
+                    )
+                    + " "
+                )
             else:
                 new_prefix = marker_only.rstrip() + " "
 
@@ -239,6 +259,7 @@ class Editor(Gtk.Box):
 
     def show_link_picker(self) -> None:
         """Show the wiki-link picker popover at the cursor."""
+
         def on_selected(note_name: str) -> None:
             self._picker_open = False
             self.buffer.insert_at_cursor(f"{note_name}]]")
@@ -318,7 +339,9 @@ class Editor(Gtk.Box):
                 img_widget.set_size_request(-1, 150)
                 img_widget.add_css_class("inline-image")
 
-                full_path = notes_dir / img_path
+                full_path = resolve_image_path(notes_dir, img_path)
+                if full_path is None:
+                    continue
                 if full_path.exists():
                     try:
                         pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
@@ -327,10 +350,20 @@ class Editor(Gtk.Box):
                         img_widget.set_from_pixbuf(pixbuf)
                     except Exception as exc:
                         logger.warning("Failed to load image %s: %s", img_path, exc)
-                        broken_path = Path(__file__).parent.parent / "assets" / "editor" / "broken-image.svg"
+                        broken_path = (
+                            Path(__file__).parent.parent
+                            / "assets"
+                            / "editor"
+                            / "broken-image.svg"
+                        )
                         img_widget.set_from_file(str(broken_path))
                 else:
-                    broken_path = Path(__file__).parent.parent / "assets" / "editor" / "broken-image.svg"
+                    broken_path = (
+                        Path(__file__).parent.parent
+                        / "assets"
+                        / "editor"
+                        / "broken-image.svg"
+                    )
                     img_widget.set_from_file(str(broken_path))
 
                 self.text_view.add_child_at_anchor(img_widget, anchor)

@@ -1,4 +1,5 @@
 """Deadline picker popover widget."""
+
 from __future__ import annotations
 
 import datetime
@@ -6,6 +7,7 @@ import re
 from typing import Callable
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
@@ -17,6 +19,7 @@ class DeadlinePicker(Gtk.Popover):
         super().__init__()
         self.add_css_class("deadline-picker-popover")
         self.callback = callback
+        self.connect("closed", lambda *_: self.unparent())
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_margin_start(10)

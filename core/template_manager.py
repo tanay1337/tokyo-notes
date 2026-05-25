@@ -1,10 +1,12 @@
 """Template manager — handles built-in and user templates."""
+
 from __future__ import annotations
 
 import datetime
 import logging
+import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from main import TokyoNotes
@@ -12,12 +14,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR_NAME = ".templates"
+_VALID_TEMPLATE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class TemplateManager:
     """Manages template provisioning, CRUD, and variable substitution."""
 
-    def __init__(self, app: "TokyoNotes") -> None:
+    def __init__(self, app: TokyoNotes) -> None:
         self.app = app
 
     @property
@@ -40,7 +43,7 @@ class TemplateManager:
                 path.write_text(template["content"], encoding="utf-8")
                 logger.info("Provisioned built-in template: %s", slug)
 
-    def get_all_templates(self) -> list[dict[str, str]]:
+    def get_all_templates(self) -> list[dict[str, Any]]:
         """Return all templates (built-in + user) as a list of dicts.
 
         Each dict has: slug, name, content, is_builtin, description.
@@ -49,7 +52,7 @@ class TemplateManager:
 
         self._ensure_templates_dir()
 
-        templates: list[dict[str, str]] = []
+        templates: list[dict[str, Any]] = []
         builtins_by_file = {
             f"{slug}.md": info for slug, info in BUILTIN_TEMPLATES.items()
         }
@@ -58,19 +61,22 @@ class TemplateManager:
             slug = path.stem
             content = path.read_text(encoding="utf-8")
             builtin_info = builtins_by_file.get(path.name)
-            templates.append({
-                "slug": slug,
-                "name": builtin_info["name"] if builtin_info else slug,
-                "content": content,
-                "is_builtin": builtin_info is not None,
-                "description": builtin_info["description"] if builtin_info else "",
-            })
+            templates.append(
+                {
+                    "slug": slug,
+                    "name": builtin_info["name"] if builtin_info else slug,
+                    "content": content,
+                    "is_builtin": builtin_info is not None,
+                    "description": builtin_info["description"] if builtin_info else "",
+                }
+            )
 
         return templates
 
     def get_template_content(self, slug: str) -> str | None:
         """Return the raw content of a template by slug, or None."""
         self._ensure_templates_dir()
+        self._validate_slug(slug)
         path = self.templates_dir / f"{slug}.md"
         if path.exists():
             return path.read_text(encoding="utf-8")
@@ -80,6 +86,7 @@ class TemplateManager:
         """Save *content* as a new user template. Returns the slug."""
         self._ensure_templates_dir()
         slug = self._make_slug(name)
+        slug = self._reserve_slug(slug)
         path = self.templates_dir / f"{slug}.md"
         path.write_text(content, encoding="utf-8")
         logger.info("Saved user template: %s", slug)
@@ -88,6 +95,7 @@ class TemplateManager:
     def delete_template(self, slug: str) -> bool:
         """Delete a template by slug. Returns True if deleted."""
         self._ensure_templates_dir()
+        self._validate_slug(slug)
         path = self.templates_dir / f"{slug}.md"
         if path.exists():
             path.unlink()
@@ -98,6 +106,7 @@ class TemplateManager:
     def update_template(self, slug: str, content: str) -> bool:
         """Update a template's content. Returns True if updated."""
         self._ensure_templates_dir()
+        self._validate_slug(slug)
         path = self.templates_dir / f"{slug}.md"
         if path.exists():
             path.write_text(content, encoding="utf-8")
@@ -131,3 +140,19 @@ class TemplateManager:
         if not slug:
             slug = "untitled"
         return slug
+
+    @staticmethod
+    def _validate_slug(slug: str) -> None:
+        """Reject slugs that could escape the templates directory."""
+        if not _VALID_TEMPLATE_SLUG_RE.fullmatch(slug):
+            raise ValueError(f"Invalid template slug: {slug!r}")
+
+    def _reserve_slug(self, slug: str) -> str:
+        """Return *slug* or a numbered variant that does not already exist."""
+        self._validate_slug(slug)
+        candidate = slug
+        counter = 1
+        while (self.templates_dir / f"{candidate}.md").exists():
+            candidate = f"{slug}-{counter}"
+            counter += 1
+        return candidate
