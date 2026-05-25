@@ -15,7 +15,6 @@ class DeadlinePicker(Gtk.Popover):
 
     def __init__(self, callback: Callable[[str | None], None]) -> None:
         super().__init__()
-        self.set_autohide(False)
         self.add_css_class("deadline-picker-popover")
         self.callback = callback
 
