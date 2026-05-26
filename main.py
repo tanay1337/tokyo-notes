@@ -1187,7 +1187,9 @@ class TokyoNotes(Adw.Application):
         self.toolbar.set_visible(self.cfg.get("show_toolbar"))
         self.editor.status_bar.set_visible(self.cfg.get("show_stats"))
 
-        self.highlighter = MarkdownHighlighter(self.buffer, self.cfg.get("theme"))
+        self.highlighter = MarkdownHighlighter(
+            self.buffer, self.theme_manager, self.cfg.get("theme")
+        )
         self.highlighter.highlight()
 
         self.last_cursor_line = -1
@@ -1313,7 +1315,9 @@ class TokyoNotes(Adw.Application):
         self.theme_manager.apply_theme(theme_name)
         self.cfg.set("theme", theme_name)
         if hasattr(self, "win"):
-            if "light" in theme_name:
+            from core.theme_manager import is_light_theme
+
+            if is_light_theme(theme_name):
                 self.win.add_css_class("light-theme")
                 self.win.remove_css_class("dark-theme")
             else:

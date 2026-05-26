@@ -12,48 +12,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango
 
+from core.theme_manager import THEMES
 from core.utils import clear_listbox, confirm_destructive_dialog
 
 logger = logging.getLogger(__name__)
-
-_THEMES: list[dict[str, str]] = [
-    {
-        "id": "tokyo-light",
-        "name": "Tokyo Light",
-        "preview": "Clean and bright, inspired by Tokyo Day",
-        "type": "light",
-    },
-    {
-        "id": "tokyo-night",
-        "name": "Tokyo Night",
-        "preview": "Deep blues and vibrant accents",
-        "type": "dark",
-    },
-    {
-        "id": "cyberpunk-2077",
-        "name": "Cyberpunk 2077",
-        "preview": "Night City vibes: Yellow, Cyan, and Black",
-        "type": "dark",
-    },
-    {
-        "id": "nord",
-        "name": "Nord",
-        "preview": "Arctic blue, clean and elegant",
-        "type": "dark",
-    },
-    {
-        "id": "gruvbox",
-        "name": "Gruvbox",
-        "preview": "Retro warm tones, easy on the eyes",
-        "type": "dark",
-    },
-    {
-        "id": "dracula",
-        "name": "Dracula",
-        "preview": "High contrast, vibrant purple tones",
-        "type": "dark",
-    },
-]
 
 
 class SettingsView(Gtk.Box):
@@ -98,23 +60,56 @@ class SettingsView(Gtk.Box):
         clamp.set_maximum_size(850)
         clamp.set_tightening_threshold(600)
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
-        content.set_margin_top(30)
-        content.set_margin_bottom(30)
-        content.set_margin_start(20)
-        content.set_margin_end(20)
+        self._content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
+        self._content.set_margin_top(30)
+        self._content.set_margin_bottom(30)
+        self._content.set_margin_start(20)
+        self._content.set_margin_end(20)
 
-        content.append(self._build_general_group())
-        content.append(self._build_editor_group())
-        content.append(self._build_dashboard_group())
-        content.append(self._build_versioning_group())
-        content.append(self._build_flashcard_group())
-        content.append(self._build_private_group())
-        content.append(self._build_templates_group())
-        content.append(self._build_theme_group())
-        content.append(self._build_danger_group())
+        search_entry = Gtk.SearchEntry()
+        search_entry.set_placeholder_text("Search settings…")
+        search_entry.connect("search-changed", self._on_settings_search)
+        self._content.append(search_entry)
 
-        clamp.set_child(content)
+        self._settings_groups: list[Adw.PreferencesGroup] = []
+
+        self._general_group = self._build_general_group()
+        self._content.append(self._general_group)
+        self._settings_groups.append(self._general_group)
+
+        self._editor_group = self._build_editor_group()
+        self._content.append(self._editor_group)
+        self._settings_groups.append(self._editor_group)
+
+        self._dashboard_group = self._build_dashboard_group()
+        self._content.append(self._dashboard_group)
+        self._settings_groups.append(self._dashboard_group)
+
+        self._versioning_group = self._build_versioning_group()
+        self._content.append(self._versioning_group)
+        self._settings_groups.append(self._versioning_group)
+
+        self._flashcard_group = self._build_flashcard_group()
+        self._content.append(self._flashcard_group)
+        self._settings_groups.append(self._flashcard_group)
+
+        self._private_group = self._build_private_group()
+        self._content.append(self._private_group)
+        self._settings_groups.append(self._private_group)
+
+        self._templates_group_container = self._build_templates_group()
+        self._content.append(self._templates_group_container)
+        self._settings_groups.append(self._templates_group_container)
+
+        self._theme_group = self._build_theme_group()
+        self._content.append(self._theme_group)
+        self._settings_groups.append(self._theme_group)
+
+        self._danger_group = self._build_danger_group()
+        self._content.append(self._danger_group)
+        self._settings_groups.append(self._danger_group)
+
+        clamp.set_child(self._content)
         scrolled.set_child(clamp)
         self.append(scrolled)
 
@@ -345,17 +340,18 @@ class SettingsView(Gtk.Box):
         theme_stack.add_titled(self.light_theme_list, "light", "Light Mode")
 
         self.theme_rows: dict[str, Gtk.ListBoxRow] = {}
+        self._theme_expanded = {"light": False, "dark": False}
         current_theme = self._initial_values.get("theme", "tokyo-night")
 
-        for theme in _THEMES:
-            row = self._make_theme_row(theme, theme["id"] == current_theme)
-            target_list = (
-                self.light_theme_list
-                if theme["type"] == "light"
-                else self.dark_theme_list
-            )
-            target_list.append(row)
-            self.theme_rows[theme["id"]] = row
+        light_themes = [t for t in THEMES if t["type"] == "light"]
+        dark_themes = [t for t in THEMES if t["type"] == "dark"]
+
+        self._populate_theme_list(
+            self.light_theme_list, light_themes, current_theme, "light"
+        )
+        self._populate_theme_list(
+            self.dark_theme_list, dark_themes, current_theme, "dark"
+        )
 
         theme_stack.set_visible_child_name(
             "light" if "light" in current_theme else "dark"
@@ -363,6 +359,73 @@ class SettingsView(Gtk.Box):
         theme_box.append(theme_stack)
         group.add(theme_box)
         return group
+
+    def _populate_theme_list(
+        self,
+        list_box: Gtk.ListBox,
+        themes: list[dict[str, str]],
+        current_theme: str,
+        theme_type: str,
+    ) -> None:
+        visible_count = 5
+        expanded = self._theme_expanded[theme_type]
+
+        for i, theme in enumerate(themes):
+            row = self._make_theme_row(theme, theme["id"] == current_theme)
+            row.set_visible(expanded or i < visible_count)
+            list_box.append(row)
+            self.theme_rows[theme["id"]] = row
+
+        if len(themes) > visible_count:
+            btn_label = (
+                "Show Less" if expanded else f"Show {len(themes) - visible_count} More"
+            )
+            show_more_btn = Gtk.Button(label=btn_label)
+            show_more_btn.add_css_class("flat")
+            show_more_btn.set_halign(Gtk.Align.CENTER)
+            show_more_btn.set_margin_top(4)
+            show_more_btn.connect(
+                "clicked",
+                lambda _btn, lb=list_box, th=themes, ct=current_theme, tt=theme_type: (
+                    self._toggle_theme_list(lb, th, ct, tt)
+                ),
+            )
+            list_box.append(show_more_btn)
+
+    def _toggle_theme_list(
+        self,
+        list_box: Gtk.ListBox,
+        themes: list[dict[str, str]],
+        current_theme: str,
+        theme_type: str,
+    ) -> None:
+        self._theme_expanded[theme_type] = not self._theme_expanded[theme_type]
+        visible_count = 5
+        expanded = self._theme_expanded[theme_type]
+
+        from core.utils import clear_listbox
+
+        clear_listbox(list_box)
+
+        for i, theme in enumerate(themes):
+            row = self._make_theme_row(theme, theme["id"] == current_theme)
+            row.set_visible(expanded or i < visible_count)
+            list_box.append(row)
+            self.theme_rows[theme["id"]] = row
+
+        total = len(themes)
+        btn_label = "Show Less" if expanded else f"Show {total - visible_count} More"
+        show_more_btn = Gtk.Button(label=btn_label)
+        show_more_btn.add_css_class("flat")
+        show_more_btn.set_halign(Gtk.Align.CENTER)
+        show_more_btn.set_margin_top(4)
+        show_more_btn.connect(
+            "clicked",
+            lambda _btn, lb=list_box, th=themes, ct=current_theme, tt=theme_type: (
+                self._toggle_theme_list(lb, th, ct, tt)
+            ),
+        )
+        list_box.append(show_more_btn)
 
     def _build_danger_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title="Reset")
@@ -428,12 +491,32 @@ class SettingsView(Gtk.Box):
         return row
 
     def _make_theme_row(self, theme: dict[str, str], is_active: bool) -> Gtk.ListBoxRow:
-        """Create a theme selection card row."""
+        """Create a theme selection card row with color palette preview."""
         row = Gtk.ListBoxRow()
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         card.add_css_class("theme-card")
         if is_active:
             card.add_css_class("active")
+
+        palette = self._get_theme_palette(theme["id"])
+        if palette:
+            swatch_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+            swatch_box.set_margin_bottom(4)
+            for color in palette:
+                swatch = Gtk.Box()
+                swatch.set_size_request(20, 12)
+                swatch.set_halign(Gtk.Align.START)
+                css = (
+                    f"box {{ background-color: {color}; border-radius: 3px;"
+                    " min-width: 20px; min-height: 12px; }"
+                )
+                provider = Gtk.CssProvider()
+                provider.load_from_string(css)
+                swatch.get_style_context().add_provider(
+                    provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+                )
+                swatch_box.append(swatch)
+            card.append(swatch_box)
 
         name_label = Gtk.Label(label=theme["name"], xalign=0)
         name_label.add_css_class("theme-name")
@@ -451,6 +534,23 @@ class SettingsView(Gtk.Box):
 
         return row
 
+    @staticmethod
+    def _get_theme_palette(theme_id: str) -> list[str]:
+        """Extract key palette colors from the theme CSS file."""
+        import re
+        from pathlib import Path
+
+        css_path = Path(__file__).resolve().parent.parent / "themes" / f"{theme_id}.css"
+        if not css_path.exists():
+            return []
+        css = css_path.read_text(encoding="utf-8")
+        vars_ = dict(re.findall(r"@define-color\s+(\w+)\s+(#[0-9a-fA-F]+)\s*;", css))
+        colors = []
+        for key in ("bg_color", "accent_color", "fg_color", "selection_color"):
+            if key in vars_:
+                colors.append(vars_[key])
+        return colors
+
     # Event handlers
 
     def on_select_folder_clicked(self, button: Gtk.Button) -> None:
@@ -464,6 +564,34 @@ class SettingsView(Gtk.Box):
             else:
                 card.remove_css_class("active")
         self.on_theme_selected(theme_id)
+
+    def _on_settings_search(self, entry: Gtk.SearchEntry) -> None:
+        query = entry.get_text().strip().lower()
+        if not query:
+            for group in self._settings_groups:
+                group.set_visible(True)
+            return
+
+        for group in self._settings_groups:
+            group.set_visible(self._settings_group_matches(group, query))
+
+    def _settings_group_matches(self, group: Adw.PreferencesGroup, query: str) -> bool:
+        if query in group.get_title().lower():
+            return True
+        child = group.get_first_child()
+        while child:
+            title = getattr(child, "get_title", None)
+            if title:
+                val = title()
+                if val and query in val.lower():
+                    return True
+            subtitle = getattr(child, "get_subtitle", None)
+            if subtitle:
+                val = subtitle()
+                if val and query in val.lower():
+                    return True
+            child = child.get_next_sibling()
+        return False
 
     def on_reset_clicked(self, button: Gtk.Button) -> None:
         """Reset all settings to their default values and confirm visually."""

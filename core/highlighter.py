@@ -26,33 +26,7 @@ from core.utils import (
 
 logger = logging.getLogger(__name__)
 
-_LIGHT_COLORS: dict[str, str] = {
-    "h1": "#34548a",
-    "h2": "#5a4a78",
-    "h3": "#33605a",
-    "h4": "#8c4351",
-    "h5": "#965027",
-    "h6": "#8f5e15",
-    "code_bg": "#cbccd1",
-    "code_fg": "#8f5e15",
-    "code_block_bg": "#cbccd1",
-    "code_block_fg": "#343b58",
-    "checkbox_empty": "#8c4351",
-    "checkbox_checked": "#485e30",
-    "internal_link": "#8f5e15",
-    "external_link": "#34548a",
-    "image": "#33605a",
-    "tag": "#5a4a78",
-    "deadline": "#965027",
-    "hr": "#9699a3",
-    "bullet": "#34548a",
-    "number": "#5a4a78",
-    "table": "#5a4a78",
-    "blockquote": "#485e30",
-    "dim": "#9699a3",
-}
-
-_DARK_COLORS: dict[str, str] = {
+_DEFAULT_SYNTAX_COLORS: dict[str, str] = {
     "h1": "#7aa2f7",
     "h2": "#bb9af7",
     "h3": "#2ac3de",
@@ -78,17 +52,15 @@ _DARK_COLORS: dict[str, str] = {
     "dim": "#565f89",
 }
 
-# Theme name → palette. Unlisted themes fall back to the dark palette.
-_THEME_COLORS: dict[str, dict[str, str]] = {
-    "tokyo-light": _LIGHT_COLORS,
-}
-
 
 class MarkdownHighlighter:
     """Applies syntax-highlighting tags to a Gtk.TextBuffer in-place."""
 
-    def __init__(self, buffer: Gtk.TextBuffer, theme_name: str = "tokyo-night") -> None:
+    def __init__(
+        self, buffer: Gtk.TextBuffer, theme_manager, theme_name: str = "tokyo-night"
+    ) -> None:
         self.buffer = buffer
+        self.theme_manager = theme_manager
         self.enabled = True
         self.theme_name = theme_name
 
@@ -125,7 +97,8 @@ class MarkdownHighlighter:
         self.setup_tags()
 
     def get_colors(self) -> dict[str, str]:
-        return _THEME_COLORS.get(self.theme_name, _DARK_COLORS)
+        css_colors = self.theme_manager.get_syntax_colors(self.theme_name)
+        return {**_DEFAULT_SYNTAX_COLORS, **css_colors}
 
     def setup_tags(self) -> None:
         """Create or update all TextTags to match the current theme palette."""

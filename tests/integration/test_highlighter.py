@@ -6,13 +6,19 @@ from core.highlighter import MarkdownHighlighter
 from main import TokyoNotes
 
 
+def _make_tm() -> MagicMock:
+    tm = MagicMock()
+    tm.get_syntax_colors.return_value = {}
+    return tm
+
+
 @pytest.mark.gtk
 class TestHighlighterIntegration:
     def test_highlighter_applies_tags(self):
         from gi.repository import Gtk
 
         buffer = Gtk.TextBuffer()
-        highlighter = MarkdownHighlighter(buffer)
+        highlighter = MarkdownHighlighter(buffer, _make_tm())
         buffer.set_text("# Heading\n**bold**")
 
         highlighter.highlight()
@@ -39,7 +45,7 @@ class TestHighlighterIntegration:
 
         # Create a real buffer
         buffer = Gtk.TextBuffer()
-        highlighter = MarkdownHighlighter(buffer)
+        highlighter = MarkdownHighlighter(buffer, _make_tm())
 
         # Mock app-like object
         class MockApp:

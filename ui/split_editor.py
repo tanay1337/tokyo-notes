@@ -99,7 +99,9 @@ class SplitEditor(Gtk.Box):
         container.append(editor)
         info.editor = editor
 
-        highlighter = MarkdownHighlighter(editor.buffer, app.cfg.get("theme"))
+        highlighter = MarkdownHighlighter(
+            editor.buffer, app.theme_manager, app.cfg.get("theme")
+        )
         highlighter.highlight()
         info.highlighter = highlighter
 
@@ -221,7 +223,9 @@ class SplitEditor(Gtk.Box):
         app.text_view = restored.text_view
         app.changed_handler_id = restored.changed_handler_id
         app.editor = restored
-        app.highlighter = MarkdownHighlighter(app.buffer, app.cfg.get("theme"))
+        app.highlighter = MarkdownHighlighter(
+            app.buffer, app.theme_manager, app.cfg.get("theme")
+        )
         app.highlighter.highlight()
 
         if other.note_name and not other.note_name.startswith(".template:"):
