@@ -14,6 +14,7 @@ A minimal GTK4 Markdown note-taking app.
 - **Full-Text Search**: Find notes by title or keyword content.
 - **Templates**: Create notes from reusable templates with auto-filled variables like `{{today}}`, `{{now}}`, `{{time}}`, and `{{weekday}}`.
 - **Version History**: Automatic save-points, manual snapshots, and one-click restore from any previous version via Git.
+- **Flashcards**: Extract Q/A cards from ` ```flashcard Q --- A``` blocks and flip through them to review.
 
 ## Installation
 Requires Python 3.12+, PyGObject, GTK4, Libadwaita, and Git.
@@ -40,6 +41,7 @@ python3 main.py
 | `Ctrl/Cmd + N` | New Note |
 | `Ctrl/Cmd + Shift + N` | New Note from Template |
 | `Ctrl/Cmd + D` | Toggle Dashboard |
+| `Ctrl/Cmd + Shift + F` | Flashcards |
 | `Ctrl/Cmd + F` | Focus Search |
 | `Ctrl/Cmd + G` | Knowledge Graph |
 | `Ctrl/Cmd + L` | Lock Private Notes |

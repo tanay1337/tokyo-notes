@@ -569,3 +569,51 @@ button.pill {
     font-family: "Iosevka Term", "JetBrains Mono", "Fira Code", monospace;
     font-size: 10pt;
 }
+
+/* Flashcard review view */
+.flashcard-note-list {
+    background-color: transparent;
+}
+
+.flashcard-note-row {
+    padding: 4px 8px;
+    margin: 2px 0;
+    border-radius: 8px;
+}
+
+.flashcard-count-badge {
+    font-size: 10pt;
+    font-weight: 600;
+    color: @accent_color;
+    min-width: 24px;
+    text-align: center;
+}
+
+.flashcard-card {
+    background-color: @header_bg;
+    border: 1px solid @border_color;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+}
+
+.flashcard-text {
+    font-size: 16pt;
+    font-weight: 500;
+    color: @fg_color;
+}
+
+.flashcard-done-label {
+    font-size: 20pt;
+    font-weight: 700;
+    color: @accent_color;
+}
+
+.flashcard-rate-btn {
+    min-width: 120px;
+    padding: 8px 16px;
+}
+
+.view-title {
+    font-size: 18pt;
+    font-weight: 700;
+}

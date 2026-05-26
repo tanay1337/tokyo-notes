@@ -15,6 +15,7 @@ from core.graph_manager import GraphManager
 from core.services import get_week_boundaries
 from core.utils import create_empty_state_widget
 from ui.dashboard import Dashboard
+from ui.flashcard_review import FlashcardReview
 from ui.graph_view import GraphView
 from ui.settings import SettingsView
 
@@ -179,6 +180,7 @@ class NavigationController:
                     "git_available": app.git_controller.is_git_installed(),
                     "git_enabled": app.cfg.get("git_enabled", False),
                     "git_auto_commit": app.cfg.get("git_auto_commit", True),
+                    "flashcards_enabled": app.cfg.get("flashcards_enabled", True),
                 },
                 on_change_password=app._show_password_change_dialog,
                 on_set_password=app._show_setup_dialog,
@@ -203,13 +205,32 @@ class NavigationController:
         app.sidebar.set_active_view("settings")
         app._set_backlinks_visible(False)
 
+    # Flashcards
+
+    def on_flashcard_clicked(self) -> None:
+        """Switch to the flashcard review view, lazily creating it on first access."""
+        app = self.app
+        if app.flashcard_view is None:
+            app.flashcard_view = FlashcardReview(
+                get_notes_fn=app.notes_manager.get_notes,
+                read_fn=lambda n: app.notes_manager.read_plain(n) or "",
+                assets_dir=app.base_dir / "assets",
+                on_note_selected=app.lifecycle.on_link_clicked,
+            )
+            app.content_stack.add_named(app.flashcard_view, "flashcard")
+        app.flashcard_view.refresh()
+        app.content_stack.set_visible_child_name("flashcard")
+        self.update_header_ui("Flashcards", is_editor=False)
+        app.sidebar.set_active_view("flashcard")
+        app._set_backlinks_visible(False)
+
     # Escape / back
 
     def on_escape_shortcut(self) -> bool:
         """Return to the editor from any secondary view, or clear search."""
         app = self.app
         current_page = app.content_stack.get_visible_child_name()
-        if current_page in ("dashboard", "graph", "settings"):
+        if current_page in ("dashboard", "graph", "settings", "flashcard"):
             app.content_stack.set_visible_child_name("editor")
             title = app.current_note if app.current_note else "Tokyo Notes"
             self.update_header_ui(title, is_editor=True)

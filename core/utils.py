@@ -139,6 +139,10 @@ TABLE_SEP_RE: re.Pattern = re.compile(r"^\s*\|?[\s\-:|]+\|?\s*$")
 HEADER_ATX_RE: re.Pattern = re.compile(r"^(#+)( .+)$")
 SETEXT_RE: re.Pattern = re.compile(r"^(\s*)(={3,}|-{3,})\s*$")
 FENCED_CODE_RE: re.Pattern = re.compile(r"```([\w-]*)\n?([\s\S]*?)```")
+FLASHCARD_FENCE_RE: re.Pattern = re.compile(
+    r"^```flashcard\s*\n(.*?)\n```",
+    re.MULTILINE | re.DOTALL,
+)
 
 
 # Text helpers

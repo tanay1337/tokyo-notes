@@ -999,6 +999,7 @@ class TokyoNotes(Adw.Application):
         self.graph_manager = None
         self.dashboard_view = None
         self.dashboard_list = None
+        self.flashcard_view = None
 
         overlay = self._build_content_stack()
 
@@ -1041,6 +1042,7 @@ class TokyoNotes(Adw.Application):
             on_lock=self.lock_session,
             on_new_from_template=self._on_new_from_template,
             on_quick_add=self._on_quick_add_shortcut,
+            on_flashcard=self.nav.on_flashcard_clicked,
         )
         logger.info("Tokyo Notes started — notes folder: %s", self.notes_folder)
 
@@ -1059,6 +1061,18 @@ class TokyoNotes(Adw.Application):
         self.settings_btn.add_css_class("header-btn")
         self.settings_btn.connect("clicked", self.nav.on_settings_clicked)
         header.pack_end(self.settings_btn)
+
+        self.flashcard_header_btn = Gtk.Button(tooltip_text="Flashcards")
+        flashcard_img = Gtk.Image.new_from_file(
+            str(self.base_dir / "assets" / "header" / "flashcard.svg")
+        )
+        flashcard_img.set_pixel_size(16)
+        self.flashcard_header_btn.set_child(flashcard_img)
+        self.flashcard_header_btn.add_css_class("header-btn")
+        self.flashcard_header_btn.connect(
+            "clicked", lambda _: self.nav.on_flashcard_clicked()
+        )
+        header.pack_end(self.flashcard_header_btn)
 
         # Back to Notes button — shown only when a secondary view is active.
         self.back_btn = Gtk.Button(tooltip_text="Back to Notes")
@@ -1462,6 +1476,7 @@ class TokyoNotes(Adw.Application):
                     ("<Primary><Shift>n", "New from template"),
                     ("<Primary>d", "Dashboard"),
                     ("<Primary>g", "Knowledge graph"),
+                    ("<Primary><Shift>f", "Flashcards"),
                     ("<Primary>f", "Search  (press again to clear)"),
                     ("<Primary>h", "This shortcuts window"),
                     ("<Primary><Shift>s", "Settings"),

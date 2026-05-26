@@ -27,6 +27,7 @@ _DEFAULTS: dict[str, Any] = {
     "git_enabled": False,
     "git_auto_commit": True,
     "git_init_dismissed": False,
+    "flashcards_enabled": True,
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).

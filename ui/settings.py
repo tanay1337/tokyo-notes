@@ -108,6 +108,7 @@ class SettingsView(Gtk.Box):
         content.append(self._build_editor_group())
         content.append(self._build_dashboard_group())
         content.append(self._build_versioning_group())
+        content.append(self._build_flashcard_group())
         content.append(self._build_private_group())
         content.append(self._build_templates_group())
         content.append(self._build_theme_group())
@@ -228,6 +229,18 @@ class SettingsView(Gtk.Box):
         )
         group.add(self._git_auto_commit_row)
 
+        return group
+
+    def _build_flashcard_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title="Flashcards")
+        group.add(
+            self._make_switch_row(
+                "Enable Flashcards",
+                "Parse ```flashcard blocks and review cards from the sidebar",
+                self._initial_values.get("flashcards_enabled", True),
+                "flashcards_enabled",
+            )
+        )
         return group
 
     def _build_private_group(self) -> Adw.PreferencesGroup:
