@@ -25,6 +25,7 @@ yay -S tokyo-notes-git
 
 # macOS (using Homebrew to install dependencies)
 brew install gtk4 libadwaita pygobject3 git
+pip3 install --break-system-packages gitpython
 git clone https://github.com/tanay1337/tokyo-notes.git
 cd tokyo-notes
 python3 main.py
