@@ -30,6 +30,8 @@ class Sidebar(Gtk.Box):
         on_dashboard_clicked: Callable[..., Any],
         on_archive_clicked: Callable[..., Any],
         on_graph_clicked: Callable[..., Any],
+        on_flashcard_clicked: Callable[..., Any],
+        on_settings_clicked: Callable[..., Any],
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.app = app
@@ -88,19 +90,35 @@ class Sidebar(Gtk.Box):
         self.archived_nav_btn.set_sensitive(bool(app.cfg.archived))
         footer.append(self.archived_nav_btn)
 
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        btn_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, homogeneous=True, spacing=4
+        )
 
-        self._dashboard_btn = Gtk.Button(label="Dashboard")
-        self._dashboard_btn.set_hexpand(True)
-        self._dashboard_btn.connect("clicked", on_dashboard_clicked)
-        self._dashboard_btn.add_css_class("dashboard-footer-btn")
-        btn_row.append(self._dashboard_btn)
+        def _make_nav_icon_btn(svg_name: str, tooltip: str, callback) -> Gtk.Button:
+            btn = Gtk.Button(tooltip_text=tooltip)
+            img = Gtk.Image.new_from_file(
+                str(self.app.base_dir / "assets" / "sidebar" / svg_name)
+            )
+            img.set_pixel_size(16)
+            btn.set_child(img)
+            btn.add_css_class("sidebar-icon-btn")
+            btn.add_css_class("dashboard-footer-btn")
+            btn.connect("clicked", lambda _: callback())
+            btn_row.append(btn)
+            return btn
 
-        self._graph_btn = Gtk.Button(label="Graph")
-        self._graph_btn.set_hexpand(True)
-        self._graph_btn.connect("clicked", lambda _: on_graph_clicked())
-        self._graph_btn.add_css_class("dashboard-footer-btn")
-        btn_row.append(self._graph_btn)
+        self._dashboard_btn = _make_nav_icon_btn(
+            "dashboard.svg", "Dashboard", on_dashboard_clicked
+        )
+        self._graph_btn = _make_nav_icon_btn(
+            "graph.svg", "Knowledge graph", on_graph_clicked
+        )
+        self._flashcard_btn = _make_nav_icon_btn(
+            "flashcard.svg", "Flashcards", on_flashcard_clicked
+        )
+        self._settings_btn = _make_nav_icon_btn(
+            "settings.svg", "Settings", on_settings_clicked
+        )
 
         footer.append(btn_row)
         self.append(footer)
@@ -108,6 +126,8 @@ class Sidebar(Gtk.Box):
         self._nav_buttons = {
             "dashboard": self._dashboard_btn,
             "graph": self._graph_btn,
+            "flashcard": self._flashcard_btn,
+            "settings": self._settings_btn,
         }
 
     # Search

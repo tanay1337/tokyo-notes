@@ -83,7 +83,7 @@ class TestUIFlows:
     def test_navigation_to_settings_and_back(self, app, ui):
         """Verify that clicking settings changes view and back returns to editor."""
         # 1. Click Settings
-        ui.click_button(app.settings_btn)
+        ui.click_button(app.sidebar._settings_btn)
 
         # 2. Verify view changed
         assert app.content_stack.get_visible_child_name() == "settings"

@@ -82,6 +82,12 @@ class NoteLifecycleManager:
         if not note_name:
             return
 
+        # In split mode, load into the focused pane
+        if app.split_editor is not None:
+            app._flush_pending_save()
+            app.split_editor.load_note_into_focused_pane(note_name)
+            return
+
         if note_name == app.current_note:
             if app.notes_manager.is_encrypted(note_name) and app._is_session_locked:
                 app._show_unlock_popover()

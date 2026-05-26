@@ -559,6 +559,7 @@ button.pill {
 /* Header bar icon buttons — dark-theme inversion */
 .dark-theme .header-btn image,
 .dark-theme .sidebar-icon-btn image,
+.dark-theme .dashboard-footer-btn image,
 .dark-theme .sidebar-icon,
 .dark-theme .settings-icon-btn image {
     filter: invert(1);
@@ -616,4 +617,26 @@ button.pill {
 .view-title {
     font-size: 18pt;
     font-weight: 700;
+}
+
+/* Split editor pane title */
+.split-pane-title {
+    font-size: 11pt;
+    font-weight: 700;
+    padding: 4px 0;
+}
+
+/* Split editor close button */
+.split-close-btn {
+    min-width: 20px;
+    min-height: 20px;
+    padding: 0;
+    font-size: 10pt;
+    border-radius: 4px;
+    background: none;
+    border: none;
+}
+
+.split-close-btn:hover {
+    background-color: @selection_color;
 }

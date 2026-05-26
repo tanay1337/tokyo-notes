@@ -231,11 +231,16 @@ class NavigationController:
         app = self.app
         current_page = app.content_stack.get_visible_child_name()
         if current_page in ("dashboard", "graph", "settings", "flashcard"):
-            app.content_stack.set_visible_child_name("editor")
+            target = "split_editor" if app.split_editor is not None else "editor"
+            app.content_stack.set_visible_child_name(target)
             title = app.current_note if app.current_note else "Tokyo Notes"
             self.update_header_ui(title, is_editor=True)
             app.sidebar.set_active_view("editor")
             app._set_backlinks_visible(True)
+            return True
+        # Escape closes split view if active
+        if app.split_editor is not None:
+            app.split_editor._close_pane(app.split_editor._active_side)
             return True
         if app.sidebar.search_entry.has_focus():
             app.sidebar.search_entry.set_text("")

@@ -71,6 +71,7 @@ def _make_app(**overrides: object) -> MagicMock:
         "template_manager": template_manager,
         "current_note": None,
         "is_loading": False,
+        "split_editor": None,
         "win": MagicMock(),
         "highlighter": MagicMock(),
         "content_stack": MagicMock(),

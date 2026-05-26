@@ -575,6 +575,21 @@ class TokyoNotes(Adw.Application):
             if self.changed_handler_id:
                 self.buffer.handler_unblock(self.changed_handler_id)
 
+    def _load_encrypted_note_to_buffer(
+        self, note_name: str, buffer: Gtk.TextBuffer
+    ) -> None:
+        """Decrypt and load an encrypted note into a specific buffer."""
+        if self._session_password_bytes is None:
+            return
+        try:
+            from core.encryption import decrypt
+
+            key_bytes, _, ciphertext = self._derive_encryption_key(note_name)
+            plaintext = decrypt(ciphertext, key_bytes)
+            buffer.set_text(plaintext)
+        except Exception as e:
+            logger.error("Failed to decrypt note '%s': %s", note_name, e)
+
     def _schedule_full_highlight(self) -> None:
         """Trigger a full-parse highlight asynchronously."""
         self._full_pass_complete = False
@@ -667,6 +682,70 @@ class TokyoNotes(Adw.Application):
         note_name = parameter.get_string()
         self._on_show_history(note_name)
 
+    def _on_open_split_action(self, action, parameter) -> None:
+        """Open the selected note in a split view alongside the current note."""
+        note_name = parameter.get_string()
+        current = self.current_note
+
+        if not current:
+            self._show_toast("Open a note first")
+            return
+
+        if note_name == current:
+            self._show_toast("Already open")
+            return
+
+        from ui.split_editor import SplitEditor
+
+        self._flush_pending_save()
+
+        if self.split_editor is not None:
+            self.split_editor._load_pane(self.split_editor.right, note_name)
+            self.split_editor.right.editor.text_view.grab_focus()
+            return
+
+        self._single_editor_ref = self.editor
+        self.split_editor = SplitEditor(self)
+        self.split_editor.load_notes(current, note_name)
+        self.content_stack.add_named(self.split_editor, "split_editor")
+        self.content_stack.set_visible_child_name("split_editor")
+        self.nav.update_header_ui("", is_editor=True)
+        self.sidebar.set_active_view("editor")
+        self._set_backlinks_visible(True)
+
+    def _on_open_active_action(self, action, parameter) -> None:
+        """Open the selected note in the active (focused) pane."""
+        note_name = parameter.get_string()
+
+        if self.split_editor is not None:
+            self.split_editor.flush_saves()
+            side = self.split_editor._active_side
+            info = self.split_editor.left if side == "left" else self.split_editor.right
+            if info.note_name == note_name:
+                return
+            self.split_editor._load_pane(info, note_name)
+            info.editor.text_view.grab_focus()
+            return
+
+        self._flush_pending_save()
+        self.current_note = note_name
+        self.nav.update_header_ui(note_name, is_editor=True)
+        self._has_images = False
+        if self.notes_manager.is_encrypted(note_name) and not self._is_session_locked:
+            self._load_encrypted_note(note_name)
+        else:
+            content = self.notes_manager.read_plain(note_name) or ""
+            self._set_buffer_text(content)
+            start = self.buffer.get_start_iter()
+            self.buffer.place_cursor(start)
+            self.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
+            self._schedule_full_highlight()
+        self.editor.set_editable(True)
+        self.content_stack.set_visible_child_name("editor")
+        self.sidebar.set_active_view("editor")
+        self._select_sidebar_row(note_name)
+        self.text_view.grab_focus()
+
     def _show_save_template_dialog(self, note_name: str, content: str) -> None:
         """Show a dialog to name and save a template."""
         dialog = Adw.MessageDialog(
@@ -756,6 +835,8 @@ class TokyoNotes(Adw.Application):
             ("remove_privacy", self.on_remove_privacy),
             ("save_as_template", self._on_save_as_template_action),
             ("show_history", self._on_show_history_action),
+            ("open_split", self._on_open_split_action),
+            ("open_active", self._on_open_active_action),
         ):
             action = Gio.SimpleAction.new(name, GLib.VariantType.new("s"))
             action.connect("activate", handler)
@@ -978,6 +1059,8 @@ class TokyoNotes(Adw.Application):
             self.nav.on_dashboard_clicked,
             self.nav.on_archived_clicked,
             self.nav.on_graph_clicked,
+            self.nav.on_flashcard_clicked,
+            self.nav.on_settings_clicked,
         )
         self.sidebar_toggle_handler = self.sidebar_toggle.connect(
             "toggled", self.sidebar.on_sidebar_toggled
@@ -1000,6 +1083,8 @@ class TokyoNotes(Adw.Application):
         self.dashboard_view = None
         self.dashboard_list = None
         self.flashcard_view = None
+        self.split_editor = None
+        self._single_editor_ref = None
 
         overlay = self._build_content_stack()
 
@@ -1052,27 +1137,15 @@ class TokyoNotes(Adw.Application):
         header.set_title_widget(self.content_title)
         header.pack_start(self.sidebar_toggle)
 
-        self.settings_btn = Gtk.Button(tooltip_text="Settings")
-        settings_img = Gtk.Image.new_from_file(
-            str(self.base_dir / "assets" / "header" / "settings.svg")
+        self.help_btn = Gtk.Button(tooltip_text="Keyboard shortcuts")
+        help_img = Gtk.Image.new_from_file(
+            str(self.base_dir / "assets" / "header" / "help.svg")
         )
-        settings_img.set_pixel_size(16)
-        self.settings_btn.set_child(settings_img)
-        self.settings_btn.add_css_class("header-btn")
-        self.settings_btn.connect("clicked", self.nav.on_settings_clicked)
-        header.pack_end(self.settings_btn)
-
-        self.flashcard_header_btn = Gtk.Button(tooltip_text="Flashcards")
-        flashcard_img = Gtk.Image.new_from_file(
-            str(self.base_dir / "assets" / "header" / "flashcard.svg")
-        )
-        flashcard_img.set_pixel_size(16)
-        self.flashcard_header_btn.set_child(flashcard_img)
-        self.flashcard_header_btn.add_css_class("header-btn")
-        self.flashcard_header_btn.connect(
-            "clicked", lambda _: self.nav.on_flashcard_clicked()
-        )
-        header.pack_end(self.flashcard_header_btn)
+        help_img.set_pixel_size(16)
+        self.help_btn.set_child(help_img)
+        self.help_btn.add_css_class("header-btn")
+        self.help_btn.connect("clicked", lambda _: self.show_shortcuts_dialog())
+        header.pack_end(self.help_btn)
 
         # Back to Notes button — shown only when a secondary view is active.
         self.back_btn = Gtk.Button(tooltip_text="Back to Notes")
@@ -1250,6 +1323,11 @@ class TokyoNotes(Adw.Application):
     # Formatting
 
     def apply_format(self, btn, prefix: str, suffix: str) -> None:
+        from ui.toolbar import _FLASHCARD
+
+        if prefix is _FLASHCARD:
+            self.insert_flashcard()
+            return
         if self.buffer.get_has_selection():
             start, end = self.buffer.get_selection_bounds()
             text = self.buffer.get_text(start, end, True)
@@ -1266,6 +1344,18 @@ class TokyoNotes(Adw.Application):
                 cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
                 cursor_iter.backward_chars(len(suffix))
                 self.buffer.place_cursor(cursor_iter)
+        self.text_view.grab_focus()
+
+    def insert_flashcard(self) -> None:
+        template = "```flashcard\nQuestion\n---\nAnswer\n```"
+        if self.buffer.get_has_selection():
+            start, end = self.buffer.get_selection_bounds()
+            text = self.buffer.get_text(start, end, True)
+            self.buffer.delete(start, end)
+            formatted = template.replace("Question", text, 1)
+            self.buffer.insert(start, formatted)
+        else:
+            self.buffer.insert_at_cursor(template)
         self.text_view.grab_focus()
 
     # Note list / sidebar
@@ -1321,6 +1411,11 @@ class TokyoNotes(Adw.Application):
             versioning_section.append("History", f"app.show_history::{note_name}")
             menu.append_section(None, versioning_section)
 
+        split_section = Gio.Menu()
+        split_section.append("Open", f"app.open_active::{note_name}")
+        split_section.append("Open in Split View", f"app.open_split::{note_name}")
+        menu.append_section(None, split_section)
+
         danger = Gio.Menu()
         danger.append("Delete", f"app.delete::{note_name}")
         menu.append_section(None, danger)
@@ -1371,6 +1466,10 @@ class TokyoNotes(Adw.Application):
             "_pending_highlight_id",
         ):
             self._safe_source_remove(attr)
+
+        if self.split_editor is not None:
+            self.split_editor.flush_saves()
+            return
 
         if self.current_note and self.current_note.startswith(".template:"):
             tmpl_slug = self.current_note.split(":", 1)[1]
@@ -1536,7 +1635,8 @@ class TokyoNotes(Adw.Application):
         if (
             not self.highlighter
             or self.is_loading
-            or self.content_stack.get_visible_child_name() != "editor"
+            or self.content_stack.get_visible_child_name()
+            not in ("editor", "split_editor")
         ):
             return
         if self.current_note and self.notes_manager.is_encrypted(self.current_note):
@@ -1622,9 +1722,9 @@ class TokyoNotes(Adw.Application):
             GLib.idle_add(self._do_highlight)
 
     def _do_highlight(self) -> bool:
-        if (
-            not self.highlighter
-            or self.content_stack.get_visible_child_name() != "editor"
+        if not self.highlighter or self.content_stack.get_visible_child_name() not in (
+            "editor",
+            "split_editor",
         ):
             return False
         cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
@@ -1636,9 +1736,9 @@ class TokyoNotes(Adw.Application):
     def do_delayed_highlight(self) -> bool:
         """Re-highlight only the current line and neighbours (incremental)."""
         self.highlight_timeout_id = 0
-        if (
-            not self.highlighter
-            or self.content_stack.get_visible_child_name() != "editor"
+        if not self.highlighter or self.content_stack.get_visible_child_name() not in (
+            "editor",
+            "split_editor",
         ):
             return False
         if not self._full_pass_complete:

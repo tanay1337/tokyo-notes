@@ -7,9 +7,14 @@ from typing import Any, Callable
 
 from gi.repository import Gtk
 
+# Sentinel value for special handler buttons in _GROUPS.
+_FLASHCARD = object()
+
 # Groups: (prefix, suffix, tooltip, icon_file)
 # A None entry inserts a visual separator between groups.
-_GROUPS: list[list[tuple[str, str, str, str]] | None] = [
+# Use a sentinel object (e.g. _FLASHCARD) as the prefix value for buttons
+# that need a dedicated handler instead of the generic on_format callback.
+_GROUPS: list[list[tuple[Any, str, str, str]] | None] = [
     # Headings
     [
         ("# ", "", "Heading 1 (H1)", "h1.svg"),
@@ -31,6 +36,7 @@ _GROUPS: list[list[tuple[str, str, str, str]] | None] = [
         ("> ", "", "Block quote", "quote.svg"),
         ("- ", "", "Bullet list", "list.svg"),
         ("- [ ] ", "", "Task / checkbox", "checkbox.svg"),
+        (_FLASHCARD, "", "Insert flashcard", "flashcard.svg"),
     ],
     None,
     # Links & media
@@ -75,7 +81,10 @@ def build_toolbar(
                 btn.set_child(img)
             else:
                 btn.set_label(tooltip.split(" ")[0])
-            btn.connect("clicked", on_format, prefix, suffix)
+            if prefix is _FLASHCARD:
+                btn.connect("clicked", on_format, prefix, "")
+            else:
+                btn.connect("clicked", on_format, prefix, suffix)
             inner.append(btn)
 
     spacer = Gtk.Box()

@@ -44,14 +44,15 @@ class Editor(Gtk.Box):
         on_text_changed: Callable[[Gtk.TextBuffer], Any],
         on_cursor_moved: Callable[[Any, Any], Any],
         on_paste_clipboard: Callable[[Gtk.TextView], Any],
-        toolbar: Gtk.Box,
-        get_notes_callback: Callable[[], list[str]],
+        toolbar: Gtk.Box | None = None,
+        get_notes_callback: Callable[[], list[str]] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        self.get_notes_callback = get_notes_callback
+        self.get_notes_callback = get_notes_callback or (lambda: [])
 
-        self.toolbar = toolbar
-        self.append(self.toolbar)
+        if toolbar is not None:
+            self.toolbar = toolbar
+            self.append(self.toolbar)
 
         scrolled_editor = Gtk.ScrolledWindow()
         scrolled_editor.set_vexpand(True)
