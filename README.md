@@ -13,16 +13,17 @@ A minimal GTK4 Markdown note-taking app.
 - **Themes**: Multiple themes including Tokyo Night, Nord, and Cyberpunk 2077.
 - **Full-Text Search**: Find notes by title or keyword content.
 - **Templates**: Create notes from reusable templates with auto-filled variables like `{{today}}`, `{{now}}`, `{{time}}`, and `{{weekday}}`.
+- **Version History**: Automatic save-points, manual snapshots, and one-click restore from any previous version via Git.
 
 ## Installation
-Requires Python 3.12+, PyGObject, GTK4, and Libadwaita.
+Requires Python 3.12+, PyGObject, GTK4, Libadwaita, and Git.
 
 ```bash
 # Arch Linux
 yay -S tokyo-notes-git
 
 # macOS (using Homebrew to install dependencies)
-brew install gtk4 libadwaita pygobject3
+brew install gtk4 libadwaita pygobject3 git
 git clone https://github.com/tanay1337/tokyo-notes.git
 cd tokyo-notes
 python3 main.py

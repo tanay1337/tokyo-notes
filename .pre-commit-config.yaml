@@ -16,6 +16,6 @@ repos:
         name: pytest
         entry: python3 -m pytest tests/ -q
         language: python
-        additional_dependencies: [pytest, pygobject, pycairo, cryptography]
+        additional_dependencies: [pytest, pygobject, pycairo, cryptography, GitPython]
         types: [python]
         pass_filenames: false

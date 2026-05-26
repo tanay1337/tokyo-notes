@@ -563,3 +563,9 @@ button.pill {
 .dark-theme .settings-icon-btn image {
     filter: invert(1);
 }
+
+/* Diff view in history popover */
+.diff-view {
+    font-family: "Iosevka Term", "JetBrains Mono", "Fira Code", monospace;
+    font-size: 10pt;
+}

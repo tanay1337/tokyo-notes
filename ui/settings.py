@@ -89,6 +89,7 @@ class SettingsView(Gtk.Box):
         self._on_delete_template = on_delete_template
         self._on_open_templates_folder = on_open_templates_folder
         self._templates = templates or []
+        self._git_available = initial_values.get("git_available", False)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
@@ -106,6 +107,7 @@ class SettingsView(Gtk.Box):
         content.append(self._build_general_group())
         content.append(self._build_editor_group())
         content.append(self._build_dashboard_group())
+        content.append(self._build_versioning_group())
         content.append(self._build_private_group())
         content.append(self._build_templates_group())
         content.append(self._build_theme_group())
@@ -196,6 +198,36 @@ class SettingsView(Gtk.Box):
                 "start_week_on_sunday",
             )
         )
+        return group
+
+    def _build_versioning_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title="Versioning")
+
+        if not self._git_available:
+            status_row = Adw.ActionRow(
+                title="Git Versioning",
+                subtitle="git not found on this system — install git to enable",
+            )
+            status_row.set_sensitive(False)
+            group.add(status_row)
+            return group
+
+        self._git_enabled_row = self._make_switch_row(
+            "Git Versioning",
+            "Track changes with git in your notes folder",
+            self._initial_values.get("git_enabled", False),
+            "git_enabled",
+        )
+        group.add(self._git_enabled_row)
+
+        self._git_auto_commit_row = self._make_switch_row(
+            "Auto-commit on save",
+            "Create a git commit every time a note is saved",
+            self._initial_values.get("git_auto_commit", True),
+            "git_auto_commit",
+        )
+        group.add(self._git_auto_commit_row)
+
         return group
 
     def _build_private_group(self) -> Adw.PreferencesGroup:
@@ -429,7 +461,8 @@ class SettingsView(Gtk.Box):
             "show_completed": True,
             "show_progress_rings": True,
             "show_backlinks": True,
-            "start_week_on_sunday": True,
+            "git_enabled": False,
+            "git_auto_commit": True,
             "theme": "tokyo-night",
         }
         for key, value in defaults.items():

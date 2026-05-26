@@ -260,6 +260,13 @@ class NoteLifecycleManager:
                 app._safe_source_remove(attr)
         app.notes_manager.delete_note(note_name)
         app.cfg.remove_note(note_name)
+
+        if app.cfg.get("git_enabled", False):
+
+            def _do_git_del():
+                app.git_controller.commit_deletion(note_name)
+
+            app._run_on_io_thread(_do_git_del)
         app.sidebar.maybe_exit_archive_view()
         was_current = app.current_note == note_name
         if was_current:
@@ -396,6 +403,24 @@ class NoteLifecycleManager:
             app._select_sidebar_row(app.current_note)
         elif not app.sidebar.search_entry.has_focus():
             app._select_sidebar_row(app.current_note)
+
+        self._maybe_git_commit(new_name, old_name if did_rename else None)
+
+    def _maybe_git_commit(self, note_name: str, old_name: str | None = None) -> None:
+        """Auto-commit to git if versioning is enabled."""
+        app = self.app
+        if not app.cfg.get("git_enabled") or not app.cfg.get("git_auto_commit"):
+            return
+        gc = app.git_controller
+        if not gc.is_available():
+            return
+
+        def _do_git():
+            if old_name and old_name != note_name:
+                gc.rename_note(old_name, note_name)
+            gc.auto_commit(note_name)
+
+        app._run_on_io_thread(_do_git)
 
     # Text-changed coordination
 

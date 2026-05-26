@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from gi.repository import Gtk
 
@@ -41,20 +41,27 @@ _GROUPS: list[list[tuple[str, str, str, str]] | None] = [
 ]
 
 
-def build_toolbar(assets_dir: Path, on_format: Any) -> Gtk.Box:
-    """Build and return the editor toolbar widget with grouped buttons."""
-    toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
-    toolbar.add_css_class("toolbar")
+def build_toolbar(
+    assets_dir: Path,
+    on_format: Any,
+    on_history: Callable[[], Any] | None = None,
+) -> Gtk.ScrolledWindow:
+    """Build and return the editor toolbar widget with grouped buttons.
+
+    Returns a Gtk.ScrolledWindow wrapping the button bar so it scrolls
+    horizontally on narrow windows.
+    """
+    inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+    inner.add_css_class("toolbar")
 
     for group in _GROUPS:
         if group is None:
-            # Visual separator between groups.
             sep = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
             sep.set_margin_start(4)
             sep.set_margin_end(4)
             sep.set_margin_top(4)
             sep.set_margin_bottom(4)
-            toolbar.append(sep)
+            inner.append(sep)
             continue
 
         for prefix, suffix, tooltip, icon_file in group:
@@ -67,13 +74,33 @@ def build_toolbar(assets_dir: Path, on_format: Any) -> Gtk.Box:
                 img.set_pixel_size(16)
                 btn.set_child(img)
             else:
-                # Fallback: short label derived from tooltip.
                 btn.set_label(tooltip.split(" ")[0])
             btn.connect("clicked", on_format, prefix, suffix)
-            toolbar.append(btn)
+            inner.append(btn)
 
     spacer = Gtk.Box()
     spacer.set_hexpand(True)
-    toolbar.append(spacer)
+    inner.append(spacer)
 
-    return toolbar
+    if on_history:
+        history_btn = Gtk.Button()
+        history_btn.set_tooltip_text("View version history")
+        history_btn.add_css_class("toolbar-btn")
+        hist_path = assets_dir.parent / "toolbar" / "history.svg"
+        if hist_path.exists():
+            hist_img = Gtk.Image.new_from_file(str(hist_path))
+            hist_img.set_pixel_size(16)
+            history_btn.set_child(hist_img)
+        else:
+            history_btn.set_label("Hist")
+        history_btn.connect("clicked", lambda _: on_history())
+        history_btn.set_visible(False)
+        inner.append(history_btn)
+
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+    scrolled.set_vexpand(False)
+    scrolled.set_child(inner)
+    if on_history:
+        scrolled._history_btn = history_btn
+    return scrolled

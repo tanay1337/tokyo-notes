@@ -46,6 +46,14 @@ class TokyoNotes(Adw.Application):
         self.notes_folder: str = self.cfg.get("notes_folder")
         self.notes_manager = NotesManager(notes_dir=self.notes_folder)
 
+        # Git versioning
+        from core.versioning import GitVersionController
+
+        self.git_controller = GitVersionController(
+            notes_dir=self.notes_folder,
+            executor=self._run_on_io_thread,
+        )
+
         # Subsystem managers — order matters for startup
         self.window_manager = WindowManager(self)
         self.theme_manager = ThemeManager(self)
@@ -112,6 +120,117 @@ class TokyoNotes(Adw.Application):
         shutdown_pool()
         logger.info("Tokyo Notes shutting down")
         Adw.Application.do_shutdown(self)
+
+    # Git versioning
+
+    def _init_git_repo(self) -> None:
+        """Prompt user to initialize git repo and set up versioning."""
+        from core.versioning import GitVersionController
+
+        if not GitVersionController.is_git_installed():
+            logger.info("git not found on system — versioning disabled")
+            return
+
+        if self.git_controller.is_repo():
+            logger.info("Git repo already exists at %s", self.notes_folder)
+            return
+
+        if self.cfg.get("git_init_dismissed"):
+            logger.debug("Git init previously dismissed — skipping")
+            return
+
+        dialog = Adw.MessageDialog(
+            transient_for=self.win,
+            heading="Enable git versioning for your notes?",
+            body=(
+                "This creates a local git repository in your notes folder"
+                " to track changes over time.\n\n"
+                "You will be able to browse history, view diffs,"
+                " and restore previous versions of any note."
+            ),
+        )
+        dialog.add_response("dismiss", "Not Now")
+        dialog.add_response("hide", "Don't show again")
+        dialog.add_response("enable", "Enable")
+        dialog.set_default_response("enable")
+        dialog.set_close_response("dismiss")
+        from core.utils import set_response_suggested
+
+        set_response_suggested(dialog, "enable")
+
+        def on_response(d: Adw.MessageDialog, response: str) -> None:
+            if response == "enable":
+                ok = self.git_controller.init_repo()
+                if ok:
+                    self.cfg.set("git_enabled", True)
+                    self._show_toast("Git versioning enabled")
+                    self._update_toolbar_versioning_buttons()
+                else:
+                    self._show_toast("Failed to initialize git repository")
+            elif response == "hide":
+                self.cfg.set("git_init_dismissed", True)
+
+        dialog.connect("response", on_response)
+        dialog.present()
+
+    def _run_on_io_thread(self, fn):
+        """Dispatch a callable to the thread pool executor."""
+        self.notes_manager._io_executor.submit(fn)
+
+    def _on_snapshot_clicked(self) -> None:
+        """Create a manual snapshot commit."""
+        if not self.git_controller.is_available():
+            self._show_toast("Git versioning is not enabled")
+            return
+
+        def _do_snapshot():
+            ok = self.git_controller.snapshot()
+            GLib.idle_add(
+                lambda: self._show_toast(
+                    "Snapshot created" if ok else "No changes to snapshot"
+                )
+            )
+
+        self._run_on_io_thread(_do_snapshot)
+
+    def _on_show_history(self, note_name: str | None = None) -> None:
+        """Show version history for a note."""
+        name = note_name or self.current_note
+        if not name or not self.git_controller.is_available():
+            return
+        from ui.history_popover import HistoryPopover
+
+        popover = HistoryPopover(
+            note_name=name,
+            git_controller=self.git_controller,
+            on_restore=self._on_restore_version,
+            on_snapshot=self._on_snapshot_clicked,
+            text_view=self.text_view,
+            executor=self._run_on_io_thread,
+        )
+        parent = (
+            self.history_btn
+            if getattr(self, "history_btn", None) is not None
+            else self.text_view
+        )
+        popover.set_parent(parent)
+        popover.popup()
+
+    def _on_restore_version(self, note_name: str, content: str) -> None:
+        """Restore a note to a previous version."""
+        self._flush_pending_save()
+        self.notes_manager.save_note(note_name, content)
+        if note_name == self.current_note:
+            self._set_buffer_text(content)
+            if self.highlighter:
+                self.highlighter.highlight()
+        self._show_toast(f"'{note_name}' restored to previous version")
+
+    def _update_toolbar_versioning_buttons(self) -> None:
+        """Show/hide the versioning toolbar button based on git availability."""
+        has_git = self.git_controller.is_available()
+        if getattr(self, "history_btn", None) is not None:
+            self.history_btn.set_visible(has_git)
 
     def _apply_security_mitigations(self) -> None:
         """Prevent core dumps."""
@@ -543,6 +662,11 @@ class TokyoNotes(Adw.Application):
         content = self.notes_manager.read_plain(note_name)
         self._show_save_template_dialog(note_name, content)
 
+    def _on_show_history_action(self, action, parameter) -> None:
+        """Show version history for a note (GIO action handler)."""
+        note_name = parameter.get_string()
+        self._on_show_history(note_name)
+
     def _show_save_template_dialog(self, note_name: str, content: str) -> None:
         """Show a dialog to name and save a template."""
         dialog = Adw.MessageDialog(
@@ -631,6 +755,7 @@ class TokyoNotes(Adw.Application):
             ("make_private", self.on_make_private),
             ("remove_privacy", self.on_remove_privacy),
             ("save_as_template", self._on_save_as_template_action),
+            ("show_history", self._on_show_history_action),
         ):
             action = Gio.SimpleAction.new(name, GLib.VariantType.new("s"))
             action.connect("activate", handler)
@@ -781,6 +906,15 @@ class TokyoNotes(Adw.Application):
         self.notes_folder = new_folder
         self.cfg.set("notes_folder", new_folder)
         self.notes_manager = NotesManager(notes_dir=new_folder)
+        from core.versioning import GitVersionController
+
+        self.git_controller = GitVersionController(
+            notes_dir=new_folder,
+            executor=self._run_on_io_thread,
+        )
+        if self.git_controller.is_repo():
+            self.cfg.set("git_enabled", True)
+            self._update_toolbar_versioning_buttons()
 
         if self.settings_view:
             self.settings_view.update_folder_path(new_folder)
@@ -887,6 +1021,7 @@ class TokyoNotes(Adw.Application):
         # recovery dialog has a parent window to attach to.
         validate_notes_folder(self)
 
+        GLib.idle_add(self._init_git_repo)
         GLib.idle_add(self.lifecycle.initial_load)
         setup_shortcuts(
             self.win,
@@ -941,7 +1076,11 @@ class TokyoNotes(Adw.Application):
 
     def _build_editor_area(self) -> None:
         assets_dir = self.base_dir / "assets" / "toolbar"
-        toolbar = build_toolbar(assets_dir, self.apply_format)
+        toolbar = build_toolbar(
+            assets_dir,
+            self.apply_format,
+            on_history=lambda: self._on_show_history(self.current_note),
+        )
 
         self.editor = Editor(
             self.lifecycle.on_text_changed,
@@ -954,6 +1093,9 @@ class TokyoNotes(Adw.Application):
         self.text_view = self.editor.text_view
         self.toolbar = self.editor.toolbar
         self.changed_handler_id = self.editor.changed_handler_id
+
+        self.history_btn = getattr(self.toolbar, "_history_btn", None)
+        self._update_toolbar_versioning_buttons()
 
         self.toolbar.set_visible(self.cfg.get("show_toolbar"))
         self.editor.status_bar.set_visible(self.cfg.get("show_stats"))
@@ -1036,6 +1178,8 @@ class TokyoNotes(Adw.Application):
             self.nav.refresh_dashboard(self.dashboard_view.active_filter)
         elif key == "show_backlinks":
             self._update_backlinks()
+        elif key == "git_enabled":
+            self._update_toolbar_versioning_buttons()
 
     def _update_backlinks(self) -> None:
         """Update the backlinks button visibility and count."""
@@ -1157,6 +1301,11 @@ class TokyoNotes(Adw.Application):
         else:
             privacy_section.append("Make private", f"app.make_private::{note_name}")
         menu.append_section(None, privacy_section)
+
+        if self.git_controller.is_available():
+            versioning_section = Gio.Menu()
+            versioning_section.append("History", f"app.show_history::{note_name}")
+            menu.append_section(None, versioning_section)
 
         danger = Gio.Menu()
         danger.append("Delete", f"app.delete::{note_name}")
