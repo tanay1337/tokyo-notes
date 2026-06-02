@@ -17,20 +17,23 @@ A minimal GTK4 Markdown note-taking app.
 - **Flashcards**: Extract Q/A cards from flashcard codeblocks and flip through them to review. See format below.
 
 ## Installation
+
+### macOS
+
+Download the latest build from the [releases page](https://github.com/tanay1337/tokyo-notes/releases).
+
+### Arch Linux
+
+```bash
+yay -S tokyo-notes-git
+```
+
+### Others
+
 Requires Python 3.12+, PyGObject, GTK4, Libadwaita, and Git.
 
 ```bash
-# Arch Linux
-yay -S tokyo-notes-git
-
-# macOS (using Homebrew to install dependencies)
-brew install gtk4 libadwaita pygobject3 git
-pip3 install --break-system-packages gitpython
-git clone https://github.com/tanay1337/tokyo-notes.git
-cd tokyo-notes
-python3 main.py
-
-# Others (after installing dependencies)
+# After installing dependencies
 git clone https://github.com/tanay1337/tokyo-notes.git
 cd tokyo-notes
 python3 main.py
