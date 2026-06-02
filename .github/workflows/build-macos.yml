@@ -12,7 +12,11 @@ name: Build macOS App
       - main
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: macos-app-release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -86,3 +90,35 @@ jobs:
         with:
           name: Tokyo-Notes-macos-arm64
           path: Tokyo-Notes-macos-arm64.zip
+
+      - name: Publish latest macOS release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: macos-latest
+          RELEASE_TITLE: Latest macOS Build
+          ASSET_PATH: Tokyo-Notes-macos-arm64.zip
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --force "$RELEASE_TAG" "$GITHUB_SHA"
+          git push --force origin "refs/tags/${RELEASE_TAG}"
+
+          notes="Latest successful macOS arm64 build from commit ${GITHUB_SHA}."
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
+              --notes "$notes" \
+              --target "$GITHUB_SHA" \
+              --prerelease
+            gh release upload "$RELEASE_TAG" "$ASSET_PATH" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$ASSET_PATH" \
+              --title "$RELEASE_TITLE" \
+              --notes "$notes" \
+              --target "$GITHUB_SHA" \
+              --prerelease
+          fi
