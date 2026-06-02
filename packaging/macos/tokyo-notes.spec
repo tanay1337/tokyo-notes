@@ -33,7 +33,7 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[],
+    hookspath=[str(ROOT / "packaging" / "macos" / "hooks")],
     hooksconfig={
         "gi": {
             "icons": ["Adwaita", "hicolor"],
