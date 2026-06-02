@@ -16,17 +16,8 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.arch }} .app
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-14
-          - arch: x64
-            runner: macos-15-intel
-
-    runs-on: ${{ matrix.runner }}
+    name: Build arm64 .app
+    runs-on: macos-14
 
     steps:
       - name: Check out repository
@@ -42,6 +33,18 @@ jobs:
         run: |
           brew update
           brew install gtk4 libadwaita gobject-introspection cairo pkg-config librsvg git
+
+      - name: Configure Homebrew GTK paths
+        run: |
+          brew_prefix="$(brew --prefix)"
+          {
+            echo "HOMEBREW_PREFIX=${brew_prefix}"
+            echo "PKG_CONFIG_PATH=${brew_prefix}/lib/pkgconfig:${brew_prefix}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+            echo "GI_TYPELIB_PATH=${brew_prefix}/lib/girepository-1.0:${GI_TYPELIB_PATH:-}"
+            echo "DYLD_FALLBACK_LIBRARY_PATH=${brew_prefix}/lib:/usr/local/lib:/usr/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+            echo "XDG_DATA_DIRS=${brew_prefix}/share:/usr/local/share:/usr/share:${XDG_DATA_DIRS:-}"
+            echo "GTK_DATA_PREFIX=${brew_prefix}"
+          } >> "$GITHUB_ENV"
 
       - name: Install Python dependencies
         run: |
@@ -76,10 +79,10 @@ jobs:
 
       - name: Archive app bundle
         run: |
-          ditto -c -k --sequesterRsrc --keepParent "dist/Tokyo Notes.app" "Tokyo-Notes-macos-${{ matrix.arch }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "dist/Tokyo Notes.app" "Tokyo-Notes-macos-arm64.zip"
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Tokyo-Notes-macos-${{ matrix.arch }}
-          path: Tokyo-Notes-macos-${{ matrix.arch }}.zip
+          name: Tokyo-Notes-macos-arm64
+          path: Tokyo-Notes-macos-arm64.zip
