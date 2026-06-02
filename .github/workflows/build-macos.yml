@@ -1,0 +1,80 @@
+name: Build macOS App
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} .app
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+          - arch: x64
+            runner: macos-15-intel
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install native dependencies
+        run: |
+          brew update
+          brew install gtk4 libadwaita gobject-introspection cairo pkg-config librsvg git
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install .
+          python -m pip install pyinstaller pyinstaller-hooks-contrib
+
+      - name: Verify GTK import path
+        run: |
+          python - <<'PY'
+          import gi
+          gi.require_version("Gtk", "4.0")
+          gi.require_version("Adw", "1")
+          from gi.repository import Adw, Gtk
+          print(f"GTK {Gtk.MAJOR_VERSION}.{Gtk.MINOR_VERSION}, Adw {Adw.MAJOR_VERSION}.{Adw.MINOR_VERSION}")
+          PY
+
+      - name: Generate app icon
+        run: bash packaging/macos/make-icon.sh
+
+      - name: Build app bundle
+        run: pyinstaller packaging/macos/tokyo-notes.spec --noconfirm --clean
+
+      - name: Validate app bundle
+        run: |
+          test -d "dist/Tokyo Notes.app"
+          test -x "dist/Tokyo Notes.app/Contents/MacOS/Tokyo Notes"
+          plutil -lint "dist/Tokyo Notes.app/Contents/Info.plist"
+
+      - name: Ad-hoc sign app bundle
+        run: codesign --force --deep --sign - "dist/Tokyo Notes.app"
+
+      - name: Archive app bundle
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent "dist/Tokyo Notes.app" "Tokyo-Notes-macos-${{ matrix.arch }}.zip"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tokyo-Notes-macos-${{ matrix.arch }}
+          path: Tokyo-Notes-macos-${{ matrix.arch }}.zip
