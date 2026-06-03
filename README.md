@@ -22,6 +22,8 @@ A minimal GTK4 Markdown note-taking app.
 
 Download the latest build from the [releases page](https://github.com/tanay1337/tokyo-notes/releases).
 
+**Note:** The app is not notarized, so you'll have to [allow it from the System Settings](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) the first time you run it.
+
 ### Arch Linux
 
 ```bash
@@ -33,7 +35,7 @@ yay -S tokyo-notes-git
 Requires Python 3.12+, PyGObject, GTK4, Libadwaita, and Git.
 
 ```bash
-# After installing dependencies
+# After installing dependencies mentioned above and from pip
 git clone https://github.com/tanay1337/tokyo-notes.git
 cd tokyo-notes
 python3 main.py
