@@ -28,6 +28,7 @@ _DEFAULTS: dict[str, Any] = {
     "git_auto_commit": True,
     "git_init_dismissed": False,
     "flashcards_enabled": True,
+    "show_empty_folders": True,
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).
@@ -61,6 +62,8 @@ class ConfigManager:
         self.pinned_path: Path = self.config_dir / "pinned.json"
         self.archive_path: Path = self.config_dir / "archived.json"
         self.encrypted_path: Path = self.config_dir / "encrypted.json"
+        self.folder_order_path: Path = self.config_dir / "folder_order.json"
+        self.pinned_folders_path: Path = self.config_dir / "pinned_folders.json"
 
         self.data: dict[str, Any] = self._load_json(self.config_path, dict(_DEFAULTS))
         # Resolve the notes folder default here, not at module level.
@@ -70,6 +73,10 @@ class ConfigManager:
         self.pinned: set[str] = set(self._load_json(self.pinned_path, []))
         self.archived: set[str] = set(self._load_json(self.archive_path, []))
         self.encrypted: set[str] = set(self._load_json(self.encrypted_path, []))
+        self.folder_order: list[str] = list(self._load_json(self.folder_order_path, []))
+        self.pinned_folders: set[str] = set(
+            self._load_json(self.pinned_folders_path, [])
+        )
 
         # Debounce state — managed exclusively by set() and _flush().
         self._dirty: bool = False
@@ -196,6 +203,24 @@ class ConfigManager:
         if changed_encrypted:
             self._save_json(self.encrypted_path, self.encrypted)
 
+    # Pinned folders — immediate writes
+
+    def pin_folder(self, folder: str) -> None:
+        """Persist *folder* as pinned."""
+        if folder not in self.pinned_folders:
+            self.pinned_folders.add(folder)
+            self._save_json(self.pinned_folders_path, self.pinned_folders)
+
+    def unpin_folder(self, folder: str) -> None:
+        """Remove *folder* from the pinned folders set."""
+        if folder in self.pinned_folders:
+            self.pinned_folders.discard(folder)
+            self._save_json(self.pinned_folders_path, self.pinned_folders)
+
+    def is_folder_pinned(self, folder: str) -> bool:
+        """Return True if *folder* is pinned."""
+        return folder in self.pinned_folders
+
     # Encrypted notes — immediate writes
 
     def mark_encrypted(self, note_name: str) -> None:
@@ -220,3 +245,10 @@ class ConfigManager:
             return
         self.encrypted = set(actual)
         self._save_json(self.encrypted_path, self.encrypted)
+
+    # Folder order — immediate writes
+
+    def set_folder_order(self, folders: list[str]) -> None:
+        """Persist folder display order."""
+        self.folder_order = list(folders)
+        self._save_json(self.folder_order_path, self.folder_order)

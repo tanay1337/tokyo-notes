@@ -24,7 +24,11 @@ from core.startup_checks import validate_notes_folder
 from core.storage import NotesManager
 from core.template_manager import TemplateManager
 from core.theme_manager import ThemeManager
-from core.utils import CB_ANY_RE, confirm_destructive_dialog, set_response_suggested
+from core.utils import (
+    CB_ANY_RE,
+    confirm_destructive_dialog,
+    set_response_suggested,
+)
 from core.window_manager import WindowManager
 from ui.click_dispatcher import ClickDispatcher
 from ui.deadline_picker import DeadlinePicker
@@ -92,6 +96,8 @@ class TokyoNotes(Adw.Application):
         self._lock_timer_id: int = 0
         self._wrong_unlock_attempts: int = 0
         self._pending_encrypt_note: str | None = None
+        self._pending_encrypt_folder: tuple[str, list[str]] | None = None
+        self._pending_auto_encrypt_in_folder: str | None = None
         self._unlock_cooldown_id: int = 0
         self._unlock_cooldown_remaining: int = 0
 
@@ -368,6 +374,45 @@ class TokyoNotes(Adw.Application):
                 logger.error(
                     "Failed to encrypt pending note '%s' after unlock: %s", note_name, e
                 )
+        if self._pending_encrypt_folder:
+            folder, plain_notes = self._pending_encrypt_folder
+            self._pending_encrypt_folder = None
+            try:
+                from core.services import encrypt_note_on_disk
+
+                for note in plain_notes:
+                    content, key_bytes = encrypt_note_on_disk(
+                        note_name=note,
+                        password=self._session_password_bytes,
+                        notes_manager=self.notes_manager,
+                        cfg=self.cfg,
+                    )
+                    self._encryption_key_cache[note] = key_bytes
+                    self.sidebar.set_row_encrypted(note, True)
+                self.refresh_list(self.sidebar.search_entry.get_text())
+                self._show_toast(f"Encrypted {len(plain_notes)} note(s) in '{folder}'")
+            except Exception as e:
+                logger.error("Failed to encrypt pending folder after unlock: %s", e)
+        if self._pending_auto_encrypt_in_folder:
+            note_name = self._pending_auto_encrypt_in_folder
+            self._pending_auto_encrypt_in_folder = None
+            try:
+                import os
+
+                from core.encryption import _SALT_LEN, derive_key, encrypt
+
+                pw = bytearray(self._session_password_bytes)
+                salt = os.urandom(_SALT_LEN)
+                key = derive_key(pw, salt)
+                key_bytes = bytearray(key)
+                ciphertext = encrypt("", key_bytes, salt)
+                self.notes_manager.save_encrypted(note_name, ciphertext)
+                self.cfg.mark_encrypted(note_name)
+                self._encryption_key_cache[note_name] = key_bytes
+                self.sidebar.set_row_encrypted(note_name, True)
+                self._show_toast("New note encrypted")
+            except Exception as e:
+                logger.error("Failed to auto-encrypt new note after unlock: %s", e)
 
     def _show_unlock_popover(self) -> None:
         """Show the unlock dialog."""
@@ -377,7 +422,18 @@ class TokyoNotes(Adw.Application):
         from ui.unlock_popover import UnlockDialog
 
         dialog = UnlockDialog(self)
-        dialog.connect("response", lambda *_: setattr(self, "_unlock_dialog", None))
+
+        def _on_dismissed(_d, response):
+            self._unlock_dialog = None
+            if (
+                response != "unlock"
+                and self._pending_auto_encrypt_in_folder
+                and self._is_session_locked
+            ):
+                self._pending_auto_encrypt_in_folder = None
+                self._show_toast("Note was not encrypted. Encrypt it manually.")
+
+        dialog.connect("response", _on_dismissed)
         self._unlock_dialog = dialog
         dialog.present()
 
@@ -438,9 +494,15 @@ class TokyoNotes(Adw.Application):
 
     def _sync_encrypted_config(self) -> None:
         """Rebuild encrypted.json from actual .md.enc files on disk."""
-        actual_encrypted = {
-            Path(p.stem).stem for p in self.notes_manager.notes_dir.glob("*.md.enc")
-        }
+        actual_encrypted = set()
+        for p in self.notes_manager.notes_dir.glob("**/*.md.enc"):
+            rel = p.relative_to(self.notes_manager.notes_dir)
+            if any(part.startswith(".") for part in rel.parts[:-1]):
+                continue
+            stem = rel.stem
+            if stem.endswith(".md"):
+                stem = stem[:-3]
+            actual_encrypted.add(str(rel.parent / stem))
         self.cfg.sync_encrypted_set(actual_encrypted)
 
     def _on_lock_timeout(self) -> bool:
@@ -617,8 +679,11 @@ class TokyoNotes(Adw.Application):
         """Open template picker to create a new note from template."""
         self._show_template_picker_for_new_note()
 
-    def _show_template_picker_for_new_note(self) -> None:
-        """Show the template picker for creating a new note."""
+    def _show_template_picker_for_new_note(self, folder: str = "") -> None:
+        """Show the template picker for creating a new note.
+
+        If *folder* is given, the note is created inside that folder.
+        """
         from ui.template_picker import TemplatePicker
 
         def on_selected(slug: str) -> None:
@@ -629,6 +694,12 @@ class TokyoNotes(Adw.Application):
 
             substituted = TemplateManager.substitute_variables(content)
             self.lifecycle.on_new_note(None)
+            target_folder = folder or self.template_manager.get_template_folder(slug)
+            if target_folder:
+                new_name = self.notes_manager.reserve_name(f"{target_folder}/Untitled")
+                self.notes_manager.rename_note(self.current_note, new_name)
+                self.current_note = new_name
+                self.nav.update_header_ui(new_name, is_editor=True)
             self.notes_manager.save_note(self.current_note, substituted)
             from core.services import update_note_title
 
@@ -845,8 +916,28 @@ class TokyoNotes(Adw.Application):
         for name, handler in (
             ("new_note", self.lifecycle.on_new_note_global),
             ("new_from_template", self._on_new_from_template),
+            ("new_folder", self._on_new_folder),
         ):
             action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", handler)
+            self.add_action(action)
+
+        for name, handler in (
+            ("new_note_in_folder", self._on_new_note_in_folder),
+            (
+                "new_note_from_template_in_folder",
+                self._on_new_note_from_template_in_folder,
+            ),
+            ("new_subfolder", self._on_new_subfolder),
+            ("pin_folder", self._on_pin_folder),
+            ("unpin_folder", self._on_unpin_folder),
+            ("archive_folder", self._on_archive_folder),
+            ("encrypt_folder", self._on_encrypt_folder),
+            ("remove_privacy_folder", self._on_remove_privacy_folder),
+            ("rename_folder", self._on_rename_folder),
+            ("delete_folder", self._on_delete_folder),
+        ):
+            action = Gio.SimpleAction.new(name, GLib.VariantType.new("s"))
             action.connect("activate", handler)
             self.add_action(action)
 
@@ -899,7 +990,35 @@ class TokyoNotes(Adw.Application):
         from ui.setup_dialog import SetupDialog
 
         dialog = SetupDialog(self, note_name)
+        dialog.connect("close-request", self._on_setup_dialog_closed)
         dialog.present()
+
+    def _on_setup_dialog_closed(self, dialog: Adw.Window) -> None:
+        """After setup dialog closes, encrypt remaining notes in pending folder."""
+        if self._pending_encrypt_folder is None or self._session_password_bytes is None:
+            self._pending_encrypt_folder = None
+            return
+        folder, plain_notes = self._pending_encrypt_folder
+        self._pending_encrypt_folder = None
+        remaining = [n for n in plain_notes if not self.notes_manager.is_encrypted(n)]
+        if not remaining:
+            return
+        from core.services import encrypt_note_on_disk
+
+        for note in remaining:
+            try:
+                content, key_bytes = encrypt_note_on_disk(
+                    note_name=note,
+                    password=self._session_password_bytes,
+                    notes_manager=self.notes_manager,
+                    cfg=self.cfg,
+                )
+                self._encryption_key_cache[note] = key_bytes
+                self.sidebar.set_row_encrypted(note, True)
+            except Exception as e:
+                logger.error("Failed to encrypt '%s' after setup: %s", note, e)
+        self.refresh_list(self.sidebar.search_entry.get_text())
+        self._show_toast(f"Encrypted {len(remaining)} note(s) in '{folder}'")
 
     def _show_password_change_dialog(self) -> None:
         from ui.password_change_dialog import PasswordChangeDialog
@@ -1383,6 +1502,11 @@ class TokyoNotes(Adw.Application):
     def on_row_right_click(
         self, gesture, n_press, x, y, row, is_archived: bool = False
     ) -> None:
+        # Folder header right-click
+        if getattr(row, "_is_folder", False):
+            self._show_folder_context_menu(row)
+            return
+
         note_name = getattr(row, "note_name", None)
         if not note_name:
             return
@@ -1434,6 +1558,454 @@ class TokyoNotes(Adw.Application):
         popover.set_pointing_to(row_rect)
         popover.set_position(Gtk.PositionType.BOTTOM)
         popover.popup()
+
+    def _show_folder_context_menu(self, row) -> None:
+        """Show the context menu for a folder header row."""
+        folder_path = getattr(row, "folder_path", "")
+        if not folder_path:
+            return
+
+        is_pinned = self.cfg.is_folder_pinned(folder_path)
+        notes = self.notes_manager.get_notes_in_folder(folder_path)
+        has_encrypted = any(self.notes_manager.is_encrypted(n) for n in notes)
+
+        menu = Gio.Menu()
+
+        create_section = Gio.Menu()
+        create_section.append("New Note", f"app.new_note_in_folder::{folder_path}")
+        create_section.append(
+            "New Note from Template",
+            f"app.new_note_from_template_in_folder::{folder_path}",
+        )
+        create_section.append("New Folder", f"app.new_subfolder::{folder_path}")
+        menu.append_section(None, create_section)
+
+        folder_section = Gio.Menu()
+        folder_section.append("Rename folder", f"app.rename_folder::{folder_path}")
+        if is_pinned:
+            folder_section.append("Unpin folder", f"app.unpin_folder::{folder_path}")
+        else:
+            folder_section.append("Pin folder", f"app.pin_folder::{folder_path}")
+        menu.append_section(None, folder_section)
+
+        encrypt_section = Gio.Menu()
+        encrypt_section.append("Encrypt all", f"app.encrypt_folder::{folder_path}")
+        if has_encrypted:
+            encrypt_section.append(
+                "Remove privacy (decrypt all)",
+                f"app.remove_privacy_folder::{folder_path}",
+            )
+        menu.append_section(None, encrypt_section)
+
+        danger_section = Gio.Menu()
+        danger_section.append("Archive all", f"app.archive_folder::{folder_path}")
+        danger_section.append("Delete folder", f"app.delete_folder::{folder_path}")
+        menu.append_section(None, danger_section)
+
+        popover = Gtk.PopoverMenu.new_from_model(menu)
+        popover.set_parent(row)
+        row_rect = Gdk.Rectangle()
+        row_rect.x = 0
+        row_rect.y = row.get_height()
+        row_rect.width = row.get_allocated_width()
+        row_rect.height = 1
+        popover.set_pointing_to(row_rect)
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        popover.popup()
+
+    def _on_pin_folder(self, action: Gio.SimpleAction, parameter: GLib.Variant) -> None:
+        """Pin a folder so it appears first in the sidebar."""
+        folder = parameter.get_string()
+        self.cfg.pin_folder(folder)
+        self.refresh_list(self.sidebar.search_entry.get_text())
+
+    def _on_unpin_folder(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        """Unpin a folder."""
+        folder = parameter.get_string()
+        self.cfg.unpin_folder(folder)
+        self.refresh_list(self.sidebar.search_entry.get_text())
+
+    def _on_new_note_in_folder(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        """Create a new note inside the given folder."""
+        folder = parameter.get_string()
+        self._flush_pending_save()
+        name = self.notes_manager.reserve_name(f"{folder}/Untitled")
+        self.current_note = name
+        self.nav.update_header_ui(name, is_editor=True)
+        self._has_images = False
+        self._set_buffer_text("")
+        self.editor.set_editable(True)
+        self.content_stack.set_visible_child_name("editor")
+        self.refresh_list()
+        self._select_sidebar_row(name)
+        self.text_view.grab_focus()
+
+        # Auto-encrypt new notes in folders that already have encrypted notes
+        notes_in_folder = self.notes_manager.get_notes_in_folder(folder)
+        folder_has_encrypted = any(
+            self.notes_manager.is_encrypted(n) for n in notes_in_folder
+        )
+
+        if self._session_password_bytes is not None and folder_has_encrypted:
+            import os
+
+            from core.encryption import _SALT_LEN, derive_key, encrypt
+
+            pw = bytearray(self._session_password_bytes)
+            salt = os.urandom(_SALT_LEN)
+            key = derive_key(pw, salt)
+            key_bytes = bytearray(key)
+            ciphertext = encrypt("", key_bytes, salt)
+            self.notes_manager.save_encrypted(name, ciphertext)
+            self.cfg.mark_encrypted(name)
+            self._encryption_key_cache[name] = key_bytes
+            self.sidebar.set_row_encrypted(name, True)
+        elif self._is_session_locked and folder_has_encrypted:
+            self._pending_auto_encrypt_in_folder = name
+            self._show_unlock_popover()
+
+    def _on_new_note_from_template_in_folder(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        """Open template picker to create a note inside the given folder."""
+        folder = parameter.get_string()
+        self._show_template_picker_for_new_note(folder=folder)
+
+    def _on_new_subfolder(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        """Show a dialog to create a subfolder under an existing folder."""
+        parent_folder = parameter.get_string()
+
+        dialog = Adw.MessageDialog(
+            transient_for=self.props.active_window,
+            heading="New Subfolder",
+            body=f"Enter a name for the new folder inside '{parent_folder}':",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("create", "Create")
+        dialog.set_default_response("create")
+        dialog.set_close_response("cancel")
+        try:
+            dialog.set_response_appearance("create", Adw.ResponseAppearance.SUGGESTED)
+        except AttributeError:
+            pass
+
+        entry = Gtk.Entry()
+        entry.set_activates_default(True)
+        extra = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        extra.append(entry)
+        dialog.set_extra_child(extra)
+
+        def _on_response(d: Any, response: str) -> None:
+            if response == "create":
+                name = entry.get_text().strip()
+                err = self._validate_folder_name(name)
+                if err:
+                    entry.set_text("")
+                    self._show_toast(err)
+                    return
+                full_path = self.notes_manager.notes_dir / parent_folder / name
+                if full_path.exists():
+                    self._show_toast(f"Folder '{parent_folder}/{name}' already exists")
+                    return
+                full_path.mkdir(parents=True)
+                self.refresh_list(self.sidebar.search_entry.get_text())
+                self._show_toast(f"Created folder '{parent_folder}/{name}'")
+
+        dialog.connect("response", _on_response)
+        dialog.present()
+
+    def _on_new_folder(
+        self, action: Gio.SimpleAction, _parameter: GLib.Variant | None
+    ) -> None:
+        """Show a dialog to create a new folder."""
+        dialog = Adw.MessageDialog(
+            transient_for=self.props.active_window,
+            heading="New Folder",
+            body="Enter a name for the new folder:",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("create", "Create")
+        dialog.set_default_response("create")
+        dialog.set_close_response("cancel")
+        try:
+            dialog.set_response_appearance("create", Adw.ResponseAppearance.SUGGESTED)
+        except AttributeError:
+            pass
+
+        entry = Gtk.Entry()
+        entry.set_activates_default(True)
+        extra = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        extra.append(entry)
+        dialog.set_extra_child(extra)
+
+        def _on_response(d: Any, response: str) -> None:
+            if response == "create":
+                name = entry.get_text().strip()
+                err = self._validate_folder_name(name)
+                if err:
+                    entry.set_text("")
+                    self._show_toast(err)
+                    return
+                folder_path = self.notes_manager.notes_dir / name
+                if folder_path.exists():
+                    self._show_toast(f"Folder '{name}' already exists")
+                    return
+                folder_path.mkdir(parents=True)
+                self.refresh_list(self.sidebar.search_entry.get_text())
+                self._show_toast(f"Created folder '{name}'")
+
+        dialog.connect("response", _on_response)
+        dialog.present()
+
+    def _on_archive_folder(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        """Archive every note in the given folder."""
+        folder = parameter.get_string()
+        notes = self.notes_manager.get_notes_in_folder(folder)
+        for note in notes:
+            self.cfg.toggle_archive(note)
+        self.sidebar.maybe_exit_archive_view()
+        self.refresh_list(self.sidebar.search_entry.get_text())
+        self._show_toast(f"Archived {len(notes)} note(s) in '{folder}'")
+
+    def _on_encrypt_folder(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        """Encrypt every plain note in the given folder."""
+        folder = parameter.get_string()
+        notes = self.notes_manager.get_notes_in_folder(folder)
+        plain_notes = [n for n in notes if not self.notes_manager.is_encrypted(n)]
+        if not plain_notes:
+            self._show_toast("No plain notes to encrypt in this folder")
+            return
+
+        if self._session_password_bytes is not None:
+            from core.services import encrypt_note_on_disk
+
+            for note in plain_notes:
+                content, key_bytes = encrypt_note_on_disk(
+                    note_name=note,
+                    password=self._session_password_bytes,
+                    notes_manager=self.notes_manager,
+                    cfg=self.cfg,
+                )
+                self._encryption_key_cache[note] = key_bytes
+                self.sidebar.set_row_encrypted(note, True)
+            self.refresh_list(self.sidebar.search_entry.get_text())
+            self._show_toast(f"Encrypted {len(plain_notes)} note(s) in '{folder}'")
+        elif self._is_session_locked and self._session_password_bytes is None:
+            has_any_encrypted = any(
+                self.notes_manager.is_encrypted(n)
+                for n in self.notes_manager.get_notes()
+            )
+            if not has_any_encrypted:
+                self._pending_encrypt_folder = (folder, plain_notes)
+                self._show_setup_dialog(plain_notes[0])
+            else:
+                self._session_password_bytes = None
+                self._pending_encrypt_folder = (folder, plain_notes)
+                self._show_unlock_popover()
+        else:
+            self._pending_encrypt_folder = (folder, plain_notes)
+            self._show_setup_dialog(plain_notes[0])
+
+    def _on_remove_privacy_folder(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        """Decrypt every encrypted note in the given folder (single batch dialog)."""
+        folder = parameter.get_string()
+        notes = self.notes_manager.get_notes_in_folder(folder)
+        encrypted_notes = [n for n in notes if self.notes_manager.is_encrypted(n)]
+        if not encrypted_notes:
+            self._show_toast("No encrypted notes in this folder")
+            return
+
+        if self._is_session_locked or self._session_password_bytes is None:
+            self._show_toast("Unlock your session first")
+            return
+
+        dialog = confirm_destructive_dialog(
+            transient_for=self.win,
+            heading="Remove Privacy?",
+            body=(
+                f"This will save {len(encrypted_notes)} note(s) in "
+                f"'{folder}' as plain text. "
+                "The notes will no longer be encrypted. Are you sure?"
+            ),
+            confirm_label="Remove Privacy",
+        )
+        dialog.connect(
+            "response", self._on_remove_privacy_folder_response, encrypted_notes
+        )
+        dialog.present()
+
+    def _on_remove_privacy_folder_response(
+        self, dialog: Adw.MessageDialog, response: str, encrypted_notes: list[str]
+    ) -> None:
+        """Batch-decrypt all encrypted notes in a folder."""
+        if response != "delete":
+            return
+        if self._session_password_bytes is None:
+            return
+
+        from core.encryption import best_effort_overwrite, decrypt
+
+        for note_name in encrypted_notes:
+            try:
+                key_bytes, _, ciphertext_bytes = self._derive_encryption_key(note_name)
+                content = decrypt(ciphertext_bytes, key_bytes)
+                self._encryption_key_cache.pop(note_name, None)
+
+                enc_path = self.notes_manager.notes_dir / f"{note_name}.md.enc"
+                self.notes_manager.save_note(note_name, content)
+                self.cfg.mark_decrypted(note_name)
+
+                if enc_path.exists():
+                    best_effort_overwrite(enc_path)
+
+                self.sidebar.set_row_encrypted(note_name, False)
+            except Exception as e:
+                logger.error("Failed to decrypt '%s': %s", note_name, e)
+
+        self.refresh_list(self.sidebar.search_entry.get_text())
+        self._show_toast(f"Decrypted {len(encrypted_notes)} note(s)")
+
+    def _on_rename_folder(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        """Show a dialog to rename a folder."""
+        old_folder = parameter.get_string()
+        old_name = old_folder.split("/")[-1]
+
+        dialog = Adw.MessageDialog(
+            transient_for=self.props.active_window,
+            heading="Rename folder",
+            body=f"Enter a new name for '{old_name}':",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("rename", "Rename")
+        dialog.set_default_response("rename")
+        dialog.set_close_response("cancel")
+        try:
+            dialog.set_response_appearance("rename", Adw.ResponseAppearance.SUGGESTED)
+        except AttributeError:
+            pass
+
+        entry = Gtk.Entry()
+        entry.set_text(old_name)
+        extra = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        extra.append(entry)
+        dialog.set_extra_child(extra)
+
+        def _on_response(d: Any, response: str) -> None:
+            if response == "rename":
+                new_name = entry.get_text().strip()
+                err = self._validate_folder_name(new_name)
+                if err:
+                    entry.set_text(old_name)
+                    self._show_toast(err)
+                    return
+                self._do_rename_folder(old_folder, new_name)
+
+        dialog.connect("response", _on_response)
+        dialog.present()
+
+    def _validate_folder_name(self, name: str) -> str | None:
+        """Validate a folder name. Return error message or None."""
+        if not name or not name.strip():
+            return "Name cannot be empty"
+        if "/" in name:
+            return "Folder name cannot contain '/'"
+        try:
+            self.notes_manager.validate_name(f"{name}/placeholder")
+        except ValueError as e:
+            return str(e)
+        return None
+
+    def _do_rename_folder(self, old_folder: str, new_name: str) -> None:
+        """Rename a folder on disk and refresh."""
+        old_path = self.notes_manager.notes_dir / old_folder
+        parent = old_path.parent
+        new_path = parent / new_name
+        try:
+            old_path.rename(new_path)
+            self.cfg.set_folder_order(
+                [new_name if f == old_folder else f for f in self.cfg.folder_order]
+            )
+            self.refresh_list(self.sidebar.search_entry.get_text())
+            self._show_toast(f"Folder renamed to '{new_name}'")
+        except OSError as e:
+            self._show_toast(f"Could not rename folder: {e}")
+
+    def _on_delete_folder(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        """Delete a folder and all notes inside it (with confirmation)."""
+        folder = parameter.get_string()
+        notes = self.notes_manager.get_notes_in_folder(folder)
+        body = (
+            f"Delete folder '{folder}' and its {len(notes)} note(s)?\n"
+            "This action cannot be undone."
+        )
+        dialog = confirm_destructive_dialog(
+            transient_for=self.props.active_window,
+            heading=f"Delete folder '{folder}'?",
+            body=body,
+            confirm_label="Delete",
+        )
+
+        def _on_response(d: Any, response: str) -> None:
+            if response == "delete":
+                import shutil
+
+                folder_path = self.notes_manager.notes_dir / folder
+                if folder_path.exists():
+                    try:
+                        for note in notes:
+                            self.cfg.remove_note(note)
+                            self.notes_manager._content_cache.pop(note, None)
+                            self.notes_manager._metadata_cache.pop(note, None)
+                            self.notes_manager._mtime_cache.pop(note, None)
+                        shutil.rmtree(folder_path)
+
+                        # If the current note is in the deleted folder, cancel
+                        # pending timers and navigate away so no auto-save can
+                        # re-create the folder/file.
+                        was_current = (
+                            self.current_note is not None
+                            and self.current_note.startswith(f"{folder}/")
+                        )
+                        if was_current:
+                            for attr in (
+                                "rename_timeout_id",
+                                "sidebar_update_timeout_id",
+                            ):
+                                self._safe_source_remove(attr)
+                            self.current_note = None
+                            self._set_buffer_text("")
+                            self.win.set_title("Tokyo Notes")
+
+                        self.refresh_list(self.sidebar.search_entry.get_text())
+                        self._show_toast(f"Deleted folder '{folder}'")
+
+                        if was_current:
+                            remaining = self.notes_manager.get_notes()
+                            if remaining:
+                                self.lifecycle.initial_load()
+                            else:
+                                self.lifecycle.on_new_note(None)
+                    except OSError as e:
+                        self._show_toast(f"Could not delete folder: {e}")
+
+        dialog.connect("response", _on_response)
+        dialog.present()
 
     def _select_sidebar_row(self, note_name: str) -> bool:
         """Select the sidebar row matching *note_name* (case-insensitive).

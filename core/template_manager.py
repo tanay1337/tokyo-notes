@@ -16,12 +16,36 @@ logger = logging.getLogger(__name__)
 TEMPLATES_DIR_NAME = ".templates"
 _VALID_TEMPLATE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
+_FRONT_MATTER_RE = re.compile(
+    r"^---\s*\n(.*?)\n(?:---|\.\.\.)\s*\n",
+    re.DOTALL,
+)
+
 
 class TemplateManager:
     """Manages template provisioning, CRUD, and variable substitution."""
 
     def __init__(self, app: TokyoNotes) -> None:
         self.app = app
+
+    @staticmethod
+    def _parse_front_matter(content: str) -> tuple[dict[str, str], str]:
+        """Extract YAML front matter from template content.
+
+        Returns (metadata, body).  If no front matter is present the
+        metadata dict is empty and *body* is the original *content*.
+        """
+        m = _FRONT_MATTER_RE.match(content)
+        if not m:
+            return {}, content
+        raw = m.group(1)
+        metadata: dict[str, str] = {}
+        for line in raw.strip().split("\n"):
+            line = line.strip()
+            if ":" in line:
+                key, _, val = line.partition(":")
+                metadata[key.strip()] = val.strip()
+        return metadata, content[m.end() :]
 
     @property
     def templates_dir(self) -> Path:
@@ -46,7 +70,8 @@ class TemplateManager:
     def get_all_templates(self) -> list[dict[str, Any]]:
         """Return all templates (built-in + user) as a list of dicts.
 
-        Each dict has: slug, name, content, is_builtin, description.
+        Each dict has: slug, name, content, is_builtin, description,
+        and folder (default target folder from front matter, or '').
         """
         from core.templates_builtin import BUILTIN_TEMPLATES
 
@@ -59,7 +84,8 @@ class TemplateManager:
 
         for path in sorted(self.templates_dir.glob("*.md")):
             slug = path.stem
-            content = path.read_text(encoding="utf-8")
+            raw = path.read_text(encoding="utf-8")
+            metadata, content = self._parse_front_matter(raw)
             builtin_info = builtins_by_file.get(path.name)
             templates.append(
                 {
@@ -68,19 +94,31 @@ class TemplateManager:
                     "content": content,
                     "is_builtin": builtin_info is not None,
                     "description": builtin_info["description"] if builtin_info else "",
+                    "folder": metadata.get("folder", ""),
                 }
             )
 
         return templates
 
     def get_template_content(self, slug: str) -> str | None:
-        """Return the raw content of a template by slug, or None."""
+        """Return the body of a template (front matter stripped) by slug, or None."""
         self._ensure_templates_dir()
         self._validate_slug(slug)
         path = self.templates_dir / f"{slug}.md"
         if path.exists():
-            return path.read_text(encoding="utf-8")
+            _metadata, body = self._parse_front_matter(path.read_text(encoding="utf-8"))
+            return body
         return None
+
+    def get_template_folder(self, slug: str) -> str:
+        """Return the default folder from a template's front matter, or ''."""
+        self._ensure_templates_dir()
+        self._validate_slug(slug)
+        path = self.templates_dir / f"{slug}.md"
+        if path.exists():
+            metadata, _body = self._parse_front_matter(path.read_text(encoding="utf-8"))
+            return metadata.get("folder", "")
+        return ""
 
     def save_as_template(self, name: str, content: str) -> str:
         """Save *content* as a new user template. Returns the slug."""

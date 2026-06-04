@@ -12,6 +12,9 @@ BUILTIN_TEMPLATES: dict[str, dict[str, str]] = {
         "name": "Daily Journal",
         "description": "Date header, gratitude, tasks, and reflections",
         "content": (
+            "---\n"
+            "folder: Journal\n"
+            "---\n"
             "# {{weekday}}, {{today}}\n"
             "\n"
             "## Gratitude\n"

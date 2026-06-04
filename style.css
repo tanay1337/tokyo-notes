@@ -587,7 +587,6 @@ button.pill {
     font-weight: 600;
     color: @accent_color;
     min-width: 24px;
-    text-align: center;
 }
 
 .flashcard-card {

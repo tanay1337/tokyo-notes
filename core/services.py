@@ -11,7 +11,7 @@ import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from core.utils import H1_TITLE_RE
+from core.utils import H1_TITLE_RE, split_note_path
 
 
 def clean_title(raw: str) -> str:
@@ -40,6 +40,11 @@ def update_note_title(
     new_title = derive_display_title(content, "")
     if not new_title or new_title == old_name:
         return old_name, False
+
+    # Preserve the folder prefix so notes stay in their folder
+    folder, _ = split_note_path(old_name)
+    if folder:
+        new_title = f"{folder}/{new_title}"
 
     base = new_title
     counter = 1

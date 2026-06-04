@@ -69,13 +69,13 @@ class NotesManager:
         self._cleanup_stale_temps()
 
     def _cleanup_stale_temps(self) -> None:
-        for stale in self.notes_dir.glob(".*.tmp"):
+        for stale in self.notes_dir.glob("**/.*.tmp"):
             try:
                 stale.unlink()
             except OSError:
                 pass
         # Clean up leftover .enc.new files from crashed re-encryption
-        for stale in self.notes_dir.glob("*.md.enc.new"):
+        for stale in self.notes_dir.glob("**/*.md.enc.new"):
             try:
                 stale.unlink()
             except OSError:
@@ -83,7 +83,7 @@ class NotesManager:
 
     # Note name validation — prevents path traversal via crafted note names.
 
-    _VALID_NAME_RE = re.compile(r"^[a-zA-Z0-9][\w .\-()]*$")
+    _VALID_NAME_RE = re.compile(r"^[a-zA-Z0-9][\w .\-()]*(/[a-zA-Z0-9][\w .\-()]*)*$")
 
     @classmethod
     def validate_name(cls, name: str) -> str:
@@ -96,14 +96,17 @@ class NotesManager:
             raise ValueError("Note name cannot be empty")
 
         # Prevent Windows reserved names
-        if name.lower() in ("con", "prn", "aux", "nul", "com1", "com2", "lpt1"):
+        base = name.split("/")[-1]
+        if base.lower() in ("con", "prn", "aux", "nul", "com1", "com2", "lpt1"):
             raise ValueError(f"Reserved note name: {name!r}")
 
         if (
             not cls._VALID_NAME_RE.match(name)
             or ".." in name
-            or "/" in name
             or "\\" in name
+            or name.startswith("/")
+            or name.endswith("/")
+            or "//" in name
         ):
             raise ValueError(f"Invalid note name: {name!r}")
 
@@ -125,14 +128,25 @@ class NotesManager:
         plain_entries: dict[str, tuple[Path, os.stat_result]] = {}
         enc_entries: dict[str, tuple[Path, os.stat_result]] = {}
 
-        for p in self.notes_dir.glob("*.md"):
+        for p in self.notes_dir.glob("**/*.md"):
             try:
-                plain_entries[p.stem] = (p, p.stat())
+                # Skip files inside hidden directories (e.g. .templates/, .git/)
+                rel = p.relative_to(self.notes_dir)
+                if any(part.startswith(".") for part in rel.parts[:-1]):
+                    continue
+                name = str(p.relative_to(self.notes_dir).with_suffix(""))
+                plain_entries[name] = (p, p.stat())
             except OSError:
                 pass
-        for p in self.notes_dir.glob("*.md.enc"):
+        for p in self.notes_dir.glob("**/*.md.enc"):
             try:
-                name = Path(p.stem).stem
+                rel = p.relative_to(self.notes_dir)
+                if any(part.startswith(".") for part in rel.parts[:-1]):
+                    continue
+                stem = rel.stem
+                if stem.endswith(".md"):
+                    stem = stem[:-3]
+                name = str(rel.parent / stem)
                 enc_entries[name] = (p, p.stat())
             except OSError:
                 pass
@@ -144,18 +158,18 @@ class NotesManager:
         for name, (p, st) in enc_entries.items():
             merged[name] = (p, st, True)
 
-        entries = sorted(merged.values(), key=lambda x: x[1].st_mtime, reverse=True)
+        entries = sorted(
+            [(name, p, st, enc) for name, (p, st, enc) in merged.items()],
+            key=lambda x: x[2].st_mtime,
+            reverse=True,
+        )
 
         with self._lock:
-            for p, st, _is_enc in entries:
-                name = Path(p.stem).stem if _is_enc else p.stem
+            for name, _p, st, _is_enc in entries:
                 self._mtime_cache[name] = st.st_mtime
             self._last_full_scan = time.monotonic()
 
-        note_names = []
-        for p, _, is_enc in entries:
-            name = Path(p.stem).stem if is_enc else p.stem
-            note_names.append(name)
+        note_names = [name for name, _p, _st, _is_enc in entries]
 
         if not search_text:
             return note_names
@@ -193,9 +207,36 @@ class NotesManager:
     def get_encrypted_notes(self) -> set[str]:
         """Return the set of all note names that have .md.enc files."""
         result: set[str] = set()
-        for p in self.notes_dir.glob("*.md.enc"):
-            result.add(Path(p.stem).stem)
+        for p in self.notes_dir.glob("**/*.md.enc"):
+            rel = p.relative_to(self.notes_dir)
+            if any(part.startswith(".") for part in rel.parts[:-1]):
+                continue
+            stem = rel.stem
+            if stem.endswith(".md"):
+                stem = stem[:-3]
+            result.add(str(rel.parent / stem))
         return result
+
+    def get_folders(self) -> list[str]:
+        """Return sorted list of all non-hidden subdirectories under *notes_dir*.
+
+        Includes empty directories (unlike the previous file-scoped scan)
+        so that newly created empty folders appear in the sidebar.
+        """
+        folders: set[str] = set()
+        for p in self.notes_dir.glob("**/"):
+            rel = p.relative_to(self.notes_dir)
+            if str(rel) == ".":
+                continue
+            if any(part.startswith(".") for part in rel.parts):
+                continue
+            folders.add(str(rel))
+        return sorted(folders)
+
+    def get_notes_in_folder(self, folder: str) -> list[str]:
+        """Return all note names (qualified) under *folder*."""
+        prefix = f"{folder}/"
+        return [n for n in self.get_notes() if n.startswith(prefix) or n == folder]
 
     def read_plain(self, name: str) -> str:
         """Return UTF-8 text content of *name*.md from cache or disk.
@@ -433,8 +474,10 @@ class NotesManager:
         import tempfile
 
         note_path = self.notes_dir / f"{name}.md"
+        note_path.parent.mkdir(parents=True, exist_ok=True)
+        safe_prefix = f".{name.replace('/', '_')}-"
         fd, tmp_name = tempfile.mkstemp(
-            dir=self.notes_dir, prefix=f".{name}-", suffix=".tmp"
+            dir=self.notes_dir, prefix=safe_prefix, suffix=".tmp"
         )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -478,8 +521,10 @@ class NotesManager:
 
         self.validate_name(name)
         enc_path = self.notes_dir / f"{name}.md.enc"
+        enc_path.parent.mkdir(parents=True, exist_ok=True)
+        safe_prefix = f".{name.replace('/', '_')}-"
         fd, tmp_name = tempfile.mkstemp(
-            dir=self.notes_dir, prefix=f".{name}-", suffix=".tmp.enc"
+            dir=self.notes_dir, prefix=safe_prefix, suffix=".tmp.enc"
         )
         try:
             with os.fdopen(fd, "wb") as f:
@@ -522,6 +567,14 @@ class NotesManager:
             best_effort_overwrite(enc_path)
         if note_path.exists():
             note_path.unlink()
+        # Clean up empty parent directories up to notes_dir
+        parent = note_path.parent
+        while parent != self.notes_dir:
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
         with self._lock:
             self._content_cache.pop(name, None)
             self._metadata_cache.pop(name, None)
@@ -547,13 +600,24 @@ class NotesManager:
         if old_enc.exists():
             if new_enc.exists():
                 return False
+            new_enc.parent.mkdir(parents=True, exist_ok=True)
             old_enc.rename(new_enc)
         elif old_path.exists():
             if new_path.exists():
                 return False
+            new_path.parent.mkdir(parents=True, exist_ok=True)
             old_path.rename(new_path)
         else:
             return False
+
+        # Clean up empty old parent dirs
+        old_parent = old_path.parent
+        while old_parent != self.notes_dir:
+            try:
+                old_parent.rmdir()
+            except OSError:
+                break
+            old_parent = old_parent.parent
 
         with self._lock:
             self._content_cache.pop(old_name, None)

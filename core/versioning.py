@@ -175,7 +175,7 @@ class GitVersionController:
         try:
             filename = self._note_filename(note_name)
 
-            self._repo.git.rm(filename)
+            self._repo.index.remove([filename], working_tree=False)
             self._repo.index.commit(f"delete: {note_name}")
             logger.debug("Committed deletion of '%s'", note_name)
             return True

@@ -141,9 +141,25 @@ class TestValidateName:
         for name in ["Hello", "My Note", "note-1", "draft.md", "test (2024)"]:
             assert NotesManager.validate_name(name) == name
 
-    def test_rejects_slash(self) -> None:
+    def test_valid_folder_names(self) -> None:
+        for name in ["Work/Hi", "Work/Month/Hi", "a/b/c/d"]:
+            assert NotesManager.validate_name(name) == name
+
+    def test_rejects_path_traversal(self) -> None:
         with pytest.raises(ValueError):
             NotesManager.validate_name("../../etc/passwd")
+
+    def test_rejects_leading_slash(self) -> None:
+        with pytest.raises(ValueError):
+            NotesManager.validate_name("/etc/passwd")
+
+    def test_rejects_trailing_slash(self) -> None:
+        with pytest.raises(ValueError):
+            NotesManager.validate_name("Work/")
+
+    def test_rejects_double_slash(self) -> None:
+        with pytest.raises(ValueError):
+            NotesManager.validate_name("Work//Hi")
 
     def test_rejects_empty(self) -> None:
         with pytest.raises(ValueError):
@@ -207,6 +223,122 @@ class TestUpdateDeadline:
     def test_invalid_line_returns_false(self, nm: NotesManager) -> None:
         nm.save_note("Tasks", "- [ ] buy milk @2025-06-01")
         assert not nm.update_deadline("Tasks", 99, "2025-07-01")
+
+
+class TestFolderNotes:
+    def test_save_and_read_folder_note(self, nm: NotesManager) -> None:
+        nm.save_note("Work/Hi", "Hello world")
+        assert nm.read_plain("Work/Hi") == "Hello world"
+        assert (nm.notes_dir / "Work" / "Hi.md").exists()
+
+    def test_save_creates_parent_dirs(self, nm: NotesManager) -> None:
+        nm.save_note("a/b/c/d/e/note", "nested")
+        assert nm.read_plain("a/b/c/d/e/note") == "nested"
+        assert (nm.notes_dir / "a" / "b" / "c" / "d" / "e" / "note.md").exists()
+
+    def test_get_notes_includes_folder_notes(self, nm: NotesManager) -> None:
+        nm.save_note("Plain", "root")
+        nm.save_note("Work/Hi", "folder note")
+        nm.save_note("Work/Month/Deep", "deeply nested")
+        notes = nm.get_notes()
+        assert "Plain" in notes
+        assert "Work/Hi" in notes
+        assert "Work/Month/Deep" in notes
+
+    def test_get_notes_search_finds_folder_notes(self, nm: NotesManager) -> None:
+        nm.save_note("Work/Hi", "hello")
+        result = nm.get_notes(search_text="Hi")
+        assert "Work/Hi" in result
+        # Search by folder path component
+        result2 = nm.get_notes(search_text="Work")
+        assert "Work/Hi" in result2
+
+    def test_delete_folder_note_cleans_up_empty_dir(self, nm: NotesManager) -> None:
+        nm.save_note("Work/Month/Hi", "content")
+        nm.delete_note("Work/Month/Hi")
+        assert "Work/Month/Hi" not in nm.get_notes()
+        # Empty parent dirs should be cleaned up
+        assert not (nm.notes_dir / "Work" / "Month").exists()
+        assert not (nm.notes_dir / "Work").exists()
+
+    def test_delete_keeps_non_empty_dir(self, nm: NotesManager) -> None:
+        nm.save_note("Work/A", "note a")
+        nm.save_note("Work/B", "note b")
+        nm.delete_note("Work/A")
+        assert (nm.notes_dir / "Work").exists()
+        assert (nm.notes_dir / "Work" / "B.md").exists()
+
+    def test_rename_moves_between_folders(self, nm: NotesManager) -> None:
+        nm.save_note("Work/Hi", "content")
+        assert nm.rename_note("Work/Hi", "Personal/Hi")
+        assert "Work/Hi" not in nm.get_notes()
+        assert "Personal/Hi" in nm.get_notes()
+        assert nm.read_plain("Personal/Hi") == "content"
+
+    def test_rename_within_folder(self, nm: NotesManager) -> None:
+        nm.save_note("Work/Hi", "content")
+        assert nm.rename_note("Work/Hi", "Work/Hello")
+        assert nm.read_plain("Work/Hello") == "content"
+
+    def test_rename_to_root(self, nm: NotesManager) -> None:
+        nm.save_note("Work/Hi", "content")
+        assert nm.rename_note("Work/Hi", "Hi")
+        assert nm.read_plain("Hi") == "content"
+        assert not (nm.notes_dir / "Work").exists()
+
+    def test_is_encrypted_folder_note(self, nm: NotesManager) -> None:
+        nm.save_encrypted("Work/Secret", b"\x00\x01")
+        assert nm.is_encrypted("Work/Secret")
+
+    def test_get_encrypted_notes_recursive(self, nm: NotesManager) -> None:
+        nm.save_encrypted("RootSecret", b"\x00")
+        nm.save_encrypted("Work/Secret", b"\x01")
+        result = nm.get_encrypted_notes()
+        assert "RootSecret" in result
+        assert "Work/Secret" in result
+
+    def test_get_folders_returns_folders(self, nm: NotesManager) -> None:
+        nm.save_note("Work/Hi", "a")
+        nm.save_note("Work/Month/Deep", "b")
+        nm.save_note("Personal/Journal", "c")
+        folders = nm.get_folders()
+        assert "Work" in folders
+        assert "Work/Month" in folders
+        assert "Personal" in folders
+
+    def test_get_folders_excludes_hidden(self, nm: NotesManager) -> None:
+        nm.save_note("Plain", "root")
+        (nm.notes_dir / ".templates" / "tmpl.md").parent.mkdir(exist_ok=True)
+        (nm.notes_dir / ".templates" / "tmpl.md").write_text("template")
+        folders = nm.get_folders()
+        assert ".templates" not in folders
+
+    def test_get_notes_in_folder(self, nm: NotesManager) -> None:
+        nm.save_note("Work/A", "a")
+        nm.save_note("Work/B", "b")
+        nm.save_note("Other", "c")
+        notes = nm.get_notes_in_folder("Work")
+        assert "Work/A" in notes
+        assert "Work/B" in notes
+        assert "Other" not in notes
+
+    def test_reserve_name_in_folder(self, nm: NotesManager) -> None:
+        nm.save_note("Work/Untitled", "")
+        assert nm.reserve_name("Work/Untitled") == "Work/Untitled 1"
+
+    def test_encrypted_folder_round_trip(self, nm: NotesManager) -> None:
+        nm.save_encrypted("Work/Month/Secret", b"\xde\xad")
+        assert nm.is_encrypted("Work/Month/Secret")
+        raw = nm.read_encrypted_raw("Work/Month/Secret")
+        assert raw == b"\xde\xad"
+
+    def test_stale_temp_recursive(self, tmp_path) -> None:
+        (tmp_path / "Work" / ".Old.tmp").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "Work" / ".Old.tmp").write_text("stale", encoding="utf-8")
+        (tmp_path / "Work" / "Secret.md.enc.new").write_bytes(b"stale")
+        NotesManager(notes_dir=tmp_path)
+        assert not (tmp_path / "Work" / ".Old.tmp").exists()
+        assert not (tmp_path / "Work" / "Secret.md.enc.new").exists()
 
 
 class TestGetNotesWithSearch:

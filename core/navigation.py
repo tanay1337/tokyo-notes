@@ -253,11 +253,15 @@ class NavigationController:
     # Header
 
     def update_header_ui(self, title: str, is_editor: bool = True) -> None:
-        """Update the content-area header bar title and button visibility."""
+        """Update the content-area header bar title and button visibility.
+
+        If *title* contains ``/``, it is displayed as a breadcrumb (``a > b > c``).
+        """
         app = self.app
+        display = title.replace("/", "  \u203a  ") if "/" in title else title
         if is_editor:
-            app.content_title.set_label(title)
+            app.content_title.set_label(display)
             app.back_btn.set_visible(False)
         else:
-            app.content_title.set_markup(f"<b>{GLib.markup_escape_text(title)}</b>")
+            app.content_title.set_markup(f"<b>{GLib.markup_escape_text(display)}</b>")
             app.back_btn.set_visible(True)

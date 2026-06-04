@@ -58,3 +58,32 @@ class TestAssessPasswordStrength:
 
     def test_returns_color(self) -> None:
         assert assess_password_strength("weak")["color"] is not None
+
+
+class TestSplitNotePath:
+    def test_no_folder(self) -> None:
+        from core.utils import split_note_path
+
+        assert split_note_path("Hi") == (None, "Hi")
+
+    def test_one_level(self) -> None:
+        from core.utils import split_note_path
+
+        assert split_note_path("Work/Hi") == ("Work", "Hi")
+
+    def test_nested(self) -> None:
+        from core.utils import split_note_path
+
+        assert split_note_path("Work/Month/Hi") == ("Work/Month", "Hi")
+
+
+class TestJoinNotePath:
+    def test_with_folder(self) -> None:
+        from core.utils import join_note_path
+
+        assert join_note_path("Work", "Hi") == "Work/Hi"
+
+    def test_no_folder(self) -> None:
+        from core.utils import join_note_path
+
+        assert join_note_path(None, "Hi") == "Hi"

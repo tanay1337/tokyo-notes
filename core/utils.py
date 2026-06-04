@@ -215,3 +215,27 @@ def assess_password_strength(password: str) -> dict:
         return {"label": "Fair", "color": "#ffd93d"}
     else:
         return {"label": "Strong", "color": "#6bcb77"}
+
+
+# --- Folder / path helpers ---
+
+
+def split_note_path(qualified_name: str) -> tuple[str | None, str]:
+    """Split a qualified note name into (folder_path, stem).
+
+    For ``'Work/Month/note'`` returns ``('Work/Month', 'note')``.
+    For ``'note'`` returns ``(None, 'note')``.
+    """
+    if "/" in qualified_name:
+        folder, stem = qualified_name.rsplit("/", 1)
+        return folder, stem
+    return None, qualified_name
+
+
+def join_note_path(folder: str | None, stem: str) -> str:
+    """Join a folder path and stem into a qualified note name.
+
+    ``('Work/Month', 'note')`` → ``'Work/Month/note'``
+    ``(None, 'note')`` → ``'note'``
+    """
+    return f"{folder}/{stem}" if folder else stem

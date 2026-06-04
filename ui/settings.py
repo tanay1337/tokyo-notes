@@ -138,6 +138,14 @@ class SettingsView(Gtk.Box):
                 "sakura_effect",
             )
         )
+        group.add(
+            self._make_switch_row(
+                "Show Empty Folders",
+                "Display folders with no notes in the sidebar",
+                self._initial_values.get("show_empty_folders", True),
+                "show_empty_folders",
+            )
+        )
         return group
 
     def _build_editor_group(self) -> Adw.PreferencesGroup:
