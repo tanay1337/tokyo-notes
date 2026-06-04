@@ -38,13 +38,16 @@ def update_note_title(
 ) -> tuple[str, bool]:
     """Maybe rename a note based on H1; returns (new_name, did_rename)."""
     new_title = derive_display_title(content, "")
-    if not new_title or new_title == old_name:
+    if not new_title:
         return old_name, False
 
     # Preserve the folder prefix so notes stay in their folder
     folder, _ = split_note_path(old_name)
     if folder:
         new_title = f"{folder}/{new_title}"
+
+    if new_title == old_name:
+        return old_name, False
 
     base = new_title
     counter = 1

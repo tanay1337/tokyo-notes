@@ -539,8 +539,11 @@ class Sidebar(Gtk.Box):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         box.set_margin_top(3)
         box.set_margin_bottom(3)
-        if not is_pinned and (indent_level or folder_path):
-            box.set_margin_start(16)
+        if not is_pinned:
+            if indent_level:
+                box.set_margin_start(indent_level * 16)
+            elif folder_path:
+                box.set_margin_start(16)
 
         title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         label = Gtk.Label(label=display_name or note_name, xalign=0)
@@ -628,7 +631,7 @@ class Sidebar(Gtk.Box):
         box.set_margin_top(4)
         box.set_margin_bottom(4)
         if indent_level:
-            box.set_margin_start(16)
+            box.set_margin_start(indent_level * 16)
 
         # Expand/collapse arrow (starts collapsed)
         arrow = Gtk.Image.new_from_icon_name("go-right-symbolic")

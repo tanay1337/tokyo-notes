@@ -941,6 +941,18 @@ class TokyoNotes(Adw.Application):
             action.connect("activate", handler)
             self.add_action(action)
 
+        # Move note action — param is "note_name|dest_folder"
+        move_action = Gio.SimpleAction.new("move_note", GLib.VariantType.new("s"))
+        move_action.connect("activate", self._on_move_note)
+        self.add_action(move_action)
+
+        # Move folder action — param is "src_folder|dest_parent"
+        move_folder_action = Gio.SimpleAction.new(
+            "move_folder", GLib.VariantType.new("s")
+        )
+        move_folder_action.connect("activate", self._on_move_folder)
+        self.add_action(move_folder_action)
+
     def on_toggle_archive_note(
         self, action: Gio.SimpleAction, parameter: GLib.Variant
     ) -> None:
@@ -1521,6 +1533,26 @@ class TokyoNotes(Adw.Application):
             f"app.archive::{note_name}",
         )
 
+        # Move to folder submenu
+        current_folder = note_name.rsplit("/", 1)[0] if "/" in note_name else ""
+        folders = list(self.notes_manager.get_folders())
+        if current_folder or folders:
+            move_section = Gio.Menu()
+            move_item = Gio.MenuItem.new("Move to folder", None)
+            move_submenu = Gio.Menu()
+            if current_folder:
+                move_submenu.append("Home", f"app.move_note::{note_name}|")
+            for folder in sorted(folders):
+                folder_str = str(folder)
+                if folder_str == current_folder:
+                    continue
+                move_submenu.append(
+                    folder_str, f"app.move_note::{note_name}|{folder_str}"
+                )
+            move_item.set_submenu(move_submenu)
+            move_section.append_item(move_item)
+            menu.append_section(None, move_section)
+
         template_section = Gio.Menu()
         template_section.append(
             "Save as Template", f"app.save_as_template::{note_name}"
@@ -1582,6 +1614,29 @@ class TokyoNotes(Adw.Application):
 
         folder_section = Gio.Menu()
         folder_section.append("Rename folder", f"app.rename_folder::{folder_path}")
+
+        # Move folder submenu
+        all_folders = list(self.notes_manager.get_folders())
+        folder_move_item = Gio.MenuItem.new("Move to", None)
+        move_submenu = Gio.Menu()
+
+        folder_parent = folder_path.rsplit("/", 1)[0] if "/" in folder_path else ""
+        if folder_parent:
+            move_submenu.append("Home", f"app.move_folder::{folder_path}|")
+        for f in sorted(all_folders):
+            f_str = str(f)
+            if (
+                f_str == folder_path
+                or f_str.startswith(f"{folder_path}/")
+                or f_str == folder_parent
+            ):
+                continue
+            move_submenu.append(f_str, f"app.move_folder::{folder_path}|{f_str}")
+        # Only show submenu if there are valid destinations
+        if move_submenu.get_n_items():
+            folder_move_item.set_submenu(move_submenu)
+            folder_section.append_item(folder_move_item)
+
         if is_pinned:
             folder_section.append("Unpin folder", f"app.unpin_folder::{folder_path}")
         else:
@@ -2006,6 +2061,112 @@ class TokyoNotes(Adw.Application):
 
         dialog.connect("response", _on_response)
         dialog.present()
+
+    def _on_move_note(self, action: Gio.SimpleAction, parameter: GLib.Variant) -> None:
+        """Move a note to a different folder."""
+        raw = parameter.get_string()
+        note_name, dest_folder = raw.split("|", 1)
+
+        stem = note_name.rsplit("/", 1)[-1]
+        new_name = f"{dest_folder}/{stem}" if dest_folder else stem
+
+        if new_name == note_name:
+            return
+
+        old_folder = note_name.rsplit("/", 1)[0] if "/" in note_name else ""
+
+        if not self.notes_manager.rename_note(note_name, new_name):
+            self._show_toast("Could not move note")
+            return
+
+        # Recreate the source folder directory if rename_note cleaned it up
+        if old_folder:
+            old_dir = self.notes_manager.notes_dir / old_folder
+            if not old_dir.exists():
+                old_dir.mkdir(parents=True, exist_ok=True)
+
+        self.cfg.rename_note_in_config(note_name, new_name)
+
+        if self.git_controller.is_available():
+            self.git_controller.rename_note(note_name, new_name)
+
+        if self.current_note == note_name:
+            self.current_note = new_name
+            self.win.set_title(new_name.replace("/", " / "))
+
+        self.refresh_list(self.sidebar.search_entry.get_text())
+        self._select_sidebar_row(new_name)
+        self._show_toast(f"Moved to '{dest_folder or 'Home'}'")
+
+    def _on_move_folder(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        """Move an entire folder (and its contents) to a different parent."""
+        raw = parameter.get_string()
+        src_folder, dest_parent = raw.split("|", 1)
+
+        folder_name = src_folder.rsplit("/", 1)[-1]
+        new_folder = f"{dest_parent}/{folder_name}" if dest_parent else folder_name
+
+        if new_folder == src_folder:
+            return
+
+        old_path = self.notes_manager.notes_dir / src_folder
+        new_path = self.notes_manager.notes_dir / new_folder
+
+        if new_path.exists():
+            self._show_toast("Target folder already exists")
+            return
+
+        # Collect affected note names before the move
+        old_notes = self.notes_manager.get_notes_in_folder(src_folder)
+
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            old_path.rename(new_path)
+        except OSError as e:
+            self._show_toast(f"Could not move folder: {e}")
+            return
+
+        # Migrate config sets
+        if self.cfg.is_folder_pinned(src_folder):
+            self.cfg.pinned_folders.discard(src_folder)
+            self.cfg.pinned_folders.add(new_folder)
+            self.cfg._save_json(self.cfg.pinned_folders_path, self.cfg.pinned_folders)
+
+        self.cfg.set_folder_order(
+            [new_folder if f == src_folder else f for f in self.cfg.folder_order]
+        )
+
+        # Migrate sidebar expand state
+        if src_folder in self.sidebar._folder_expanded:
+            self.sidebar._folder_expanded[new_folder] = (
+                self.sidebar._folder_expanded.pop(src_folder)
+            )
+
+        # Git: stage renames for each moved note
+        if self.git_controller.is_available():
+            for old_note in old_notes:
+                new_note = old_note.replace(src_folder, new_folder, 1)
+                self.git_controller.rename_note(old_note, new_note)
+
+        # Migrate encryption key cache for moved notes
+        for old_note in old_notes:
+            if old_note in self._encryption_key_cache:
+                new_note = old_note.replace(src_folder, new_folder, 1)
+                self._encryption_key_cache[new_note] = self._encryption_key_cache.pop(
+                    old_note
+                )
+
+        # Update current_note if it's inside the moved folder
+        if self.current_note is not None and self.current_note.startswith(
+            f"{src_folder}/"
+        ):
+            self.current_note = self.current_note.replace(src_folder, new_folder, 1)
+            self.win.set_title(self.current_note.replace("/", " / "))
+
+        self.refresh_list(self.sidebar.search_entry.get_text())
+        self._show_toast(f"Moved folder to '{new_folder}'")
 
     def _select_sidebar_row(self, note_name: str) -> bool:
         """Select the sidebar row matching *note_name* (case-insensitive).

@@ -203,6 +203,17 @@ class ConfigManager:
         if changed_encrypted:
             self._save_json(self.encrypted_path, self.encrypted)
 
+    def rename_note_in_config(self, old_name: str, new_name: str) -> None:
+        """Migrate a note's keys in pinned, archived, and encrypted sets."""
+        for s_attr in ("pinned", "archived", "encrypted"):
+            s: set[str] = getattr(self, s_attr)
+            if old_name in s:
+                s.discard(old_name)
+                s.add(new_name)
+        self._save_json(self.pinned_path, self.pinned)
+        self._save_json(self.archive_path, self.archived)
+        self._save_json(self.encrypted_path, self.encrypted)
+
     # Pinned folders — immediate writes
 
     def pin_folder(self, folder: str) -> None:
