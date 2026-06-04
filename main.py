@@ -1643,7 +1643,11 @@ class TokyoNotes(Adw.Application):
             not in ("editor", "split_editor")
         ):
             return
-        if self.current_note and self.notes_manager.is_encrypted(self.current_note):
+        if (
+            self.current_note
+            and not self.current_note.startswith(".template:")
+            and self.notes_manager.is_encrypted(self.current_note)
+        ):
             self._reset_lock_timer()
         cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
         cursor_line = cursor_iter.get_line()
