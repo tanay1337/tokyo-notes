@@ -14,6 +14,7 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
 from ui.deadline_picker import DeadlinePicker
 from ui.link_picker import LinkPicker
+from ui.slash_picker import SlashPicker
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class Editor(Gtk.Box):
         self.text_view.connect("paste-clipboard", on_paste_clipboard)
 
         key_ctrl = Gtk.EventControllerKey()
-        key_ctrl.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
+        key_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         key_ctrl.connect("key-pressed", self.on_key_pressed)
         self.text_view.add_controller(key_ctrl)
         self.controller = key_ctrl
@@ -151,7 +152,39 @@ class Editor(Gtk.Box):
         self.buffer.insert_at_cursor("\n" + prefix)
         return False
 
-    # Key handling -- list continuation
+    # Key handling -- list continuation + auto-pair
+
+    def _auto_pair_delimiter(self, buffer: Gtk.TextBuffer, keyval: int) -> bool:
+        """Wrap selection in delimiters or auto-close pair on delimiter key."""
+        pairs = {
+            Gdk.KEY_asterisk: ("*", "*"),
+            Gdk.KEY_underscore: ("_", "_"),
+            Gdk.KEY_grave: ("`", "`"),
+            Gdk.KEY_asciitilde: ("~~", "~~"),
+            Gdk.KEY_parenleft: ("(", ")"),
+            Gdk.KEY_bracketleft: ("[", "]"),
+        }
+        if keyval not in pairs:
+            return False
+
+        prefix, suffix = pairs[keyval]
+
+        if buffer.get_has_selection():
+            start, end = buffer.get_selection_bounds()
+            text = buffer.get_text(start, end, True)
+            buffer.delete(start, end)
+            buffer.insert_at_cursor(f"{prefix}{text}{suffix}")
+            return True
+
+        # Don't auto-close [ to avoid breaking the [[ wiki-link picker
+        if keyval == Gdk.KEY_bracketleft:
+            return False
+
+        buffer.insert_at_cursor(f"{prefix}{suffix}")
+        cursor = buffer.get_iter_at_mark(buffer.get_insert())
+        cursor.backward_chars(len(suffix))
+        buffer.place_cursor(cursor)
+        return True
 
     def on_key_pressed(
         self,
@@ -160,11 +193,23 @@ class Editor(Gtk.Box):
         keycode: int,
         state: Gdk.ModifierType,
     ) -> bool:
-        """Continue list items and task lists when Enter is pressed."""
+        """Continue list items, auto-pair/close delimiters, and handle Enter."""
+        buffer = self.text_view.get_buffer()
+
+        if keyval in (
+            Gdk.KEY_asterisk,
+            Gdk.KEY_underscore,
+            Gdk.KEY_grave,
+            Gdk.KEY_asciitilde,
+            Gdk.KEY_parenleft,
+            Gdk.KEY_bracketleft,
+        ):
+            if self._auto_pair_delimiter(buffer, keyval):
+                return True
+
         if keyval not in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             return False
 
-        buffer = self.text_view.get_buffer()
         cursor_iter = buffer.get_iter_at_mark(buffer.get_insert())
 
         # Read only the text from the start of the line to the cursor so
@@ -218,9 +263,10 @@ class Editor(Gtk.Box):
         text: str,
         length: int,
     ) -> None:
-        """Trigger deadline, link, or variable picker on '@', '[[' , or '{{'."""
+        """Trigger pickers on '@', '[[' , '{{', '/'."""
         if self._picker_open:
             return
+
         if text == "@":
             self._picker_open = True
             GLib.idle_add(self.show_deadline_picker)
@@ -232,6 +278,21 @@ class Editor(Gtk.Box):
             prev_iter = buffer.get_iter_at_offset(location.get_offset() - 1)
             if prev_iter.get_char() == "{":
                 GLib.idle_add(self.show_variable_picker)
+        elif text == "/":
+            # Only trigger slash-command menu when preceded by whitespace or
+            # at start of buffer, to avoid interfering with URLs and paths.
+            if location.get_offset() == 0:
+                self._picker_open = True
+                GLib.idle_add(self.show_slash_picker)
+            else:
+                prev_char = buffer.get_text(
+                    buffer.get_iter_at_offset(location.get_offset() - 1),
+                    location,
+                    False,
+                )
+                if prev_char and prev_char[0] in (" ", "\t", "\n", ""):
+                    self._picker_open = True
+                    GLib.idle_add(self.show_slash_picker)
 
     # Picker helpers
 
@@ -299,6 +360,56 @@ class Editor(Gtk.Box):
             self.buffer.insert_at_cursor(variable)
 
         picker = VariablePicker(on_selected, self.text_view)
+        picker.connect("closed", lambda *_: setattr(self, "_picker_open", False))
+        self._popup_at_cursor(picker)
+
+    def _remove_last_slash(self) -> None:
+        """Delete the / character that triggered the slash picker."""
+        cursor = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+        if cursor.get_offset() > 0:
+            prev = cursor.copy()
+            prev.backward_chars(1)
+            if self.buffer.get_text(prev, cursor, False) == "/":
+                self.buffer.delete(prev, cursor)
+
+    def show_slash_picker(self) -> None:
+        """Show the slash-command picker popover at the cursor."""
+
+        def on_selected(command_label: str, insert_text: str) -> None:
+            self._picker_open = False
+            self._remove_last_slash()
+            if command_label == "Deadline":
+                self.show_deadline_picker()
+                return
+            if command_label in ("Code Block", "Flashcard", "Divider"):
+                self.buffer.insert_at_cursor(insert_text)
+                if command_label in ("Code Block", "Flashcard"):
+                    cursor = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+                    lines = insert_text.count("\n")
+                    if lines > 0:
+                        cursor.backward_lines(lines)
+                        cursor.forward_to_line_end()
+                        self.buffer.place_cursor(cursor)
+                return
+            if insert_text.endswith("]]"):
+                self.buffer.insert_at_cursor(insert_text)
+            elif insert_text in (
+                "*italic*",
+                "**bold**",
+                "~~text~~",
+                "`code`",
+                "[text](url)",
+                "![alt](url)",
+            ):
+                self.buffer.insert_at_cursor(insert_text)
+                cursor = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+                midpoint = len(insert_text) // 2
+                cursor.backward_chars(midpoint)
+                self.buffer.place_cursor(cursor)
+            else:
+                self.buffer.insert_at_cursor(insert_text)
+
+        picker = SlashPicker(on_selected, self.text_view)
         picker.connect("closed", lambda *_: setattr(self, "_picker_open", False))
         self._popup_at_cursor(picker)
 

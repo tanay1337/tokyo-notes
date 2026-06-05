@@ -59,6 +59,7 @@ python3 main.py
 | `Ctrl/Cmd + Q` | Quit |
 
 ## Smart Syntax
+- **Slash Commands**: Type `/` to open a command palette for inserting headings, lists, code blocks, and more.
 - **Deadlines**: Type `@` to open a date/time picker for task deadlines.
 - **Note Links**: Type `[[` to pick a note to link to.
 - **Lists**: Press `Enter` on a list item to automatically continue the list. Press `Enter` twice to discontinue the lists.

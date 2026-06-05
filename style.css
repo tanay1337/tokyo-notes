@@ -330,6 +330,30 @@ popover > contents {
     color: @fg_color;
 }
 
+/* Slash command picker */
+.slash-picker row {
+    padding: 6px 10px;
+}
+
+.slash-command-name {
+    font-size: 11pt;
+    font-weight: 500;
+}
+
+.slash-command-desc {
+    font-size: 8pt;
+    color: @fg_color;
+    opacity: 0.5;
+}
+
+.slash-command-category {
+    font-size: 7pt;
+    font-weight: 600;
+    color: @accent_color;
+    opacity: 0.6;
+    padding: 0 4px;
+}
+
 /* Dimmed note chip in dashboard rows */
 .dim-chip {
     opacity: 0.5;
@@ -554,6 +578,13 @@ button.pill {
     background: none;
     border: none;
     box-shadow: none;
+}
+
+/* Quick-add deadline label */
+.quick-add-dl-label {
+    font-size: 8pt;
+    color: @accent_color;
+    padding: 0 4px;
 }
 
 /* Header bar icon buttons — dark-theme inversion */

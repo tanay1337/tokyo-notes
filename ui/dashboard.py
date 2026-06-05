@@ -263,6 +263,11 @@ class Dashboard(Gtk.Box):
             "clicked", self._on_quick_add_deadline_clicked
         )
         note_row.append(self._quick_add_deadline_btn)
+
+        self._quick_add_dl_label = Gtk.Label(label="")
+        self._quick_add_dl_label.add_css_class("quick-add-dl-label")
+        self._quick_add_dl_label.set_visible(False)
+        note_row.append(self._quick_add_dl_label)
         box.append(note_row)
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -297,7 +302,7 @@ class Dashboard(Gtk.Box):
         self._refresh_quick_add_notes()
         self._quick_add_entry.set_text("")
         self._quick_add_entry.grab_focus()
-        self._quick_add_deadline = None
+        self._update_quick_add_dl_label()
         self._quick_add_popover.popup()
 
     def _on_quick_add_clicked(self, btn: Gtk.Button) -> None:
@@ -313,6 +318,14 @@ class Dashboard(Gtk.Box):
 
     def _on_quick_add_deadline_selected(self, deadline: str | None) -> None:
         self._quick_add_deadline = deadline
+        self._update_quick_add_dl_label()
+
+    def _update_quick_add_dl_label(self) -> None:
+        if self._quick_add_deadline:
+            self._quick_add_dl_label.set_label(self._quick_add_deadline)
+            self._quick_add_dl_label.set_visible(True)
+        else:
+            self._quick_add_dl_label.set_visible(False)
 
     def _on_quick_add_submit(self, *args) -> None:
         text = self._quick_add_entry.get_text().strip()
@@ -326,7 +339,6 @@ class Dashboard(Gtk.Box):
 
         self.on_quick_add(text, note_name, self._quick_add_deadline)
         self._quick_add_entry.set_text("")
-        self._quick_add_deadline = None
         self._quick_add_popover.popdown()
 
     # Filter controls
@@ -719,6 +731,18 @@ class Dashboard(Gtk.Box):
             self._collapsed.add(date_key)
             for task_row in self._date_rows.get(date_key, []):
                 task_row.set_visible(False)
+
+    def _collapse_all(self, *_) -> None:
+        for date_key, rows in self._date_rows.items():
+            self._collapsed.add(date_key)
+            for task_row in rows:
+                task_row.set_visible(False)
+
+    def _expand_all(self, *_) -> None:
+        self._collapsed.clear()
+        for rows in self._date_rows.values():
+            for task_row in rows:
+                task_row.set_visible(True)
 
     def _make_row(self, cb: dict[str, Any]) -> Gtk.ListBoxRow:
         """Build a single task row for *cb*."""

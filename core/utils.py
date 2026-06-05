@@ -122,6 +122,7 @@ DEADLINE_RE: re.Pattern = re.compile(r"@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)")
 CB_EXTRACT_RE: re.Pattern = re.compile(
     r"^(\s*)-\s*\[([ xX])\]\s*(.+?)(?:\s+@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?))?$"
 )
+
 # Update: prefix, checked_char, suffix
 CB_UPDATE_RE: re.Pattern = re.compile(r"^(\s*-\s*\[)([ xX])(\].*)")
 # Matches [ ] or [x] or [X]
