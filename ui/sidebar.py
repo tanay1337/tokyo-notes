@@ -246,7 +246,7 @@ class Sidebar(Gtk.Box):
 
         # Compute encrypted set once instead of per-row syscalls
         encrypted_set = self.app.notes_manager.get_encrypted_notes()
-        show_empty = self.app.cfg.get("show_empty_folders", True)
+        show_empty = True
 
         pinned_notes = [n for n in main_notes if n in pinned]
         other_notes = [n for n in main_notes if n not in pinned]

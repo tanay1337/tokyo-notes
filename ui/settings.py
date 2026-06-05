@@ -89,10 +89,6 @@ class SettingsView(Gtk.Box):
         self._content.append(self._versioning_group)
         self._settings_groups.append(self._versioning_group)
 
-        self._flashcard_group = self._build_flashcard_group()
-        self._content.append(self._flashcard_group)
-        self._settings_groups.append(self._flashcard_group)
-
         self._private_group = self._build_private_group()
         self._content.append(self._private_group)
         self._settings_groups.append(self._private_group)
@@ -136,14 +132,6 @@ class SettingsView(Gtk.Box):
                 "Show cherry blossoms when completing tasks",
                 self._initial_values.get("sakura_effect", True),
                 "sakura_effect",
-            )
-        )
-        group.add(
-            self._make_switch_row(
-                "Show Empty Folders",
-                "Display folders with no notes in the sidebar",
-                self._initial_values.get("show_empty_folders", True),
-                "show_empty_folders",
             )
         )
         return group
@@ -232,18 +220,6 @@ class SettingsView(Gtk.Box):
         )
         group.add(self._git_auto_commit_row)
 
-        return group
-
-    def _build_flashcard_group(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Flashcards")
-        group.add(
-            self._make_switch_row(
-                "Enable Flashcards",
-                "Parse ```flashcard blocks and review cards from the sidebar",
-                self._initial_values.get("flashcards_enabled", True),
-                "flashcards_enabled",
-            )
-        )
         return group
 
     def _build_private_group(self) -> Adw.PreferencesGroup:
