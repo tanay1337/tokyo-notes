@@ -13,6 +13,7 @@ for up to _MTIME_TRUST_SECS seconds before re-validating externally-modified fil
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 import os
 import re
 import threading
@@ -34,6 +35,8 @@ _MTIME_TRUST_SECS: float = 5.0
 # Maximum number of notes to keep in memory caches. Beyond this, the
 # least-recently-inserted entries are evicted.
 _MAX_CACHE_SIZE = 500
+
+logger = logging.getLogger(__name__)
 
 
 class _BoundedDict(OrderedDict):
@@ -635,12 +638,30 @@ class NotesManager:
                         self._backlink_index[linked].add(new_name)
                     if not self._backlink_index[linked]:
                         self._backlink_index.pop(linked, None)
+        incoming: set[str] = set()
         if old_name in self._backlink_index:
             incoming = self._backlink_index.pop(old_name)
             self._backlink_index[new_name] = {
                 new_name if source == old_name else source for source in incoming
             }
         self._backlink_cache.clear()
+
+        # Update [[wiki links]] in backlinking notes to point to the new name.
+        if incoming:
+            pat = re.compile(r"\[\[" + re.escape(old_name) + r"\]\]", re.IGNORECASE)
+            repl = f"[[{new_name}]]"
+            for source in incoming:
+                try:
+                    name = new_name if source == old_name else source
+                    if self.is_encrypted(name):
+                        continue
+                    content = self.read_plain(name)
+                    updated = pat.sub(repl, content)
+                    if updated != content:
+                        self.save_note(name, updated)
+                except Exception:
+                    logger.exception("Failed to update links in '%s'", source)
+
         return True
 
     # Checkbox / deadline helpers

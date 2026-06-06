@@ -162,6 +162,14 @@ class SettingsView(Gtk.Box):
                 "show_backlinks",
             )
         )
+        group.add(
+            self._make_switch_row(
+                "Create Notes from Links",
+                "Clicking a link to a non-existent note creates it automatically",
+                self._initial_values.get("create_on_link_click", True),
+                "create_on_link_click",
+            )
+        )
         return group
 
     def _build_dashboard_group(self) -> Adw.PreferencesGroup:

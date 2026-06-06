@@ -199,6 +199,19 @@ class NoteLifecycleManager:
             app.nav.update_header_ui(note_name, is_editor=True)
             app.sidebar.set_active_view("editor")
             app._set_backlinks_visible(True)
+        elif app.cfg.get("create_on_link_click", True):
+            try:
+                app._flush_pending_save()
+                name = app.notes_manager.reserve_name(note_name)
+                app.current_note = name
+                app.nav.update_header_ui(name, is_editor=True)
+                app._has_images = False
+                app._set_buffer_text("")
+                app.editor.set_editable(True)
+                app.refresh_list()
+                app._select_sidebar_row(name)
+            except ValueError:
+                logger.exception("Failed to create note from link")
 
     def handle_row_click(
         self, gesture: Any, n_press: int, x: float, y: float, cb: dict

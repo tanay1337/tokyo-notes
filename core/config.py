@@ -24,6 +24,7 @@ _DEFAULTS: dict[str, Any] = {
     "show_backlinks": True,
     "lock_timeout_minutes": 5,
     "start_week_on_sunday": True,
+    "create_on_link_click": True,
     "git_enabled": False,
     "git_auto_commit": True,
     "git_init_dismissed": False,
