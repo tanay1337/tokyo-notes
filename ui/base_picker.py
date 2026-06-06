@@ -62,7 +62,9 @@ class SearchablePicker(Gtk.Popover):
     def _on_closed(self, popover: SearchablePicker) -> None:
         """Return keyboard focus to the editor when the picker is dismissed."""
         if self._text_view is not None:
-            GLib.idle_add(self._text_view.grab_focus)
+            skip = getattr(self._text_view, "_skip_focus_restore", False)
+            if not skip:
+                GLib.idle_add(self._text_view.grab_focus)
 
     def _populate(self, items: list[Any]) -> None:
         clear_listbox(self.list_box)

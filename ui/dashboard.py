@@ -10,7 +10,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gdk, Gio, Gtk, Pango
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from core.services import get_week_boundaries
 from core.utils import clear_listbox
@@ -310,6 +310,12 @@ class Dashboard(Gtk.Box):
 
     def _on_quick_add_deadline_clicked(self, btn: Gtk.Button) -> None:
         picker = DeadlinePicker(self._on_quick_add_deadline_selected)
+        picker.connect(
+            "closed",
+            lambda *_: GLib.idle_add(
+                lambda: (self._quick_add_entry.grab_focus(), False)[-1]
+            ),
+        )
         rect = Gdk.Rectangle()
         rect.x, rect.y, rect.width, rect.height = 0, 0, 1, 1
         picker.set_parent(btn)

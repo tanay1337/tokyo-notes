@@ -194,6 +194,13 @@ class Editor(Gtk.Box):
         state: Gdk.ModifierType,
     ) -> bool:
         """Continue list items, auto-pair/close delimiters, and handle Enter."""
+        # When a picker popover is open, its entry widgets need to receive
+        # keystrokes unimpeded.  This controller runs at CAPTURE phase, so it
+        # sees events before the popover's children do — returning False here
+        # lets the event propagate normally to whichever widget has focus.
+        if self._picker_open:
+            return False
+
         buffer = self.text_view.get_buffer()
 
         if keyval in (
@@ -273,10 +280,12 @@ class Editor(Gtk.Box):
         elif text == "[" and location.get_offset() > 0:
             prev_iter = buffer.get_iter_at_offset(location.get_offset() - 1)
             if prev_iter.get_char() == "[":
+                self._picker_open = True
                 GLib.idle_add(self.show_link_picker)
         elif text == "{" and location.get_offset() > 0:
             prev_iter = buffer.get_iter_at_offset(location.get_offset() - 1)
             if prev_iter.get_char() == "{":
+                self._picker_open = True
                 GLib.idle_add(self.show_variable_picker)
         elif text == "/":
             # Only trigger slash-command menu when preceded by whitespace or
@@ -321,6 +330,7 @@ class Editor(Gtk.Box):
 
     def show_link_picker(self) -> None:
         """Show the wiki-link picker popover at the cursor."""
+        self._picker_open = True
 
         def on_selected(note_name: str) -> None:
             self._picker_open = False
@@ -332,6 +342,7 @@ class Editor(Gtk.Box):
 
     def show_deadline_picker(self) -> None:
         """Show the deadline picker popover at the cursor."""
+        self._picker_open = True
         picker = DeadlinePicker(self.on_deadline_selected)
         picker.connect("closed", lambda *_: setattr(self, "_picker_open", False))
         self._popup_at_cursor(picker)
@@ -341,6 +352,7 @@ class Editor(Gtk.Box):
 
     def show_variable_picker(self) -> None:
         """Show the variable picker popover at the cursor."""
+        self._picker_open = True
         from ui.variable_picker import VariablePicker
 
         def on_selected(variable: str) -> None:
@@ -374,12 +386,15 @@ class Editor(Gtk.Box):
 
     def show_slash_picker(self) -> None:
         """Show the slash-command picker popover at the cursor."""
+        self._picker_open = True
+        self._pending_slash_action = None
 
         def on_selected(command_label: str, insert_text: str) -> None:
             self._picker_open = False
             self._remove_last_slash()
             if command_label == "Deadline":
-                self.show_deadline_picker()
+                self.text_view._skip_focus_restore = True
+                self._pending_slash_action = "deadline"
                 return
             if command_label in ("Code Block", "Flashcard", "Divider"):
                 self.buffer.insert_at_cursor(insert_text)
@@ -410,8 +425,18 @@ class Editor(Gtk.Box):
                 self.buffer.insert_at_cursor(insert_text)
 
         picker = SlashPicker(on_selected, self.text_view)
+        picker.connect("closed", self._on_slash_closed)
         picker.connect("closed", lambda *_: setattr(self, "_picker_open", False))
         self._popup_at_cursor(picker)
+
+    def _on_slash_closed(self, picker: Gtk.Popover) -> None:
+        GLib.idle_add(lambda: setattr(self.text_view, "_skip_focus_restore", False))
+        if self._pending_slash_action == "deadline":
+            self._pending_slash_action = None
+            GLib.idle_add(self._trigger_deadline_after_slash)
+
+    def _trigger_deadline_after_slash(self) -> None:
+        self.buffer.insert_at_cursor("@")
 
     # Image rendering
 

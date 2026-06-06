@@ -9,17 +9,21 @@ from typing import Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 
 class DeadlinePicker(Gtk.Popover):
     """Calendar + optional time entry for picking a task deadline."""
 
-    def __init__(self, callback: Callable[[str | None], None]) -> None:
+    def __init__(
+        self,
+        callback: Callable[[str | None], None],
+    ) -> None:
         super().__init__()
         self.add_css_class("deadline-picker-popover")
         self.callback = callback
-        self.connect("closed", lambda *_: self.unparent())
+        self.set_autohide(False)
+        self.connect("closed", lambda *_: GLib.idle_add(self.unparent))
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_margin_start(10)
@@ -28,6 +32,7 @@ class DeadlinePicker(Gtk.Popover):
         box.set_margin_bottom(10)
 
         self.calendar = Gtk.Calendar()
+        self.calendar.set_can_focus(False)
         box.append(self.calendar)
 
         self.time_entry = Gtk.Entry()
