@@ -40,6 +40,7 @@ class NavigationController:
     def on_dashboard_clicked(self, button: Gtk.Button | None = None) -> None:
         """Switch to the dashboard view, lazily creating it on first access."""
         app = self.app
+        app._save_current_cursor()
         if app.dashboard_view is None:
             app.dashboard_view = Dashboard(
                 app.on_dashboard_checkbox_toggled,
@@ -139,6 +140,7 @@ class NavigationController:
     def on_graph_clicked(self) -> None:
         """Switch to the knowledge graph view, lazily creating it on first access."""
         app = self.app
+        app._save_current_cursor()
         if app.graph_manager is None:
             app.graph_manager = GraphManager(app.notes_manager)
         graph_data = app.graph_manager.get_graph_data_rich(app.cfg.archived)
@@ -157,6 +159,7 @@ class NavigationController:
     def on_settings_clicked(self, btn: Gtk.Button | None = None) -> None:
         """Switch to the settings view, lazily creating it on first access."""
         app = self.app
+        app._save_current_cursor()
         if app.settings_view is None:
             has_encrypted = any(
                 app.notes_manager.is_encrypted(n) for n in app.notes_manager.get_notes()
@@ -209,6 +212,7 @@ class NavigationController:
     def on_flashcard_clicked(self) -> None:
         """Switch to the flashcard review view, lazily creating it on first access."""
         app = self.app
+        app._save_current_cursor()
         if app.flashcard_view is None:
             app.flashcard_view = FlashcardReview(
                 get_notes_fn=app.notes_manager.get_notes,

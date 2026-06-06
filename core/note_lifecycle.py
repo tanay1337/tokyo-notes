@@ -82,6 +82,8 @@ class NoteLifecycleManager:
         if not note_name:
             return
 
+        app._save_current_cursor()
+
         # In split mode, load into the focused pane
         if app.split_editor is not None:
             app._flush_pending_save()
@@ -118,10 +120,8 @@ class NoteLifecycleManager:
                     app._load_encrypted_note(app.current_note)
                     content = app.buffer.get_text(*app.buffer.get_bounds(), True)
                     app.content_stack.set_visible_child_name("editor")
-                    start = app.buffer.get_start_iter()
-                    app.buffer.place_cursor(start)
-                    app.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
                     app.last_cursor_line = -1
+                    GLib.idle_add(app.text_view.grab_focus)
                     app._update_backlinks()
                     if listbox == app.sidebar.main_list:
                         app.sidebar.archive_list.unselect_all()
@@ -143,9 +143,8 @@ class NoteLifecycleManager:
             app._set_buffer_text(content)
             app.content_stack.set_visible_child_name("editor")
 
-            start = app.buffer.get_start_iter()
-            app.buffer.place_cursor(start)
-            app.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
+            app._restore_cursor_for_note(app.current_note)
+            GLib.idle_add(app.text_view.grab_focus)
 
             if app.highlighter:
                 app.highlighter.highlight(start_line=0, end_line=30)

@@ -198,6 +198,7 @@ class SplitEditor(Gtk.Box):
 
     def _on_focus(self, side: str) -> None:
         app = self._app
+        app._save_current_cursor()
         info = self.left if side == "left" else self.right
         self._active_side = side
 
@@ -212,6 +213,14 @@ class SplitEditor(Gtk.Box):
         app = self._app
         other = self.right if side == "left" else self.left
 
+        if self.left.note_name:
+            app._cursor_positions[self.left.note_name] = (
+                self.left.editor.buffer.get_property("cursor-position")
+            )
+        if self.right.note_name:
+            app._cursor_positions[self.right.note_name] = (
+                self.right.editor.buffer.get_property("cursor-position")
+            )
         self.flush_saves()
 
         app.content_stack.set_visible_child_name("editor")
@@ -239,6 +248,16 @@ class SplitEditor(Gtk.Box):
         app._set_backlinks_visible(True)
 
     @staticmethod
+    def _restore_cursor_in_pane(
+        info: _PaneState, note_name: str, app: TokyoNotes
+    ) -> None:
+        cursor_pos = app._cursor_positions.get(note_name)
+        if cursor_pos is not None and cursor_pos <= info.editor.buffer.get_char_count():
+            it = info.editor.buffer.get_iter_at_offset(cursor_pos)
+            info.editor.buffer.place_cursor(it)
+            info.editor.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0)
+
+    @staticmethod
     def _select_and_load_note(
         app: TokyoNotes, note_name: str, buffer: Gtk.TextBuffer
     ) -> None:
@@ -252,9 +271,12 @@ class SplitEditor(Gtk.Box):
 
         content = app.notes_manager.read_plain(note_name) or ""
         app._set_buffer_text(content)
-        start = app.buffer.get_start_iter()
-        app.buffer.place_cursor(start)
-        app.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
+        cursor_pos = app._cursor_positions.get(note_name)
+        if cursor_pos is not None and cursor_pos <= app.buffer.get_char_count():
+            it = app.buffer.get_iter_at_offset(cursor_pos)
+            app.buffer.place_cursor(it)
+            app.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0)
+        GLib.idle_add(app.text_view.grab_focus)
         if app.highlighter:
             app.highlighter.highlight()
             app._full_pass_complete = True
@@ -264,6 +286,7 @@ class SplitEditor(Gtk.Box):
         """Load a note into the currently focused pane (sidebar click in split mode)."""
         info = self.left if self._active_side == "left" else self.right
         self._load_pane(info, note_name)
+        GLib.idle_add(info.editor.text_view.grab_focus)
 
     def load_notes(self, left_note: str, right_note: str) -> None:
         """Load notes into both panes."""
@@ -273,6 +296,7 @@ class SplitEditor(Gtk.Box):
 
     def _load_pane(self, info: _PaneState, note_name: str) -> None:
         app = self._app
+        app._save_current_cursor()
         info.note_name = note_name
         info.name_label.set_label(note_name)
         app.current_note = note_name
@@ -287,10 +311,12 @@ class SplitEditor(Gtk.Box):
             except Exception:
                 logger.exception("Failed to load encrypted note in split pane")
                 info.editor.set_editable(False)
+            self._restore_cursor_in_pane(info, note_name, app)
             return
 
         content = app.notes_manager.read_plain(note_name) or ""
         info.editor.buffer.set_text(content)
+        self._restore_cursor_in_pane(info, note_name, app)
         info.editor.set_editable(True)
         info.highlighter.highlight()
         app._full_pass_complete = True

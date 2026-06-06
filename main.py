@@ -85,6 +85,7 @@ class TokyoNotes(Adw.Application):
         self._buffer_mod_counter: int = 0
         self._last_sidebar_update_counter: int = -1
         self._full_pass_complete: bool = False
+        self._cursor_positions: dict[str, int] = {}
         self.split_view: Adw.OverlaySplitView | None = None  # set in do_activate
 
         # Session state for private notes
@@ -440,6 +441,7 @@ class TokyoNotes(Adw.Application):
     def lock_session(self) -> None:
         """Lock private notes, zero the key and password, clear the buffer."""
         self._cancel_lock_timer()
+        self._save_current_cursor()
         if self.current_note and self.notes_manager.is_encrypted(self.current_note):
             try:
                 self._save_current_encrypted_note()
@@ -617,9 +619,8 @@ class TokyoNotes(Adw.Application):
             plaintext = decrypt(ciphertext, key_bytes)
             self._set_buffer_text(plaintext)
 
-            start = self.buffer.get_start_iter()
-            self.buffer.place_cursor(start)
-            self.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
+            self._restore_cursor_for_note(note_name)
+            GLib.idle_add(self.text_view.grab_focus)
 
             self._schedule_full_highlight()
         except Exception as e:
@@ -636,6 +637,22 @@ class TokyoNotes(Adw.Application):
         finally:
             if self.changed_handler_id:
                 self.buffer.handler_unblock(self.changed_handler_id)
+
+    def _save_current_cursor(self) -> None:
+        if self.current_note and hasattr(self, "buffer") and not self.is_loading:
+            self._cursor_positions[self.current_note] = self.buffer.get_property(
+                "cursor-position"
+            )
+
+    def _restore_cursor_for_note(self, note_name: str) -> None:
+        cursor_pos = self._cursor_positions.get(note_name)
+        end = self.buffer.get_end_iter()
+        if cursor_pos is not None and cursor_pos <= self.buffer.get_char_count():
+            it = self.buffer.get_iter_at_offset(cursor_pos)
+        else:
+            it = end
+        self.buffer.place_cursor(it)
+        self.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0)
 
     def _load_encrypted_note_to_buffer(
         self, note_name: str, buffer: Gtk.TextBuffer
@@ -768,6 +785,7 @@ class TokyoNotes(Adw.Application):
 
         from ui.split_editor import SplitEditor
 
+        self._save_current_cursor()
         self._flush_pending_save()
 
         if self.split_editor is not None:
@@ -798,6 +816,7 @@ class TokyoNotes(Adw.Application):
             info.editor.text_view.grab_focus()
             return
 
+        self._save_current_cursor()
         self._flush_pending_save()
         self.current_note = note_name
         self.nav.update_header_ui(note_name, is_editor=True)
@@ -807,9 +826,7 @@ class TokyoNotes(Adw.Application):
         else:
             content = self.notes_manager.read_plain(note_name) or ""
             self._set_buffer_text(content)
-            start = self.buffer.get_start_iter()
-            self.buffer.place_cursor(start)
-            self.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
+            self._restore_cursor_for_note(note_name)
             self._schedule_full_highlight()
         self.editor.set_editable(True)
         self.content_stack.set_visible_child_name("editor")
