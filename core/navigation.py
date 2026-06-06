@@ -190,6 +190,7 @@ class NavigationController:
                 on_edit_template=app._on_edit_template,
                 on_delete_template=app._on_delete_template,
                 on_open_templates_folder=app._on_open_templates_folder,
+                on_restore_builtins=app._on_restore_builtins,
                 templates=templates,
                 assets_dir=app.base_dir / "assets" / "settings",
             )

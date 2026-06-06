@@ -33,6 +33,7 @@ class SettingsView(Gtk.Box):
         on_edit_template: Callable[[str], Any] | None = None,
         on_delete_template: Callable[[str], Any] | None = None,
         on_open_templates_folder: Callable[[], Any] | None = None,
+        on_restore_builtins: Callable[[], Any] | None = None,
         templates: list[dict[str, str]] | None = None,
         assets_dir: Path | None = None,
     ) -> None:
@@ -50,6 +51,7 @@ class SettingsView(Gtk.Box):
         self._on_edit_template = on_edit_template
         self._on_delete_template = on_delete_template
         self._on_open_templates_folder = on_open_templates_folder
+        self._on_restore_builtins = on_restore_builtins
         self._templates = templates or []
         self._git_available = initial_values.get("git_available", False)
 
@@ -307,7 +309,38 @@ class SettingsView(Gtk.Box):
             folder_row.add_suffix(folder_btn)
             self._templates_group.add(folder_row)
 
+        if self._on_restore_builtins:
+            restore_row = Adw.ActionRow(
+                title="Restore Built-in Templates",
+                subtitle="Reset all built-in templates to their original content."
+                " Custom templates will not be affected.",
+            )
+            restore_btn = Gtk.Button(label="Restore")
+            restore_btn.set_valign(Gtk.Align.CENTER)
+            restore_btn.add_css_class("template-action-btn")
+            restore_btn.connect("clicked", self._on_restore_builtins_clicked)
+            restore_row.add_suffix(restore_btn)
+            self._templates_group.add(restore_row)
+
         return self._templates_group
+
+    def _on_restore_builtins_clicked(self, _btn: Gtk.Button) -> None:
+        """Show confirmation before restoring built-in templates."""
+        dialog = confirm_destructive_dialog(
+            transient_for=self.get_root(),
+            heading="Restore Built-in Templates?",
+            body="This will reset all built-in templates to their"
+            " original content. Custom templates are not affected.",
+            confirm_label="Restore",
+        )
+        dialog.connect("response", self._on_restore_builtins_response)
+        dialog.present()
+
+    def _on_restore_builtins_response(
+        self, dialog: Adw.MessageDialog, response: str
+    ) -> None:
+        if response == "delete" and self._on_restore_builtins:
+            self._on_restore_builtins()
 
     def _build_theme_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title="Themes")

@@ -1,22 +1,21 @@
-"""Tests for built-in templates."""
+"""Tests for built-in template files."""
 
 from __future__ import annotations
 
-from core.templates_builtin import BUILTIN_TEMPLATES
+from pathlib import Path
+
+BUILTIN_DIR = Path(__file__).parent.parent / "core" / "templates"
 
 
-def test_builtin_templates_is_dict() -> None:
-    assert isinstance(BUILTIN_TEMPLATES, dict)
+def test_builtins_dir_exists() -> None:
+    assert BUILTIN_DIR.exists()
 
 
 def test_daily_journal_exists() -> None:
-    assert "daily-journal" in BUILTIN_TEMPLATES
-
-
-def test_daily_journal_name() -> None:
-    assert BUILTIN_TEMPLATES["daily-journal"]["name"] == "Daily Journal"
+    assert (BUILTIN_DIR / "daily-journal.md").exists()
 
 
 def test_templates_have_content() -> None:
-    for name, tmpl in BUILTIN_TEMPLATES.items():
-        assert tmpl.get("content"), f"Template {name!r} has empty content"
+    for path in sorted(BUILTIN_DIR.glob("*.md")):
+        content = path.read_text(encoding="utf-8").strip()
+        assert content, f"Built-in template {path.name!r} is empty"

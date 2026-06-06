@@ -360,6 +360,23 @@ class NoteLifecycleManager:
 
         if app.current_note.startswith(".template:"):
             tmpl_slug = app.current_note.split(":", 1)[1]
+
+            current_path = app.template_manager.templates_dir / f"{tmpl_slug}.md"
+            if (
+                current_path.exists()
+                and current_path.read_text(encoding="utf-8") == content
+            ):
+                return False
+
+            if app.template_manager.is_builtin(tmpl_slug):
+                copy_slug = app.template_manager.reserve_copy_slug(tmpl_slug)
+                (app.template_manager.templates_dir / f"{copy_slug}.md").write_text(
+                    content, encoding="utf-8"
+                )
+                app.current_note = f".template:{copy_slug}"
+                app.nav.update_header_ui(f"Template: {copy_slug}", is_editor=True)
+                tmpl_slug = copy_slug
+
             new_title = derive_display_title(content, "")
             if new_title and new_title != tmpl_slug:
                 new_slug = clean_title(new_title).lower().replace(" ", "-")

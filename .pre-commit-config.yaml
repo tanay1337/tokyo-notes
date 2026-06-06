@@ -9,7 +9,9 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        exclude: ^core/templates/
       - id: end-of-file-fixer
+        exclude: ^core/templates/
   - repo: local
     hooks:
       - id: pytest

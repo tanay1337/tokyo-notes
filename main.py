@@ -118,6 +118,7 @@ class TokyoNotes(Adw.Application):
         self._flush_pending_save()
         if (
             self.current_note
+            and not self.current_note.startswith(".template:")
             and self.notes_manager.is_encrypted(self.current_note)
             and hasattr(self, "buffer")
         ):
@@ -889,6 +890,14 @@ class TokyoNotes(Adw.Application):
         if self.highlighter:
             self.highlighter.highlight(start_line=0, end_line=30)
         self.text_view.grab_focus()
+
+    def _on_restore_builtins(self) -> None:
+        """Restore all built-in templates to factory defaults."""
+        self.template_manager.restore_builtins()
+        templates = self.template_manager.get_all_templates()
+        if self.settings_view is not None:
+            self.settings_view.refresh_templates(templates)
+        self._show_toast("Built-in templates restored")
 
     def _on_delete_template(self, slug: str) -> bool:
         """Delete a template by slug. Returns True on success."""
@@ -2230,6 +2239,19 @@ class TokyoNotes(Adw.Application):
             start, end = self.buffer.get_bounds()
             content = self.buffer.get_text(start, end, True)
             if content:
+                current_path = self.template_manager.templates_dir / f"{tmpl_slug}.md"
+                if (
+                    current_path.exists()
+                    and current_path.read_text(encoding="utf-8") == content
+                ):
+                    return
+                if self.template_manager.is_builtin(tmpl_slug):
+                    copy_slug = self.template_manager.reserve_copy_slug(tmpl_slug)
+                    copy_path = self.template_manager.templates_dir / f"{copy_slug}.md"
+                    copy_path.write_text(content, encoding="utf-8")
+                    self.current_note = f".template:{copy_slug}"
+                    self.nav.update_header_ui(f"Template: {copy_slug}", is_editor=True)
+                    tmpl_slug = copy_slug
                 self.template_manager.update_template(tmpl_slug, content)
             return
 

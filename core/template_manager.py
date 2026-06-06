@@ -28,6 +28,10 @@ class TemplateManager:
     def __init__(self, app: TokyoNotes) -> None:
         self.app = app
 
+    @property
+    def _builtins_dir(self) -> Path:
+        return Path(__file__).parent / "templates"
+
     @staticmethod
     def _parse_front_matter(content: str) -> tuple[dict[str, str], str]:
         """Extract YAML front matter from template content.
@@ -53,19 +57,43 @@ class TemplateManager:
         return Path(self.app.notes_folder) / TEMPLATES_DIR_NAME
 
     def _ensure_templates_dir(self) -> None:
-        """Create .templates/ if it doesn't exist, and provision built-ins."""
+        """Create .templates/ if it doesn't exist, and provision built-ins
+        only on very first access (when the directory was just created)."""
+        is_new = not self.templates_dir.exists()
         self.templates_dir.mkdir(parents=True, exist_ok=True)
-        self._provision_builtins()
+        if is_new:
+            self._provision_builtins()
 
     def _provision_builtins(self) -> None:
-        """Write built-in templates that don't already exist."""
-        from core.templates_builtin import BUILTIN_TEMPLATES
+        """Copy built-in template files that don't already exist."""
+        if not self._builtins_dir.exists():
+            logger.warning(
+                "Built-in templates directory not found: %s", self._builtins_dir
+            )
+            return
+        for path in sorted(self._builtins_dir.glob("*.md")):
+            dest = self.templates_dir / path.name
+            if not dest.exists():
+                dest.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+                logger.info("Provisioned built-in template: %s", path.stem)
 
-        for slug, template in BUILTIN_TEMPLATES.items():
-            path = self.templates_dir / f"{slug}.md"
-            if not path.exists():
-                path.write_text(template["content"], encoding="utf-8")
-                logger.info("Provisioned built-in template: %s", slug)
+    def restore_builtins(self) -> None:
+        """Restore all built-in templates to factory defaults (overwrites)."""
+        if not self._builtins_dir.exists():
+            return
+        self.templates_dir.mkdir(parents=True, exist_ok=True)
+        for path in sorted(self._builtins_dir.glob("*.md")):
+            dest = self.templates_dir / path.name
+            dest.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+            logger.info("Restored built-in template: %s", path.stem)
+
+    def is_builtin(self, slug: str) -> bool:
+        """Return True if *slug* matches a built-in template file."""
+        return (self._builtins_dir / f"{slug}.md").exists()
+
+    def _builtin_name(self, slug: str) -> str:
+        """Human-readable name for a built-in template slug."""
+        return slug.replace("-", " ").title()
 
     def get_all_templates(self) -> list[dict[str, Any]]:
         """Return all templates (built-in + user) as a list of dicts.
@@ -73,27 +101,24 @@ class TemplateManager:
         Each dict has: slug, name, content, is_builtin, description,
         and folder (default target folder from front matter, or '').
         """
-        from core.templates_builtin import BUILTIN_TEMPLATES
-
         self._ensure_templates_dir()
 
+        builtin_names = {p.name for p in self._builtins_dir.glob("*.md")}
+
         templates: list[dict[str, Any]] = []
-        builtins_by_file = {
-            f"{slug}.md": info for slug, info in BUILTIN_TEMPLATES.items()
-        }
 
         for path in sorted(self.templates_dir.glob("*.md")):
             slug = path.stem
             raw = path.read_text(encoding="utf-8")
             metadata, content = self._parse_front_matter(raw)
-            builtin_info = builtins_by_file.get(path.name)
+            is_builtin = path.name in builtin_names
             templates.append(
                 {
                     "slug": slug,
-                    "name": builtin_info["name"] if builtin_info else slug,
+                    "name": metadata.get("name", self._builtin_name(slug)),
                     "content": content,
-                    "is_builtin": builtin_info is not None,
-                    "description": builtin_info["description"] if builtin_info else "",
+                    "is_builtin": is_builtin,
+                    "description": metadata.get("description", ""),
                     "folder": metadata.get("folder", ""),
                 }
             )
@@ -129,6 +154,16 @@ class TemplateManager:
         path.write_text(content, encoding="utf-8")
         logger.info("Saved user template: %s", slug)
         return slug
+
+    def reserve_copy_slug(self, slug: str) -> str:
+        """Return a slug that doesn't collide with any existing template."""
+        self._validate_slug(slug)
+        candidate = f"{slug}-custom"
+        counter = 1
+        while (self.templates_dir / f"{candidate}.md").exists():
+            candidate = f"{slug}-custom-{counter}"
+            counter += 1
+        return candidate
 
     def delete_template(self, slug: str) -> bool:
         """Delete a template by slug. Returns True if deleted."""
@@ -186,11 +221,15 @@ class TemplateManager:
             raise ValueError(f"Invalid template slug: {slug!r}")
 
     def _reserve_slug(self, slug: str) -> str:
-        """Return *slug* or a numbered variant that does not already exist."""
+        """Return *slug* or a numbered variant that does not already exist
+        (also checking built-in template slugs to avoid collisions)."""
         self._validate_slug(slug)
+        builtin_slugs = {p.stem for p in self._builtins_dir.glob("*.md")}
         candidate = slug
         counter = 1
-        while (self.templates_dir / f"{candidate}.md").exists():
+        while (
+            self.templates_dir / f"{candidate}.md"
+        ).exists() or candidate in builtin_slugs:
             candidate = f"{slug}-{counter}"
             counter += 1
         return candidate
