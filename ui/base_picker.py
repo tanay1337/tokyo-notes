@@ -7,7 +7,7 @@ from typing import Any, Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk
+from gi.repository import Gdk, GLib, Gtk
 
 from core.utils import clear_listbox
 
@@ -42,6 +42,11 @@ class SearchablePicker(Gtk.Popover):
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text(placeholder)
         self.search_entry.connect("search-changed", self.on_search_changed)
+        self.search_entry.connect("activate", lambda _: self._activate_selected())
+
+        nav = Gtk.EventControllerKey()
+        nav.connect("key-pressed", self._on_nav_key)
+        self.search_entry.add_controller(nav)
         box.append(self.search_entry)
 
         self.list_box = Gtk.ListBox()
@@ -94,6 +99,40 @@ class SearchablePicker(Gtk.Popover):
         if row:
             self.on_selected(self._row_value(row))
             self.popdown()
+
+    def _on_nav_key(self, controller, keyval, keycode, state) -> bool:
+        if keyval in (Gdk.KEY_Down, Gdk.KEY_KP_Down):
+            self._select_relative(1)
+            return True
+        if keyval in (Gdk.KEY_Up, Gdk.KEY_KP_Up):
+            self._select_relative(-1)
+            return True
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self._activate_selected()
+            return True
+        if keyval == Gdk.KEY_Escape:
+            self.popdown()
+            return True
+        return False
+
+    def _select_relative(self, direction: int) -> None:
+        selected = self.list_box.get_selected_row()
+        if selected is not None:
+            idx = selected.get_index() + direction
+        else:
+            idx = 0 if direction > 0 else self.list_box.get_rows_count() - 1
+        row = self.list_box.get_row_at_index(idx)
+        if row is not None:
+            self.list_box.select_row(row)
+
+    def _activate_selected(self) -> None:
+        row = self.list_box.get_selected_row()
+        if row is not None:
+            self.on_row_activated(self.list_box, row)
+            return
+        first = self.list_box.get_row_at_index(0)
+        if first is not None:
+            self.on_row_activated(self.list_box, first)
 
     def _row_value(self, row: Gtk.ListBoxRow) -> Any:
         """Return the value to pass to on_selected for *row*. Override in subclasses."""
