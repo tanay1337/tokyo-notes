@@ -641,8 +641,13 @@ class Sidebar(Gtk.Box):
             box.set_margin_start(indent_level * 16)
 
         # Expand/collapse arrow (starts collapsed)
-        arrow = Gtk.Image.new_from_icon_name("go-right-symbolic")
-        arrow.set_pixel_size(12)
+        arrow = Gtk.Image.new_from_file(
+            str(
+                self.app.base_dir / "assets" / "sidebar" / "folder-toggle-collapsed.svg"
+            )
+        )
+        arrow.set_pixel_size(16)
+        arrow.add_css_class("sidebar-icon")
         box.append(arrow)
 
         # Folder display name (last component) with full path as tooltip
@@ -686,7 +691,14 @@ class Sidebar(Gtk.Box):
         is_expanded = self._folder_expanded.get(folder_path, False)
         row._expanded = is_expanded
         if is_expanded:
-            arrow.set_from_icon_name("go-down-symbolic")
+            arrow.set_from_file(
+                str(
+                    self.app.base_dir
+                    / "assets"
+                    / "sidebar"
+                    / "folder-toggle-expanded.svg"
+                )
+            )
         row._descendant_rows: list[Gtk.ListBoxRow] = []
         row._count_label = count_label
 
@@ -716,9 +728,18 @@ class Sidebar(Gtk.Box):
             return
 
         row._expanded = not row._expanded
-        self._folder_expanded[row.folder_path] = row._expanded
-        arrow_name = "go-down-symbolic" if row._expanded else "go-right-symbolic"
-        row._arrow.set_from_icon_name(arrow_name)
+        self._folder_expanded[
+            row._folder_path if hasattr(row, "_folder_path") else row.folder_path
+        ] = row._expanded
+
+        icon_name = (
+            "folder-toggle-expanded.svg"
+            if row._expanded
+            else "folder-toggle-collapsed.svg"
+        )
+        row._arrow.set_from_file(
+            str(self.app.base_dir / "assets" / "sidebar" / icon_name)
+        )
 
         if row._expanded:
             position = 0

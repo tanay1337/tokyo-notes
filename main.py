@@ -1456,7 +1456,11 @@ class TokyoNotes(Adw.Application):
     # Settings / theme
 
     def on_settings_config_changed(self, key: str, value: Any) -> None:
+        old_value = self.cfg.get(key)
         self.cfg.set(key, value)
+        if old_value == value:
+            return
+
         if key == "show_toolbar":
             self.toolbar.set_visible(value)
         elif key == "show_stats":

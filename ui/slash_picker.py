@@ -12,31 +12,34 @@ from gi.repository import GLib, Gtk, Pango
 from core.translations import tr
 from ui.base_picker import SearchablePicker
 
-_HEADINGS = tr("Headings")
-_INLINE = tr("Inline")
-_BLOCKS = tr("Blocks")
-_LINKS = tr("Links & Media")
-_TASKS = tr("Tasks")
 
-_COMMANDS: list[tuple[str, str, str, str | None]] = [
-    (tr("Heading 1"), "# ", _HEADINGS, None),
-    (tr("Heading 2"), "## ", _HEADINGS, None),
-    (tr("Heading 3"), "### ", _HEADINGS, None),
-    (tr("Bold"), "**bold**", _INLINE, None),
-    (tr("Italic"), "*italic*", _INLINE, None),
-    (tr("Strikethrough"), "~~text~~", _INLINE, None),
-    (tr("Inline Code"), "`code`", _INLINE, None),
-    (tr("Code Block"), "```\n\n```", _BLOCKS, None),
-    (tr("Bullet List"), "- ", _BLOCKS, None),
-    (tr("Numbered List"), "1. ", _BLOCKS, None),
-    (tr("Block Quote"), "> ", _BLOCKS, None),
-    (tr("Divider"), "---\n", _BLOCKS, None),
-    (tr("Flashcard"), "```flashcard\nQuestion\n---\nAnswer\n```", _BLOCKS, None),
-    (tr("Task / Checkbox"), "- [ ] ", _TASKS, None),
-    (tr("Deadline"), "@deadline", _TASKS, tr("opens date picker")),
-    (tr("External Link"), "[text](url)", _LINKS, None),
-    (tr("Image"), "![alt](url)", _LINKS, None),
-]
+def get_commands() -> list[tuple[str, str, str, str | None]]:
+    """Return the list of slash commands with fresh translations."""
+    headings = tr("Headings")
+    inline = tr("Inline")
+    blocks = tr("Blocks")
+    links = tr("Links & Media")
+    tasks = tr("Tasks")
+
+    return [
+        (tr("Heading 1"), "# ", headings, None),
+        (tr("Heading 2"), "## ", headings, None),
+        (tr("Heading 3"), "### ", headings, None),
+        (tr("Bold"), "**bold**", inline, None),
+        (tr("Italic"), "*italic*", inline, None),
+        (tr("Strikethrough"), "~~text~~", inline, None),
+        (tr("Inline Code"), "`code`", inline, None),
+        (tr("Code Block"), "```\n\n```", blocks, None),
+        (tr("Bullet List"), "- ", blocks, None),
+        (tr("Numbered List"), "1. ", blocks, None),
+        (tr("Block Quote"), "> ", blocks, None),
+        (tr("Divider"), "---\n", blocks, None),
+        (tr("Flashcard"), "```flashcard\nQuestion\n---\nAnswer\n```", blocks, None),
+        (tr("Task / Checkbox"), "- [ ] ", tasks, None),
+        (tr("Deadline"), "@deadline", tasks, tr("opens date picker")),
+        (tr("External Link"), "[text](url)", links, None),
+        (tr("Image"), "![alt](url)", links, None),
+    ]
 
 
 class SlashPicker(SearchablePicker):
@@ -49,7 +52,7 @@ class SlashPicker(SearchablePicker):
     ) -> None:
         self._on_selected_raw = on_selected
         super().__init__(
-            items=_COMMANDS,
+            items=get_commands(),
             on_selected=lambda row: None,  # handled in row_activated override
             text_view=text_view,
             placeholder=tr("Search commands"),
