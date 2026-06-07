@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING
 
+from core.translations import tr
 from core.utils import ErrorLabelMixin
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
     def __init__(self, app: TokyoNotes) -> None:
         super().__init__(transient_for=app.win, modal=True)
         self.set_default_size(420, 360)
-        self.set_title("Change Password")
+        self.set_title(tr("Change Password"))
         self.app = app
         self._is_active = True
         self.connect("destroy", lambda *_: setattr(self, "_is_active", False))
@@ -60,12 +61,12 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
 
         heading_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
-        title_label = Gtk.Label(label="Change Password", xalign=0)
+        title_label = Gtk.Label(label=tr("Change Password"), xalign=0)
         title_label.add_css_class("title-2")
         heading_box.append(title_label)
 
         desc_label = Gtk.Label(
-            label=(
+            label=tr(
                 "This will re-encrypt all your private notes. "
                 "Do not close the app during this process."
             ),
@@ -78,14 +79,14 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
         box.append(heading_box)
 
         self._old_entry = Gtk.Entry()
-        self._old_entry.set_placeholder_text("Current password")
+        self._old_entry.set_placeholder_text(tr("Current password"))
         self._old_entry.set_visibility(False)
         self._old_entry.set_hexpand(True)
         self._old_entry.connect("activate", lambda *_: self._new_entry.grab_focus())
         box.append(self._old_entry)
 
         self._new_entry = Gtk.Entry()
-        self._new_entry.set_placeholder_text("New password")
+        self._new_entry.set_placeholder_text(tr("New password"))
         self._new_entry.set_visibility(False)
         self._new_entry.set_hexpand(True)
         self._new_entry.connect("changed", self._on_password_changed)
@@ -93,7 +94,7 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
         box.append(self._new_entry)
 
         self._confirm_entry = Gtk.Entry()
-        self._confirm_entry.set_placeholder_text("Confirm new password")
+        self._confirm_entry.set_placeholder_text(tr("Confirm new password"))
         self._confirm_entry.set_visibility(False)
         self._confirm_entry.set_hexpand(True)
         self._confirm_entry.connect("activate", self._on_change_clicked)
@@ -119,12 +120,12 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
 
-        self._cancel_btn = Gtk.Button(label="Cancel", hexpand=True)
+        self._cancel_btn = Gtk.Button(label=tr("Cancel"), hexpand=True)
         self._cancel_btn.add_css_class("pill")
         self._cancel_btn.connect("clicked", lambda *_: self.close())
         btn_row.append(self._cancel_btn)
 
-        self._change_btn = Gtk.Button(label="Change Password", hexpand=True)
+        self._change_btn = Gtk.Button(label=tr("Change Password"), hexpand=True)
         self._change_btn.add_css_class("suggested-action")
         self._change_btn.add_css_class("pill")
         self._change_btn.connect("clicked", self._on_change_clicked)
@@ -155,16 +156,16 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
         self._hide_error()
 
         if not old_password:
-            self._show_error("Current password is required.")
+            self._show_error(tr("Current password is required."))
             return
         if not new_password:
-            self._show_error("New password is required.")
+            self._show_error(tr("New password is required."))
             return
         if new_password != confirm:
-            self._show_error("New passwords do not match.")
+            self._show_error(tr("New passwords do not match."))
             return
         if len(new_password) < 8:
-            self._show_error("New password is too short (min 8 characters).")
+            self._show_error(tr("New password is too short (min 8 characters)."))
             return
 
         self._set_ui_sensitive(False)
@@ -182,7 +183,7 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
         ]
 
         if not encrypted_notes:
-            self._show_error("No private notes to re-encrypt.")
+            self._show_error(tr("No private notes to re-encrypt."))
             self._set_ui_sensitive(True)
             return
 
@@ -196,7 +197,7 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
             old_key_bytes = bytearray(old_key)
             decrypt(ciphertext_bytes, old_key_bytes)
         except Exception:
-            self._show_error("Current password is incorrect.")
+            self._show_error(tr("Current password is incorrect."))
             self._set_ui_sensitive(True)
             return
 
@@ -269,7 +270,7 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
         except Exception as e:
             error_holder.append(str(e))
             self._cleanup_new_files(new_files)
-            self._show_error(f"Failed to re-encrypt: {e}")
+            self._show_error(tr("Failed to re-encrypt: {error}").format(error=e))
             self._set_ui_sensitive(True)
             self._pending_futures = None
             return
@@ -279,14 +280,18 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
             done = len(new_files)
 
         self._progress_bar.set_fraction((done + 0.5) / total)
-        self._progress_label.set_label(f"Re-encrypting {done}/{total}: {name}")
+        self._progress_label.set_label(
+            tr("Re-encrypting {done}/{total}: {name}").format(
+                done=done, total=total, name=name
+            )
+        )
 
         if done < total:
             return
 
         # All notes done → Phase 2 on main thread
         self._progress_bar.set_fraction(0.9)
-        self._progress_label.set_label("Finalizing…")
+        self._progress_label.set_label(tr("Finalizing"))
 
         try:
             for n in new_files:
@@ -295,7 +300,9 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
                 np.replace(ep)
         except Exception as e:
             self._cleanup_new_files(new_files)
-            self._show_error(f"Failed to finalize re-encryption: {e}")
+            self._show_error(
+                tr("Failed to finalize re-encryption: {error}").format(error=e)
+            )
             self._set_ui_sensitive(True)
             self._pending_futures = None
             return
@@ -318,7 +325,7 @@ class PasswordChangeDialog(ErrorLabelMixin, Adw.Window):
         self._old_entry.set_text("")
         self._new_entry.set_text("")
         self._confirm_entry.set_text("")
-        self._show_success("Password changed successfully.")
+        self._show_success(tr("Password changed successfully."))
 
     def _cleanup_new_files(self, names: list[str]) -> None:
         for name in names:

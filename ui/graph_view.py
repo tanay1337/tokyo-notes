@@ -12,6 +12,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo
 
+from core.translations import tr
+
 _REPULSION = 8_000.0  # node-node repulsion constant
 _ATTRACTION = 0.06  # edge spring constant
 _DAMPING = 0.85  # velocity damping per step
@@ -61,12 +63,14 @@ class GraphView(Gtk.Box):
         toolbar.set_margin_top(8)
         toolbar.set_margin_bottom(4)
 
-        self.fit_btn = Gtk.Button(label="Fit")
+        self.fit_btn = Gtk.Button(label=tr("Fit"))
         self.fit_btn.add_css_class("pill")
         self.fit_btn.connect("clicked", self._on_fit_clicked)
         toolbar.append(self.fit_btn)
 
-        hint = Gtk.Label(label="Scroll to zoom · Drag to pan · Click a node to open")
+        hint = Gtk.Label(
+            label=tr("Scroll to zoom · Drag to pan · Click a node to open")
+        )
         hint.add_css_class("dim-label")
         toolbar.append(hint)
 

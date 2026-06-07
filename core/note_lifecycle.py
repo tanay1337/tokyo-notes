@@ -18,7 +18,8 @@ from core.services import (
     patch_sidebar_row,
     update_note_title,
 )
-from core.utils import confirm_destructive_dialog, get_snippet
+from core.translations import tr
+from core.utils import confirm_destructive_dialog, get_snippet, is_entry_focused
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,8 @@ class NoteLifecycleManager:
 
     def on_new_note_global(self, *args: Any) -> bool:
         self.on_new_note(None)
-        self.app.text_view.grab_focus()
+        if not is_entry_focused(self.app.win.get_focus()):
+            self.app.text_view.grab_focus()
         return True
 
     def on_new_note(self, btn: Gtk.Button | None) -> None:
@@ -70,7 +72,8 @@ class NoteLifecycleManager:
         app.content_stack.set_visible_child_name("editor")
         app.refresh_list()
         app._select_sidebar_row(name)
-        app.text_view.grab_focus()
+        if not is_entry_focused(app.win.get_focus()):
+            app.text_view.grab_focus()
 
     # Open / select
 
@@ -121,7 +124,13 @@ class NoteLifecycleManager:
                     content = app.buffer.get_text(*app.buffer.get_bounds(), True)
                     app.content_stack.set_visible_child_name("editor")
                     app.last_cursor_line = -1
-                    GLib.idle_add(app.text_view.grab_focus)
+                    GLib.idle_add(
+                        lambda: (
+                            app.text_view.grab_focus()
+                            if not is_entry_focused(app.win.get_focus())
+                            else None
+                        )
+                    )
                     app._update_backlinks()
                     if listbox == app.sidebar.main_list:
                         app.sidebar.archive_list.unselect_all()
@@ -144,7 +153,13 @@ class NoteLifecycleManager:
             app.content_stack.set_visible_child_name("editor")
 
             app._restore_cursor_for_note(app.current_note)
-            GLib.idle_add(app.text_view.grab_focus)
+            GLib.idle_add(
+                lambda: (
+                    app.text_view.grab_focus()
+                    if not is_entry_focused(app.win.get_focus())
+                    else None
+                )
+            )
 
             if app.highlighter:
                 app.highlighter.highlight(start_line=0, end_line=30)
@@ -254,11 +269,11 @@ class NoteLifecycleManager:
         else:
             dialog = confirm_destructive_dialog(
                 transient_for=app.win,
-                heading="Delete Note?",
-                body=(
-                    f"Are you sure you want to delete '{note_name}'?"
+                heading=tr("Delete Note?"),
+                body=tr(
+                    "Are you sure you want to delete '{note_name}'?"
                     " This action cannot be undone."
-                ),
+                ).format(note_name=note_name),
             )
             dialog.connect("response", self.on_delete_dialog_response, note_name)
             dialog.present()
@@ -290,7 +305,7 @@ class NoteLifecycleManager:
         if was_current:
             app.current_note = None
             app._set_buffer_text("")
-            app.win.set_title("Tokyo Notes")
+            app.win.set_title(tr("Tokyo Notes"))
         app.refresh_list(app.sidebar.search_entry.get_text())
         if was_current:
             remaining = app.notes_manager.get_notes()
@@ -374,7 +389,9 @@ class NoteLifecycleManager:
                     content, encoding="utf-8"
                 )
                 app.current_note = f".template:{copy_slug}"
-                app.nav.update_header_ui(f"Template: {copy_slug}", is_editor=True)
+                app.nav.update_header_ui(
+                    tr("Template: {slug}").format(slug=copy_slug), is_editor=True
+                )
                 tmpl_slug = copy_slug
 
             new_title = derive_display_title(content, "")
@@ -395,7 +412,9 @@ class NoteLifecycleManager:
                         old_path.rename(new_path)
                     new_path.write_text(content, encoding="utf-8")
                     app.current_note = f".template:{new_slug}"
-                    app.nav.update_header_ui(f"Template: {new_slug}", is_editor=True)
+                    app.nav.update_header_ui(
+                        tr("Template: {slug}").format(slug=new_slug), is_editor=True
+                    )
                 else:
                     app.template_manager.update_template(tmpl_slug, content)
             else:

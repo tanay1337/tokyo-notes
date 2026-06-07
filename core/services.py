@@ -11,6 +11,7 @@ import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from core.translations import tr
 from core.utils import H1_TITLE_RE, split_note_path
 
 
@@ -203,7 +204,9 @@ def build_stats(content: str) -> str:
     """Return a human-readable word-count / read-time string for *content*."""
     word_count = len(content.split())
     read_time = max(1, word_count // 200)
-    return f"{word_count:,} words · {read_time} min read"
+    return tr("{word_count} words · {read_time} min read").format(
+        word_count=f"{word_count:,}", read_time=read_time
+    )
 
 
 def get_week_boundaries(start_on_sunday: bool = False) -> tuple[str, str]:

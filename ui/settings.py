@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango
 
 from core.theme_manager import THEMES
+from core.translations import list_languages, tr
 from core.utils import clear_listbox, confirm_destructive_dialog
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,11 @@ class SettingsView(Gtk.Box):
         self._content.set_margin_end(20)
 
         search_entry = Gtk.SearchEntry()
-        search_entry.set_placeholder_text("Search settings…")
+        search_entry.set_placeholder_text(tr("Search settings"))
+        search_entry.set_margin_top(5)
+        search_entry.set_margin_bottom(5)
+        search_entry.set_margin_start(5)
+        search_entry.set_margin_end(5)
         search_entry.connect("search-changed", self._on_settings_search)
         self._content.append(search_entry)
 
@@ -115,15 +120,15 @@ class SettingsView(Gtk.Box):
     # Group builders
 
     def _build_general_group(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="General")
+        group = Adw.PreferencesGroup(title=tr("General"))
 
-        self.folder_row = Adw.ActionRow(title="Notes Folder")
+        self.folder_row = Adw.ActionRow(title=tr("Notes Folder"))
         self.path_label = Gtk.Label(label=self._initial_values.get("notes_folder", ""))
         self.path_label.add_css_class("dim-label")
         self.path_label.set_valign(Gtk.Align.CENTER)
         self.folder_row.add_suffix(self.path_label)
 
-        folder_btn = Gtk.Button(label="Select")
+        folder_btn = Gtk.Button(label=tr("Select"))
         folder_btn.set_valign(Gtk.Align.CENTER)
         folder_btn.connect("clicked", self.on_select_folder_clicked)
         self.folder_row.add_suffix(folder_btn)
@@ -131,8 +136,8 @@ class SettingsView(Gtk.Box):
 
         group.add(
             self._make_switch_row(
-                "Sakura Celebration",
-                "Show cherry blossoms when completing tasks",
+                tr("Sakura Celebration"),
+                tr("Show cherry blossoms when completing tasks"),
                 self._initial_values.get("sakura_effect", True),
                 "sakura_effect",
             )
@@ -140,38 +145,39 @@ class SettingsView(Gtk.Box):
 
         group.add(self._make_font_row())
         group.add(self._make_font_size_row())
+        group.add(self._make_language_row())
         return group
 
     def _build_editor_group(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Editor")
+        group = Adw.PreferencesGroup(title=tr("Editor"))
         group.add(
             self._make_switch_row(
-                "Formatting Bar",
-                "Show markdown formatting tools above the editor",
+                tr("Formatting Bar"),
+                tr("Show markdown formatting tools above the editor"),
                 self._initial_values.get("show_toolbar", True),
                 "show_toolbar",
             )
         )
         group.add(
             self._make_switch_row(
-                "Status Bar",
-                "Show word count and reading time at the bottom",
+                tr("Status Bar"),
+                tr("Show word count and reading time at the bottom"),
                 self._initial_values.get("show_stats", False),
                 "show_stats",
             )
         )
         group.add(
             self._make_switch_row(
-                "Backlinks Button",
-                "Show floating backlinks button in the editor",
+                tr("Backlinks Button"),
+                tr("Show floating backlinks button in the editor"),
                 self._initial_values.get("show_backlinks", True),
                 "show_backlinks",
             )
         )
         group.add(
             self._make_switch_row(
-                "Create Notes from Links",
-                "Clicking a link to a non-existent note creates it automatically",
+                tr("Create Notes from Links"),
+                tr("Clicking a link to a non-existent note creates it automatically"),
                 self._initial_values.get("create_on_link_click", True),
                 "create_on_link_click",
             )
@@ -179,27 +185,27 @@ class SettingsView(Gtk.Box):
         return group
 
     def _build_dashboard_group(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Dashboard")
+        group = Adw.PreferencesGroup(title=tr("Dashboard"))
         group.add(
             self._make_switch_row(
-                "Show Completed Tasks",
-                "Include completed tasks in the dashboard",
+                tr("Show Completed Tasks"),
+                tr("Include completed tasks in the dashboard"),
                 self._initial_values.get("show_completed", True),
                 "show_completed",
             )
         )
         group.add(
             self._make_switch_row(
-                "Progress Indicators",
-                "Show completion rings on date headers",
+                tr("Progress Indicators"),
+                tr("Show completion rings on date headers"),
                 self._initial_values.get("show_progress_rings", True),
                 "show_progress_rings",
             )
         )
         group.add(
             self._make_switch_row(
-                "Start Week on Sunday",
-                "Show Sun - Sat instead of Mon - Sun in the Week filter",
+                tr("Start Week on Sunday"),
+                tr("Show Sun - Sat instead of Mon - Sun in the Week filter"),
                 self._initial_values.get("start_week_on_sunday", True),
                 "start_week_on_sunday",
             )
@@ -207,28 +213,28 @@ class SettingsView(Gtk.Box):
         return group
 
     def _build_versioning_group(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Versioning")
+        group = Adw.PreferencesGroup(title=tr("Versioning"))
 
         if not self._git_available:
             status_row = Adw.ActionRow(
-                title="Git Versioning",
-                subtitle="git not found on this system — install git to enable",
+                title=tr("Git Versioning"),
+                subtitle=tr("git not found on this system — install git to enable"),
             )
             status_row.set_sensitive(False)
             group.add(status_row)
             return group
 
         self._git_enabled_row = self._make_switch_row(
-            "Git Versioning",
-            "Track changes with git in your notes folder",
+            tr("Git Versioning"),
+            tr("Track changes with git in your notes folder"),
             self._initial_values.get("git_enabled", False),
             "git_enabled",
         )
         group.add(self._git_enabled_row)
 
         self._git_auto_commit_row = self._make_switch_row(
-            "Auto-commit on save",
-            "Create a git commit every time a note is saved",
+            tr("Auto-commit on save"),
+            tr("Create a git commit every time a note is saved"),
             self._initial_values.get("git_auto_commit", True),
             "git_auto_commit",
         )
@@ -237,17 +243,20 @@ class SettingsView(Gtk.Box):
         return group
 
     def _build_private_group(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Private Notes")
+        group = Adw.PreferencesGroup(title=tr("Private Notes"))
 
         self._change_password_row = Adw.ActionRow(
-            title="Master password",
-            subtitle="Make a note private first to enable private notes."
+            title=tr("Master password"),
+            subtitle=tr("Make a note private first to enable private notes.")
             if not self._has_encrypted_notes
             else "",
         )
-        self._change_password_btn = Gtk.Button(
-            label="Set password" if not self._has_encrypted_notes else "Change password"
+        label = (
+            tr("Set password")
+            if not self._has_encrypted_notes
+            else tr("Change password")
         )
+        self._change_password_btn = Gtk.Button(label=label)
         self._change_password_btn.set_valign(Gtk.Align.CENTER)
         self._change_password_btn.set_sensitive(self._has_encrypted_notes)
         self._change_password_btn.connect("clicked", self._on_change_password_clicked)
@@ -262,7 +271,7 @@ class SettingsView(Gtk.Box):
         return group
 
     def _build_templates_group(self) -> Adw.PreferencesGroup:
-        self._templates_group = Adw.PreferencesGroup(title="Templates")
+        self._templates_group = Adw.PreferencesGroup(title=tr("Templates"))
 
         if self._on_new_template:
             sub_header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -271,14 +280,14 @@ class SettingsView(Gtk.Box):
             sub_header_box.set_margin_top(16)
             sub_header_box.set_margin_bottom(6)
 
-            sub_label = Gtk.Label(label="Current Templates", xalign=0)
+            sub_label = Gtk.Label(label=tr("Current Templates"), xalign=0)
             sub_label.add_css_class("template-subheading")
             sub_label.set_hexpand(True)
             sub_header_box.append(sub_label)
 
             new_btn = Gtk.Button()
             new_btn.set_valign(Gtk.Align.CENTER)
-            new_btn.set_tooltip_text("New Template")
+            new_btn.set_tooltip_text(tr("New Template"))
             new_btn.add_css_class("settings-icon-btn")
             new_img = Gtk.Image.new_from_file(
                 str(self._assets_dir / "new-template.svg")
@@ -298,8 +307,8 @@ class SettingsView(Gtk.Box):
 
         if self._on_open_templates_folder:
             folder_row = Adw.ActionRow(
-                title="Templates Folder",
-                subtitle="Open templates directory in file manager",
+                title=tr("Templates Folder"),
+                subtitle=tr("Open templates directory in file manager"),
             )
             folder_btn = Gtk.Button()
             folder_btn.set_valign(Gtk.Align.CENTER)
@@ -315,11 +324,13 @@ class SettingsView(Gtk.Box):
 
         if self._on_restore_builtins:
             restore_row = Adw.ActionRow(
-                title="Restore Built-in Templates",
-                subtitle="Reset all built-in templates to their original content."
-                " Custom templates will not be affected.",
+                title=tr("Restore Built-in Templates"),
+                subtitle=tr(
+                    "Reset all built-in templates to their original content."
+                    " Custom templates will not be affected."
+                ),
             )
-            restore_btn = Gtk.Button(label="Restore")
+            restore_btn = Gtk.Button(label=tr("Restore"))
             restore_btn.set_valign(Gtk.Align.CENTER)
             restore_btn.add_css_class("template-action-btn")
             restore_btn.connect("clicked", self._on_restore_builtins_clicked)
@@ -332,10 +343,12 @@ class SettingsView(Gtk.Box):
         """Show confirmation before restoring built-in templates."""
         dialog = confirm_destructive_dialog(
             transient_for=self.get_root(),
-            heading="Restore Built-in Templates?",
-            body="This will reset all built-in templates to their"
-            " original content. Custom templates are not affected.",
-            confirm_label="Restore",
+            heading=tr("Restore Built-in Templates?"),
+            body=tr(
+                "This will reset all built-in templates to their"
+                " original content. Custom templates are not affected."
+            ),
+            confirm_label=tr("Restore"),
         )
         dialog.connect("response", self._on_restore_builtins_response)
         dialog.present()
@@ -347,7 +360,7 @@ class SettingsView(Gtk.Box):
             self._on_restore_builtins()
 
     def _build_theme_group(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Themes")
+        group = Adw.PreferencesGroup(title=tr("Themes"))
 
         theme_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 
@@ -365,8 +378,8 @@ class SettingsView(Gtk.Box):
         self.dark_theme_list = Gtk.ListBox()
         self.dark_theme_list.set_selection_mode(Gtk.SelectionMode.NONE)
 
-        theme_stack.add_titled(self.dark_theme_list, "dark", "Dark Mode")
-        theme_stack.add_titled(self.light_theme_list, "light", "Light Mode")
+        theme_stack.add_titled(self.dark_theme_list, "dark", tr("Dark Mode"))
+        theme_stack.add_titled(self.light_theme_list, "light", tr("Light Mode"))
 
         self.theme_rows: dict[str, Gtk.ListBoxRow] = {}
         self._theme_expanded = {"light": False, "dark": False}
@@ -406,8 +419,9 @@ class SettingsView(Gtk.Box):
             self.theme_rows[theme["id"]] = row
 
         if len(themes) > visible_count:
+            remaining = len(themes) - visible_count
             btn_label = (
-                "Show Less" if expanded else f"Show {len(themes) - visible_count} More"
+                tr("Show Less") if expanded else tr("Show {n} More").format(n=remaining)
             )
             show_more_btn = Gtk.Button(label=btn_label)
             show_more_btn.add_css_class("flat")
@@ -442,8 +456,10 @@ class SettingsView(Gtk.Box):
             list_box.append(row)
             self.theme_rows[theme["id"]] = row
 
-        total = len(themes)
-        btn_label = "Show Less" if expanded else f"Show {total - visible_count} More"
+        remaining = len(themes) - visible_count
+        btn_label = (
+            tr("Show Less") if expanded else tr("Show {n} More").format(n=remaining)
+        )
         show_more_btn = Gtk.Button(label=btn_label)
         show_more_btn.add_css_class("flat")
         show_more_btn.set_halign(Gtk.Align.CENTER)
@@ -457,14 +473,15 @@ class SettingsView(Gtk.Box):
         list_box.append(show_more_btn)
 
     def _build_danger_group(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Reset")
+        group = Adw.PreferencesGroup(title=tr("Reset"))
 
         reset_row = Adw.ActionRow(
-            title="Reset to Defaults",
-            subtitle="Restore all settings to their original values."
-            " Notes are not affected.",
+            title=tr("Reset to Defaults"),
+            subtitle=tr(
+                "Restore all settings to their original values. Notes are not affected."
+            ),
         )
-        reset_btn = Gtk.Button(label="Reset")
+        reset_btn = Gtk.Button(label=tr("Reset"))
         reset_btn.set_valign(Gtk.Align.CENTER)
         reset_btn.add_css_class("destructive-action")
         reset_btn.connect("clicked", self.on_reset_clicked)
@@ -494,17 +511,17 @@ class SettingsView(Gtk.Box):
     ) -> Adw.ComboRow:
         """Create a dropdown for lock timeout selection."""
         options = {
-            0: "Never",
-            5: "5 min",
-            15: "15 min",
-            30: "30 min",
-            60: "1 hour",
+            0: tr("Never"),
+            5: tr("5 min"),
+            15: tr("15 min"),
+            30: tr("30 min"),
+            60: tr("1 hour"),
         }
         model = Gtk.StringList()
         for minutes in (0, 5, 15, 30, 60):
             model.append(options[minutes])
 
-        row = Adw.ComboRow(title="Lock after inactivity", model=model)
+        row = Adw.ComboRow(title=tr("Lock after inactivity"), model=model)
         current_idx = (
             (0, 5, 15, 30, 60).index(current_minutes)
             if current_minutes in options
@@ -532,7 +549,7 @@ class SettingsView(Gtk.Box):
             families = []
 
         model = Gtk.StringList()
-        model.append("System Default")
+        model.append(tr("System Default"))
         for name in families:
             model.append(name)
 
@@ -542,8 +559,8 @@ class SettingsView(Gtk.Box):
         factory.connect("unbind", self._on_font_item_unbind)
 
         self._font_row = Adw.ComboRow(
-            title="App Font",
-            subtitle="Font used throughout the application",
+            title=tr("App Font"),
+            subtitle=tr("Font used throughout the application"),
             model=model,
             factory=factory,
         )
@@ -601,8 +618,8 @@ class SettingsView(Gtk.Box):
 
     def _make_font_size_row(self) -> Adw.ActionRow:
         """Create a row with a spin button and reset for the base font size."""
-        subtitle = "Base font size for the application"
-        row = Adw.ActionRow(title="Font Size", subtitle=subtitle)
+        subtitle = tr("Base font size for the application")
+        row = Adw.ActionRow(title=tr("Font Size"), subtitle=subtitle)
 
         self._font_size_spin = Gtk.SpinButton.new_with_range(8, 24, 1)
         self._font_size_spin.set_valign(Gtk.Align.CENTER)
@@ -623,7 +640,7 @@ class SettingsView(Gtk.Box):
         reset_btn.set_child(reset_icon)
         reset_btn.set_valign(Gtk.Align.CENTER)
         reset_btn.add_css_class("flat")
-        reset_btn.set_tooltip_text("Reset to default")
+        reset_btn.set_tooltip_text(tr("Reset to default"))
         reset_btn.connect("clicked", lambda _: self._on_font_size_reset())
         row.add_suffix(reset_btn)
 
@@ -632,6 +649,35 @@ class SettingsView(Gtk.Box):
     def _on_font_size_reset(self) -> None:
         self._font_size_spin.set_value(12)
         self.on_config_changed("font_size", None)
+
+    def _make_language_row(self) -> Adw.ComboRow:
+        """Create a dropdown listing available translation languages."""
+        languages = list_languages()
+        model = Gtk.StringList()
+        self._lang_codes: list[str] = []
+        for code in sorted(languages):
+            model.append(languages[code])
+            self._lang_codes.append(code)
+
+        current = self._initial_values.get("language", "en")
+        try:
+            idx = self._lang_codes.index(current)
+        except ValueError:
+            idx = self._lang_codes.index("en")
+
+        self._language_row = Adw.ComboRow(
+            title=tr("Language"),
+            subtitle=tr("App language (requires restart)"),
+            model=model,
+        )
+        self._language_row.set_selected(idx)
+        self._language_row.connect(
+            "notify::selected",
+            lambda r, _pspec: self.on_config_changed(
+                "language", self._lang_codes[r.get_selected()]
+            ),
+        )
+        return self._language_row
 
     def _make_theme_row(self, theme: dict[str, str], is_active: bool) -> Gtk.ListBoxRow:
         """Create a theme selection card row with color palette preview."""
@@ -661,11 +707,11 @@ class SettingsView(Gtk.Box):
                 swatch_box.append(swatch)
             card.append(swatch_box)
 
-        name_label = Gtk.Label(label=theme["name"], xalign=0)
+        name_label = Gtk.Label(label=tr(theme["name"]), xalign=0)
         name_label.add_css_class("theme-name")
         card.append(name_label)
 
-        preview_label = Gtk.Label(label=theme["preview"], xalign=0)
+        preview_label = Gtk.Label(label=tr(theme["preview"]), xalign=0)
         preview_label.add_css_class("theme-preview")
         card.append(preview_label)
 
@@ -750,6 +796,7 @@ class SettingsView(Gtk.Box):
             "theme": "tokyo-night",
             "font_family": None,
             "font_size": None,
+            "language": "en",
         }
         for key, value in defaults.items():
             self.on_config_changed(key, value)
@@ -763,11 +810,17 @@ class SettingsView(Gtk.Box):
         self._font_size_spin.set_value(12)
         self._font_size_spin.handler_unblock(self._font_size_handler_id)
 
+        try:
+            lang_idx = self._lang_codes.index("en")
+            self._language_row.set_selected(lang_idx)
+        except ValueError:
+            pass
+
         button.set_label("Reset ✓")
         button.set_sensitive(False)
 
         def _reset_btn() -> bool:
-            button.set_label("Reset")
+            button.set_label(tr("Reset"))
             button.set_sensitive(True)
             return False
 
@@ -802,7 +855,8 @@ class SettingsView(Gtk.Box):
             empty = Gtk.ListBoxRow()
             empty.set_sensitive(False)
             label = Gtk.Label(
-                label="No templates yet. Click the + button to create one.", xalign=0.5
+                label=tr("No templates yet. Click the + button to create one."),
+                xalign=0.5,
             )
             label.add_css_class("dim-label")
             label.set_margin_top(8)
@@ -829,11 +883,11 @@ class SettingsView(Gtk.Box):
         box.append(label)
 
         if tmpl.get("is_builtin"):
-            badge = Gtk.Label(label="Built-in")
+            badge = Gtk.Label(label=tr("Built-in"))
             badge.add_css_class("template-badge")
             box.append(badge)
 
-        edit_btn = Gtk.Button(label="Edit")
+        edit_btn = Gtk.Button(label=tr("Edit"))
         edit_btn.set_valign(Gtk.Align.CENTER)
         edit_btn.add_css_class("template-action-btn")
         edit_btn.connect("clicked", lambda _: self._on_edit_template(tmpl["slug"]))
@@ -859,9 +913,11 @@ class SettingsView(Gtk.Box):
         """Show confirmation before deleting a template."""
         dialog = confirm_destructive_dialog(
             transient_for=self.get_root(),
-            heading="Delete Template?",
-            body=f"Are you sure you want to delete '{name}'?"
-            " This action cannot be undone.",
+            heading=tr("Delete Template?"),
+            body=tr(
+                "Are you sure you want to delete '{name}'?"
+                " This action cannot be undone."
+            ).format(name=name),
         )
         dialog.connect("response", self._on_delete_template_response, slug)
         dialog.present()

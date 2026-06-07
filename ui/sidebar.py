@@ -14,6 +14,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk, Pango
 
 from core.services import patch_sidebar_row
+from core.translations import tr
 from core.utils import clear_listbox, create_empty_state_widget, split_note_path
 
 if TYPE_CHECKING:
@@ -39,10 +40,10 @@ class Sidebar(Gtk.Box):
         self.add_css_class("sidebar")
 
         sidebar_header = Adw.HeaderBar()
-        sidebar_header.set_title_widget(Gtk.Label(label="Tokyo Notes"))
+        sidebar_header.set_title_widget(Gtk.Label(label=tr("Tokyo Notes")))
 
         new_btn = Gtk.MenuButton()
-        new_btn.set_tooltip_text("New note")
+        new_btn.set_tooltip_text(tr("New note"))
         new_btn.set_direction(Gtk.ArrowType.DOWN)
         new_btn.add_css_class("sidebar-icon-btn")
         new_btn.add_css_class("flat")
@@ -61,12 +62,17 @@ class Sidebar(Gtk.Box):
         sidebar_header.pack_start(new_btn)
         self.append(sidebar_header)
 
-        self.search_entry = Gtk.SearchEntry(placeholder_text="Search notes…")
+        self.search_entry = Gtk.SearchEntry(placeholder_text=tr("Search notes"))
         self.search_entry.set_can_focus(True)
+        self.search_entry.set_margin_top(10)
+        self.search_entry.set_margin_bottom(10)
+        self.search_entry.set_margin_start(10)
+        self.search_entry.set_margin_end(10)
+
         self.search_entry.connect("search-changed", self.on_search_changed)
         self.search_entry.connect(
             "stop-search",
-            lambda _: (self.app.refresh_list(), self.app.text_view.grab_focus()),
+            lambda _: (self.app.refresh_list(), self.app._focus_text_view()),
         )
         self.append(self.search_entry)
 
@@ -77,6 +83,7 @@ class Sidebar(Gtk.Box):
         self.archive_list = Gtk.ListBox()
         self.stack.add_named(self.archive_list, "archive")
         self.scrolled = Gtk.ScrolledWindow()
+        self.scrolled.set_vexpand(True)
         self.scrolled.set_child(self.stack)
         self.append(self.scrolled)
 
@@ -86,7 +93,7 @@ class Sidebar(Gtk.Box):
         footer.set_margin_top(10)
         footer.set_margin_bottom(10)
 
-        self.archived_nav_btn = Gtk.Button(label="Archived Notes")
+        self.archived_nav_btn = Gtk.Button(label=tr("Archived Notes"))
         self.archived_nav_btn.add_css_class("archived-nav-btn")
         self.archived_nav_btn.connect("clicked", on_archive_clicked)
         self.archived_nav_btn.set_sensitive(bool(app.cfg.archived))
@@ -110,16 +117,16 @@ class Sidebar(Gtk.Box):
             return btn
 
         self._dashboard_btn = _make_nav_icon_btn(
-            "dashboard.svg", "Dashboard", on_dashboard_clicked
+            "dashboard.svg", tr("Dashboard"), on_dashboard_clicked
         )
         self._graph_btn = _make_nav_icon_btn(
-            "graph.svg", "Knowledge graph", on_graph_clicked
+            "graph.svg", tr("Knowledge graph"), on_graph_clicked
         )
         self._flashcard_btn = _make_nav_icon_btn(
-            "flashcard.svg", "Flashcards", on_flashcard_clicked
+            "flashcard.svg", tr("Flashcards"), on_flashcard_clicked
         )
         self._settings_btn = _make_nav_icon_btn(
-            "settings.svg", "Settings", on_settings_clicked
+            "settings.svg", tr("Settings"), on_settings_clicked
         )
 
         footer.append(btn_row)
@@ -165,16 +172,16 @@ class Sidebar(Gtk.Box):
             and self.stack.get_visible_child_name() == "archive"
         ):
             self.stack.set_visible_child_name("main")
-            self.archived_nav_btn.set_label("Archived Notes")
+            self.archived_nav_btn.set_label(tr("Archived Notes"))
         self.archived_nav_btn.set_sensitive(bool(self.app.cfg.archived))
 
     def toggle_archive_view(self) -> None:
         if self.stack.get_visible_child_name() == "archive":
             self.stack.set_visible_child_name("main")
-            self.archived_nav_btn.set_label("Archived Notes")
+            self.archived_nav_btn.set_label(tr("Archived Notes"))
         else:
             self.stack.set_visible_child_name("archive")
-            self.archived_nav_btn.set_label("Back to Notes")
+            self.archived_nav_btn.set_label(tr("Back to Notes"))
 
     def on_sidebar_toggled(self, button: Gtk.ToggleButton) -> None:
         visible = button.get_active()
@@ -394,7 +401,7 @@ class Sidebar(Gtk.Box):
             _render_folder(fp, 0)
 
         if not pinned_notes and not other_notes:
-            msg = "No notes match." if filter_text else "No notes yet."
+            msg = tr("No notes match.") if filter_text else tr("No notes yet.")
             self.main_list.append(create_empty_state_widget(msg, base_dir))
 
         for note in archived_notes:
@@ -449,7 +456,7 @@ class Sidebar(Gtk.Box):
                     if icon is not None:
                         icon.set_visible(is_encrypted)
                     if is_encrypted and hasattr(child, "snippet_label"):
-                        child.snippet_label.set_label("Private note")
+                        child.snippet_label.set_label(tr("Private note"))
                     elif hasattr(child, "snippet_label"):
                         meta = self.app.notes_manager.get_metadata(note_name)
                         child.snippet_label.set_label(meta.get("snippet", ""))
@@ -745,7 +752,7 @@ class Sidebar(Gtk.Box):
             box.add_css_class("private-note-locked")
             box.remove_css_class("private-note-unlocked")
             if hasattr(row, "snippet_label"):
-                row.snippet_label.set_label("Private note")
+                row.snippet_label.set_label(tr("Private note"))
         else:
             box.add_css_class("private-note-unlocked")
             box.remove_css_class("private-note-locked")

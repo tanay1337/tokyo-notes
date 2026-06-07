@@ -9,6 +9,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk, Pango
 
+from core.translations import tr
+
 
 class BacklinksPopover(Gtk.Popover):
     """Popover showing a list of notes that reference the current note."""
@@ -27,7 +29,7 @@ class BacklinksPopover(Gtk.Popover):
         box.set_size_request(280, -1)
 
         if backlinks:
-            header = Gtk.Label(label="Backlinks")
+            header = Gtk.Label(label=tr("Backlinks"))
             header.add_css_class("backlinks-header")
             header.set_xalign(0)
             box.append(header)
@@ -52,7 +54,7 @@ class BacklinksPopover(Gtk.Popover):
                 row.note_name = note
                 self.list_box.append(row)
         else:
-            label = Gtk.Label(label="No backlinks")
+            label = Gtk.Label(label=tr("No backlinks"))
             label.add_css_class("dim-label")
             label.set_margin_top(8)
             label.set_margin_bottom(8)

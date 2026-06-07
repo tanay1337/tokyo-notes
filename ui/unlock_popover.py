@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import gi
 
+from core.translations import tr
 from core.utils import ErrorLabelMixin, set_response_suggested
 
 gi.require_version("Gtk", "4.0")
@@ -32,14 +33,14 @@ class UnlockDialog(ErrorLabelMixin, Adw.MessageDialog):
         super().__init__(
             transient_for=app.win,
             modal=True,
-            heading="Unlock Private Notes",
-            body="Enter your master password to access private notes.",
+            heading=tr("Unlock Private Notes"),
+            body=tr("Enter your master password to access private notes."),
         )
         self.app = app
         self._cooldown_check_id = 0
 
-        self.add_response("cancel", "Cancel")
-        self.add_response("unlock", "Unlock")
+        self.add_response("cancel", tr("Cancel"))
+        self.add_response("unlock", tr("Unlock"))
         set_response_suggested(self, "unlock")
         self.set_default_response("unlock")
         self.set_close_response("cancel")
@@ -61,7 +62,7 @@ class UnlockDialog(ErrorLabelMixin, Adw.MessageDialog):
         box.set_margin_end(20)
 
         self._entry = Gtk.Entry()
-        self._entry.set_placeholder_text("Master password")
+        self._entry.set_placeholder_text(tr("Master password"))
         self._entry.set_visibility(False)
         self._entry.set_hexpand(True)
         self._entry.set_can_focus(True)
@@ -120,8 +121,12 @@ class UnlockDialog(ErrorLabelMixin, Adw.MessageDialog):
                 self._hide_error()
                 GLib.idle_add(lambda: (self._entry.grab_focus(), False)[1])
                 return False
-            self._show_error(f"Too many attempts. Wait {remaining}s…")
+            self._show_error(
+                tr("Too many attempts. Wait {remaining}s").format(remaining=remaining)
+            )
             return True
 
-        self._show_error(f"Too many attempts. Wait {remaining}s…")
+        self._show_error(
+            tr("Too many attempts. Wait {remaining}s").format(remaining=remaining)
+        )
         self._cooldown_check_id = GLib.timeout_add_seconds(1, _tick)

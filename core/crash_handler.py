@@ -25,6 +25,8 @@ _CRASH_DIR = Path.home() / ".local" / "share" / "tokyo-notes" / "crashes"
 # Eagerly import gi so that if the *runtime* environment is broken we fail
 # early (at import time) rather than inside the excepthook where any error
 # would be silently swallowed.
+from core.translations import tr
+
 try:
     import gi  # noqa: F401  (imported for side-effect, version not needed)
 except ImportError:
@@ -85,13 +87,17 @@ def install(app: TokyoNotes) -> None:
                 if win is not None and GLib.main_depth() > 0:
                     dialog = Adw.MessageDialog(
                         transient_for=win,
-                        heading="Unexpected Error",
-                        body=(
-                            f"{exc_type.__name__}: {exc_value}\n\n"
-                            f"A crash report has been saved to:\n{crash_path}"
+                        heading=tr("Unexpected Error"),
+                        body=tr(
+                            "{exc_name}: {exc_value}\n\n"
+                            "A crash report has been saved to:\n{crash_path}"
+                        ).format(
+                            exc_name=exc_type.__name__,
+                            exc_value=exc_value,
+                            crash_path=crash_path,
                         ),
                     )
-                    dialog.add_response("ok", "OK")
+                    dialog.add_response("ok", tr("OK"))
                     dialog.present()
         except Exception:
             pass  # Never let the crash handler itself crash

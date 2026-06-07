@@ -64,6 +64,8 @@ class TestUIFlows:
                 return True
             if key == "show_backlinks":
                 return True
+            if key == "language":
+                return "en"
             return original_get(self, key, default)
 
         with pytest.MonkeyPatch().context() as mp:

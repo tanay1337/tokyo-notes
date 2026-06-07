@@ -49,6 +49,8 @@ class TestAdvancedLifecycles:
                 return True
             if key == "lock_timeout_minutes":
                 return 5
+            if key == "language":
+                return "en"
             return original_get(self, key, default)
 
         with pytest.MonkeyPatch().context() as mp:

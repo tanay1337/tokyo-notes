@@ -9,13 +9,14 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango
 
+from core.translations import tr
 from ui.base_picker import SearchablePicker
 
 _VARIABLES = [
-    ("{{today}}", "Today's date", "2026-05-21"),
-    ("{{now}}", "Date and time", "2026-05-21 14:30"),
-    ("{{time}}", "Current time", "14:30"),
-    ("{{weekday}}", "Day of week", "Wednesday"),
+    ("{{today}}", tr("Today's date"), "2026-05-21"),
+    ("{{now}}", tr("Date and time"), "2026-05-21 14:30"),
+    ("{{time}}", tr("Current time"), "14:30"),
+    ("{{weekday}}", tr("Day of week"), "Wednesday"),
 ]
 
 
@@ -31,7 +32,7 @@ class VariablePicker(SearchablePicker):
             items=_VARIABLES,
             on_selected=on_selected,
             text_view=text_view,
-            placeholder="Search variables…",
+            placeholder=tr("Search variables"),
             width=300,
             height=240,
         )

@@ -9,32 +9,33 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk, Pango
 
+from core.translations import tr
 from ui.base_picker import SearchablePicker
 
-_HEADINGS = "Headings"
-_INLINE = "Inline"
-_BLOCKS = "Blocks"
-_LINKS = "Links & Media"
-_TASKS = "Tasks"
+_HEADINGS = tr("Headings")
+_INLINE = tr("Inline")
+_BLOCKS = tr("Blocks")
+_LINKS = tr("Links & Media")
+_TASKS = tr("Tasks")
 
 _COMMANDS: list[tuple[str, str, str, str | None]] = [
-    ("Heading 1", "# ", _HEADINGS, None),
-    ("Heading 2", "## ", _HEADINGS, None),
-    ("Heading 3", "### ", _HEADINGS, None),
-    ("Bold", "**bold**", _INLINE, None),
-    ("Italic", "*italic*", _INLINE, None),
-    ("Strikethrough", "~~text~~", _INLINE, None),
-    ("Inline Code", "`code`", _INLINE, None),
-    ("Code Block", "```\n\n```", _BLOCKS, None),
-    ("Bullet List", "- ", _BLOCKS, None),
-    ("Numbered List", "1. ", _BLOCKS, None),
-    ("Block Quote", "> ", _BLOCKS, None),
-    ("Divider", "---\n", _BLOCKS, None),
-    ("Flashcard", "```flashcard\nQuestion\n---\nAnswer\n```", _BLOCKS, None),
-    ("Task / Checkbox", "- [ ] ", _TASKS, None),
-    ("Deadline", "@deadline", _TASKS, "opens date picker"),
-    ("External Link", "[text](url)", _LINKS, None),
-    ("Image", "![alt](url)", _LINKS, None),
+    (tr("Heading 1"), "# ", _HEADINGS, None),
+    (tr("Heading 2"), "## ", _HEADINGS, None),
+    (tr("Heading 3"), "### ", _HEADINGS, None),
+    (tr("Bold"), "**bold**", _INLINE, None),
+    (tr("Italic"), "*italic*", _INLINE, None),
+    (tr("Strikethrough"), "~~text~~", _INLINE, None),
+    (tr("Inline Code"), "`code`", _INLINE, None),
+    (tr("Code Block"), "```\n\n```", _BLOCKS, None),
+    (tr("Bullet List"), "- ", _BLOCKS, None),
+    (tr("Numbered List"), "1. ", _BLOCKS, None),
+    (tr("Block Quote"), "> ", _BLOCKS, None),
+    (tr("Divider"), "---\n", _BLOCKS, None),
+    (tr("Flashcard"), "```flashcard\nQuestion\n---\nAnswer\n```", _BLOCKS, None),
+    (tr("Task / Checkbox"), "- [ ] ", _TASKS, None),
+    (tr("Deadline"), "@deadline", _TASKS, tr("opens date picker")),
+    (tr("External Link"), "[text](url)", _LINKS, None),
+    (tr("Image"), "![alt](url)", _LINKS, None),
 ]
 
 
@@ -51,7 +52,7 @@ class SlashPicker(SearchablePicker):
             items=_COMMANDS,
             on_selected=lambda row: None,  # handled in row_activated override
             text_view=text_view,
-            placeholder="Search commands…",
+            placeholder=tr("Search commands"),
             width=280,
             height=320,
         )

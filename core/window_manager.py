@@ -10,6 +10,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gtk
 
+from core.translations import tr
+
 if TYPE_CHECKING:
     from main import TokyoNotes
 
@@ -23,7 +25,7 @@ class WindowManager:
     def create_window(self) -> Adw.ApplicationWindow:
         """Create and configure the main application window."""
         win = Adw.ApplicationWindow(application=self.app)
-        win.set_title("Tokyo Notes")
+        win.set_title(tr("Tokyo Notes"))
         win.set_default_size(1000, 700)
 
         display = Gdk.Display.get_default()

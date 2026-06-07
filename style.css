@@ -113,7 +113,6 @@ entry {
     border: 1px solid @border_color;
     border-radius: 6px;
     padding: 6px;
-    margin: 10px;
 }
 
 textview {

@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from core.services import get_week_boundaries
+from core.translations import tr
 from core.utils import clear_listbox
 from ui.deadline_picker import DeadlinePicker
 from ui.progress_ring import ProgressRing
@@ -73,7 +74,7 @@ class Dashboard(Gtk.Box):
 
         self.buttons: dict[str, Gtk.Button] = {}
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        for label in ("Today", "Week", "All"):
+        for label in (tr("Today"), tr("Week"), tr("All")):
             btn = Gtk.Button(label=label)
             btn.add_css_class("filter-btn")
             btn.connect("clicked", self.on_filter_clicked, label.lower())
@@ -87,7 +88,7 @@ class Dashboard(Gtk.Box):
 
         # Quick Add "+" button
         self.quick_add_btn = Gtk.Button()
-        self.quick_add_btn.set_tooltip_text("Quick Add Task (Ctrl+T)")
+        self.quick_add_btn.set_tooltip_text(tr("Quick Add Task (Ctrl+T)"))
         self.quick_add_btn.add_css_class("flat")
         self.quick_add_btn.add_css_class("header-btn")
         quick_add_icon = Gtk.Image.new_from_file(
@@ -100,7 +101,7 @@ class Dashboard(Gtk.Box):
 
         # Advanced filter button — funnel icon with indicator dot
         self.advanced_btn = Gtk.Button()
-        self.advanced_btn.set_tooltip_text("Advanced filters")
+        self.advanced_btn.set_tooltip_text(tr("Advanced filters"))
         self.advanced_btn.add_css_class("flat")
         self.advanced_btn.add_css_class("advanced-filter-btn")
 
@@ -143,12 +144,16 @@ class Dashboard(Gtk.Box):
         popover_box.add_css_class("filter-popover-box")
 
         self._search_entry = Gtk.SearchEntry()
-        self._search_entry.set_placeholder_text("Search tasks…")
+        self._search_entry.set_placeholder_text(tr("Search tasks"))
+        self._search_entry.set_margin_top(5)
+        self._search_entry.set_margin_bottom(5)
+        self._search_entry.set_margin_start(5)
+        self._search_entry.set_margin_end(5)
         self._search_entry.connect("search-changed", self._on_search_changed)
         popover_box.append(self._search_entry)
 
         completed_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        completed_label = Gtk.Label(label="Show Completed", xalign=0)
+        completed_label = Gtk.Label(label=tr("Show Completed"), xalign=0)
         completed_label.set_hexpand(True)
         self._completed_switch = Gtk.Switch()
         self._completed_switch.set_active(self._show_completed)
@@ -158,7 +163,7 @@ class Dashboard(Gtk.Box):
         popover_box.append(completed_box)
 
         overdue_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        overdue_label = Gtk.Label(label="Show Overdue", xalign=0)
+        overdue_label = Gtk.Label(label=tr("Show Overdue"), xalign=0)
         overdue_label.set_hexpand(True)
         self._overdue_switch = Gtk.Switch()
         self._overdue_switch.set_active(self._show_overdue)
@@ -171,17 +176,17 @@ class Dashboard(Gtk.Box):
         self._calendar.connect("day-selected", self._on_calendar_date_selected)
         popover_box.append(self._calendar)
 
-        clear_date_btn = Gtk.Button(label="Clear date")
+        clear_date_btn = Gtk.Button(label=tr("Clear date"))
         clear_date_btn.add_css_class("flat")
         clear_date_btn.connect("clicked", self._on_clear_date)
         popover_box.append(clear_date_btn)
 
         collapse_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        collapse_all_btn = Gtk.Button(label="Collapse All")
+        collapse_all_btn = Gtk.Button(label=tr("Collapse All"))
         collapse_all_btn.add_css_class("flat")
         collapse_all_btn.connect("clicked", self._collapse_all)
         collapse_box.append(collapse_all_btn)
-        expand_all_btn = Gtk.Button(label="Expand All")
+        expand_all_btn = Gtk.Button(label=tr("Expand All"))
         expand_all_btn.add_css_class("flat")
         expand_all_btn.connect("clicked", self._expand_all)
         collapse_box.append(expand_all_btn)
@@ -230,13 +235,13 @@ class Dashboard(Gtk.Box):
         box.set_margin_end(8)
         box.add_css_class("quick-add-popover-box")
 
-        heading = Gtk.Label(label="Add Task")
+        heading = Gtk.Label(label=tr("Add Task"))
         heading.add_css_class("quick-add-heading")
         heading.set_halign(Gtk.Align.START)
         box.append(heading)
 
         self._quick_add_entry = Gtk.Entry()
-        self._quick_add_entry.set_placeholder_text("Task content")
+        self._quick_add_entry.set_placeholder_text(tr("Task content"))
         self._quick_add_entry.set_hexpand(True)
         self._quick_add_entry.add_css_class("quick-add-entry")
         self._quick_add_entry.connect("activate", self._on_quick_add_submit)
@@ -251,7 +256,7 @@ class Dashboard(Gtk.Box):
         note_row.append(self._quick_add_dropdown)
 
         self._quick_add_deadline_btn = Gtk.Button()
-        self._quick_add_deadline_btn.set_tooltip_text("Set deadline")
+        self._quick_add_deadline_btn.set_tooltip_text(tr("Set deadline"))
         self._quick_add_deadline_btn.add_css_class("flat")
         self._quick_add_deadline_btn.add_css_class("header-btn")
         cal_icon = Gtk.Image.new_from_file(
@@ -272,13 +277,13 @@ class Dashboard(Gtk.Box):
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_row.set_margin_top(6)
-        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn = Gtk.Button(label=tr("Cancel"))
         cancel_btn.connect("clicked", lambda *_: self._quick_add_popover.popdown())
         btn_row.append(cancel_btn)
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
         btn_row.append(spacer)
-        add_btn = Gtk.Button(label="Add")
+        add_btn = Gtk.Button(label=tr("Add"))
         add_btn.add_css_class("suggested-action")
         add_btn.connect("clicked", self._on_quick_add_submit)
         btn_row.append(add_btn)
@@ -293,7 +298,7 @@ class Dashboard(Gtk.Box):
 
         model = self._quick_add_notes_model
         model.splice(0, model.get_n_items(), [])
-        model.append("Inbox")
+        model.append(tr("Inbox"))
         for n in sorted_notes:
             model.append(n)
         self._quick_add_dropdown.set_selected(0)
@@ -539,7 +544,7 @@ class Dashboard(Gtk.Box):
         od_total = len(overdue)
         header_row = self._make_date_header(
             None,
-            label="Overdue",
+            label=tr("Overdue"),
             progress=(od_completed, od_total),
             show_year=False,
             animate=False,
@@ -656,7 +661,7 @@ class Dashboard(Gtk.Box):
             is_collapsed = nd_key in self._collapsed
             header_row = self._make_date_header(
                 None,
-                label="No Deadline",
+                label=tr("No Deadline"),
                 progress=nd_stats,
                 show_year=False,
                 animate=animate,
@@ -855,9 +860,9 @@ class Dashboard(Gtk.Box):
             return f"{d} {time_part}" if time_part else d
 
         presets: list[tuple[str, str, str]] = [
-            ("Tomorrow", "tomorrow", _dl(1)),
-            ("Next Week", "next-week", _dl(7 - today.weekday())),
-            ("Next Month", "next-month", _dl(30)),
+            (tr("Tomorrow"), "tomorrow", _dl(1)),
+            (tr("Next Week"), "next-week", _dl(7 - today.weekday())),
+            (tr("Next Month"), "next-month", _dl(30)),
         ]
 
         group = Gio.SimpleActionGroup()
@@ -883,10 +888,10 @@ class Dashboard(Gtk.Box):
             )
 
         pick_section = Gio.Menu()
-        pick_section.append_item(Gio.MenuItem.new("Pick Date", "snooze.pick-date"))
+        pick_section.append_item(Gio.MenuItem.new(tr("Pick Date"), "snooze.pick-date"))
 
         menu = Gio.Menu()
-        menu.append_section("Snooze", preset_section)
+        menu.append_section(tr("Snooze"), preset_section)
         menu.append_section(None, pick_section)
 
         popover = Gtk.PopoverMenu.new_from_model(menu)

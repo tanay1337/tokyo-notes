@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Pango
 
 from core.flashcard import Flashcard, parse_note
+from core.translations import tr
 from core.utils import clear_listbox
 
 
@@ -60,12 +61,12 @@ class FlashcardReview(Gtk.Box):
         page.set_margin_bottom(24)
 
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        title = Gtk.Label(label="Flashcards", xalign=0)
+        title = Gtk.Label(label=tr("Flashcards"), xalign=0)
         title.add_css_class("view-title")
         title.set_hexpand(True)
         header_box.append(title)
 
-        review_all_btn = Gtk.Button(label="Review All")
+        review_all_btn = Gtk.Button(label=tr("Review All"))
         review_all_btn.add_css_class("suggested-action")
         review_all_btn.connect("clicked", lambda _: self._start_review(None))
         header_box.append(review_all_btn)
@@ -90,7 +91,7 @@ class FlashcardReview(Gtk.Box):
         # Top bar: back + progress
         top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
-        back_btn = Gtk.Button(label="Back")
+        back_btn = Gtk.Button(label=tr("Back"))
         back_btn.connect("clicked", lambda _: self._show_overview())
         top_bar.append(back_btn)
 
@@ -100,7 +101,7 @@ class FlashcardReview(Gtk.Box):
 
         shuffle_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         shuffle_box.set_valign(Gtk.Align.CENTER)
-        shuffle_label = Gtk.Label(label="Shuffle")
+        shuffle_label = Gtk.Label(label=tr("Shuffle"))
         shuffle_label.set_valign(Gtk.Align.CENTER)
         shuffle_box.append(shuffle_label)
 
@@ -179,13 +180,13 @@ class FlashcardReview(Gtk.Box):
         )
         self._review_btn_box.set_halign(Gtk.Align.CENTER)
 
-        self._again_btn = Gtk.Button(label="Study Again")
+        self._again_btn = Gtk.Button(label=tr("Study Again"))
         self._again_btn.add_css_class("destructive-action")
         self._again_btn.add_css_class("flashcard-rate-btn")
         self._again_btn.connect("clicked", lambda _: self._rate_card(False))
         self._review_btn_box.append(self._again_btn)
 
-        self._got_it_btn = Gtk.Button(label="Got It")
+        self._got_it_btn = Gtk.Button(label=tr("Got It"))
         self._got_it_btn.add_css_class("suggested-action")
         self._got_it_btn.add_css_class("flashcard-rate-btn")
         self._got_it_btn.connect("clicked", lambda _: self._rate_card(True))
@@ -197,7 +198,7 @@ class FlashcardReview(Gtk.Box):
         self._done_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self._done_btn_box.set_halign(Gtk.Align.CENTER)
 
-        overview_btn = Gtk.Button(label="Back to Overview")
+        overview_btn = Gtk.Button(label=tr("Back to Overview"))
         overview_btn.add_css_class("suggested-action")
         overview_btn.connect("clicked", lambda _: self._show_overview())
         self._done_btn_box.append(overview_btn)
@@ -230,7 +231,7 @@ class FlashcardReview(Gtk.Box):
                 valign=Gtk.Align.CENTER,
             )
             label = Gtk.Label(
-                label=(
+                label=tr(
                     "No flashcards found.\n\n"
                     "Write ```flashcard blocks in your notes\n"
                     "to create flashcards."
@@ -329,10 +330,10 @@ class FlashcardReview(Gtk.Box):
         )
 
     def _show_done(self) -> None:
-        self._done_label.set_label("Review Complete")
+        self._done_label.set_label(tr("Review Complete"))
         self._card_stack.set_visible_child_name("done")
         self._showing_answer = False
-        self._progress_label.set_label("All done!")
+        self._progress_label.set_label(tr("All done!"))
         self._review_btn_box.set_visible(False)
         self._done_btn_box.set_visible(True)
 

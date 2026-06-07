@@ -10,6 +10,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 
+from core.translations import tr
 from core.utils import ErrorLabelMixin, assess_password_strength
 
 if TYPE_CHECKING:
@@ -28,7 +29,7 @@ class SetupDialog(ErrorLabelMixin, Adw.Window):
     def __init__(self, app: TokyoNotes, note_name: str) -> None:
         super().__init__(transient_for=app.win, modal=True)
         self.set_default_size(400, 320)
-        self.set_title("Set up Private Notes")
+        self.set_title(tr("Set up Private Notes"))
         self.app = app
         self._note_name = note_name
 
@@ -54,7 +55,7 @@ class SetupDialog(ErrorLabelMixin, Adw.Window):
         heading_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
         desc_label = Gtk.Label(
-            label=(
+            label=tr(
                 "Private notes are locked with a master password. "
                 "Choose something you will remember, there is no recovery. "
                 "You will be asked for it each time you open the app "
@@ -69,7 +70,7 @@ class SetupDialog(ErrorLabelMixin, Adw.Window):
         box.append(heading_box)
 
         self._password_entry = Gtk.Entry()
-        self._password_entry.set_placeholder_text("Master password")
+        self._password_entry.set_placeholder_text(tr("Master password"))
         self._password_entry.set_visibility(False)
         self._password_entry.set_hexpand(True)
         self._password_entry.connect("changed", self._on_password_changed)
@@ -77,7 +78,7 @@ class SetupDialog(ErrorLabelMixin, Adw.Window):
         box.append(self._password_entry)
 
         self._confirm_entry = Gtk.Entry()
-        self._confirm_entry.set_placeholder_text("Confirm password")
+        self._confirm_entry.set_placeholder_text(tr("Confirm password"))
         self._confirm_entry.set_visibility(False)
         self._confirm_entry.set_hexpand(True)
         self._confirm_entry.connect("activate", self._on_setup_clicked)
@@ -94,12 +95,12 @@ class SetupDialog(ErrorLabelMixin, Adw.Window):
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
 
-        cancel_btn = Gtk.Button(label="Cancel", hexpand=True)
+        cancel_btn = Gtk.Button(label=tr("Cancel"), hexpand=True)
         cancel_btn.add_css_class("pill")
         cancel_btn.connect("clicked", lambda *_: self.close())
         btn_row.append(cancel_btn)
 
-        btn = Gtk.Button(label="Set Up", hexpand=True)
+        btn = Gtk.Button(label=tr("Set Up"), hexpand=True)
         btn.add_css_class("suggested-action")
         btn.add_css_class("pill")
         btn.connect("clicked", self._on_setup_clicked)
@@ -127,20 +128,22 @@ class SetupDialog(ErrorLabelMixin, Adw.Window):
         self._hide_error()
 
         if not password:
-            self._show_error("Password cannot be empty.")
+            self._show_error(tr("Password cannot be empty."))
             return
         if password != confirm:
-            self._show_error("Passwords do not match.")
+            self._show_error(tr("Passwords do not match."))
             return
         if len(password) < 8:
-            self._show_error("Password is too short (min 8 characters).")
+            self._show_error(tr("Password is too short (min 8 characters)."))
             return
 
         if self._note_name:
             self._encrypt_note(self._note_name, password)
-            self.app._show_toast(f"'{self._note_name}' is now private")
+            self.app._show_toast(
+                tr("'{note_name}' is now private").format(note_name=self._note_name)
+            )
         else:
-            self.app._show_toast("No note to encrypt — make a note private first")
+            self.app._show_toast(tr("No note to encrypt — make a note private first"))
 
         self.close()
 

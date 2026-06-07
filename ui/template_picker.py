@@ -9,6 +9,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango
 
+from core.translations import tr
 from ui.base_picker import SearchablePicker
 
 
@@ -25,7 +26,7 @@ class TemplatePicker(SearchablePicker):
             items=templates,
             on_selected=on_selected,
             text_view=text_view,
-            placeholder="Search templates…",
+            placeholder=tr("Search templates"),
             width=340,
             height=360,
         )

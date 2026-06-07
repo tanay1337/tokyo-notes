@@ -30,6 +30,7 @@ _DEFAULTS: dict[str, Any] = {
     "git_init_dismissed": False,
     "font_family": None,
     "font_size": None,
+    "language": "en",
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).

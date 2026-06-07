@@ -27,7 +27,7 @@ class SearchablePicker(Gtk.Popover):
         items: list[Any],
         on_selected: Callable[[Any], None],
         text_view: Gtk.Widget | None = None,
-        placeholder: str = "Search…",
+        placeholder: str = "Search",
         width: int = 320,
         height: int = 320,
     ) -> None:
@@ -41,6 +41,10 @@ class SearchablePicker(Gtk.Popover):
 
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text(placeholder)
+        self.search_entry.set_margin_top(5)
+        self.search_entry.set_margin_bottom(5)
+        self.search_entry.set_margin_start(5)
+        self.search_entry.set_margin_end(5)
         self.search_entry.connect("search-changed", self.on_search_changed)
         self.search_entry.connect("activate", lambda _: self._activate_selected())
 

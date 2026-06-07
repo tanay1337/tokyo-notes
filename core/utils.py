@@ -13,6 +13,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
+from core.translations import tr
+
 IS_MAC: bool = sys.platform == "darwin"
 
 
@@ -75,6 +77,8 @@ def confirm_destructive_dialog(
 
     Falls back gracefully on older Adw versions that lack set_response_appearance.
     """
+    confirm_label = tr(confirm_label)
+    cancel_label = tr(cancel_label)
     import gi
 
     gi.require_version("Adw", "1")
@@ -211,11 +215,11 @@ def assess_password_strength(password: str) -> dict:
         score += 1
 
     if score <= 2:
-        return {"label": "Weak", "color": "#ff6b6b"}
+        return {"label": tr("Weak"), "color": "#ff6b6b"}
     elif score <= 4:
-        return {"label": "Fair", "color": "#ffd93d"}
+        return {"label": tr("Fair"), "color": "#ffd93d"}
     else:
-        return {"label": "Strong", "color": "#6bcb77"}
+        return {"label": tr("Strong"), "color": "#6bcb77"}
 
 
 # --- Folder / path helpers ---
@@ -240,3 +244,11 @@ def join_note_path(folder: str | None, stem: str) -> str:
     ``(None, 'note')`` → ``'note'``
     """
     return f"{folder}/{stem}" if folder else stem
+
+
+def is_entry_focused(widget: object) -> bool:
+    if widget is None or not isinstance(widget, Gtk.Widget):
+        return False
+    if isinstance(widget, (Gtk.Entry, Gtk.SearchEntry)):
+        return True
+    return is_entry_focused(widget.get_parent())

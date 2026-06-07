@@ -32,6 +32,8 @@ class TestAuditorCompliance:
                 return "tokyo-night"
             if key == "show_sidebar":
                 return True
+            if key == "language":
+                return "en"
             return original_get(self, key, default)
 
         with pytest.MonkeyPatch().context() as mp:

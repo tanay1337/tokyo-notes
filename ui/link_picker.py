@@ -9,6 +9,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango
 
+from core.translations import tr
 from ui.base_picker import SearchablePicker
 
 
@@ -25,7 +26,7 @@ class LinkPicker(SearchablePicker):
             items=notes,
             on_selected=on_selected,
             text_view=text_view,
-            placeholder="Search notes…",
+            placeholder=tr("Search notes"),
             width=320,
             height=320,
         )

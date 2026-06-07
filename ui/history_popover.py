@@ -10,6 +10,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gdk, GLib, Gtk
 
+from core.translations import tr
+
 if TYPE_CHECKING:
     from core.versioning import CommitInfo, GitVersionController
 
@@ -25,25 +27,25 @@ def _relative_time(dt) -> str:
     now = dt.now(tz=dt.tzinfo)
     delta = now - dt
     if delta.total_seconds() < 60:
-        return "Just now"
+        return tr("Just now")
     if delta.total_seconds() < 3600:
         m = int(delta.total_seconds() / 60)
-        return f"{m}m ago"
+        return tr("{m}m ago").format(m=m)
     if delta.total_seconds() < 86400:
         h = int(delta.total_seconds() / 3600)
-        return f"{h}h ago"
+        return tr("{h}h ago").format(h=h)
     if delta.days < 7:
-        return f"{delta.days}d ago"
+        return tr("{d}d ago").format(d=delta.days)
     return dt.strftime("%b %d")
 
 
 def _commit_type_label(message: str) -> str:
     kind = message.split(":", 1)[0] if ":" in message else message
     return {
-        "auto": "Auto-save",
-        "snapshot": "Snapshot",
-        "delete": "Deleted",
-        "rename": "Renamed",
+        "auto": tr("Auto-save"),
+        "snapshot": tr("Snapshot"),
+        "delete": tr("Deleted"),
+        "rename": tr("Renamed"),
     }.get(kind, message)
 
 
@@ -101,13 +103,16 @@ class HistoryPopover(Gtk.Popover):
         main_box.set_margin_bottom(8)
 
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        header_label = Gtk.Label(label=f"History: {self._note_name}", xalign=0)
+        header_label = Gtk.Label(
+            label=tr("History: {note_name}").format(note_name=self._note_name),
+            xalign=0,
+        )
         header_label.add_css_class("heading")
         header_label.set_hexpand(True)
         header_box.append(header_label)
 
         if self._on_snapshot:
-            snap_btn = Gtk.Button(label="Snapshot")
+            snap_btn = Gtk.Button(label=tr("Snapshot"))
             snap_btn.add_css_class("toolbar-btn")
             snap_btn.connect("clicked", self._on_snapshot_clicked)
             header_box.append(snap_btn)
@@ -120,7 +125,7 @@ class HistoryPopover(Gtk.Popover):
         self._spinner.start()
         main_box.append(self._spinner)
 
-        self._empty_label = Gtk.Label(label="No version history found")
+        self._empty_label = Gtk.Label(label=tr("No version history found"))
         self._empty_label.add_css_class("dim-label")
         self._empty_label.set_visible(False)
         self._empty_label.set_margin_top(12)
@@ -176,7 +181,7 @@ class HistoryPopover(Gtk.Popover):
 
         main_box.append(paned)
 
-        self._restore_btn = Gtk.Button(label="Restore this version")
+        self._restore_btn = Gtk.Button(label=tr("Restore this version"))
         self._restore_btn.add_css_class("suggested-action")
         self._restore_btn.set_halign(Gtk.Align.END)
         self._restore_btn.set_margin_top(6)
@@ -258,7 +263,7 @@ class HistoryPopover(Gtk.Popover):
             return
         self._selected_commit = hexsha
         self._restore_btn.set_sensitive(True)
-        self._diff_view.get_buffer().set_text("Loading diff...")
+        self._diff_view.get_buffer().set_text(tr("Loading diff..."))
         if self._executor:
             self._executor(lambda: self._do_load_diff(hexsha))
         else:
@@ -269,9 +274,9 @@ class HistoryPopover(Gtk.Popover):
         if not diff_text:
             content = self._git.restore(hexsha, self._note_name)
             if content is not None:
-                diff_text = "(initial version)"
+                diff_text = tr("(initial version)")
             else:
-                diff_text = "(binary file)"
+                diff_text = tr("(binary file)")
         GLib.idle_add(lambda: self._display_diff(diff_text))
 
     def _display_diff(self, diff_text: str) -> None:
@@ -292,7 +297,7 @@ class HistoryPopover(Gtk.Popover):
             else:
                 GLib.idle_add(
                     lambda: self._diff_view.get_buffer().set_text(
-                        "Error: could not restore this version"
+                        tr("Error: could not restore this version")
                     )
                 )
 

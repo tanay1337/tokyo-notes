@@ -12,6 +12,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
+from core.translations import tr
 from ui.deadline_picker import DeadlinePicker
 from ui.link_picker import LinkPicker
 from ui.slash_picker import SlashPicker
@@ -96,7 +97,7 @@ class Editor(Gtk.Box):
         self.status_bar.add_css_class("status-bar")
         self.status_bar.set_visible(False)
 
-        self.stats_label = Gtk.Label(label="Words: 0 | Chars: 0 | Read: 0m")
+        self.stats_label = Gtk.Label(label=tr("Words: 0 | Chars: 0 | Read: 0m"))
         self.stats_label.add_css_class("stats-label")
         self.status_bar.append(self.stats_label)
         self.append(self.status_bar)
@@ -123,8 +124,10 @@ class Editor(Gtk.Box):
             overlay_box.append(icon)
 
         label = Gtk.Label(
-            label="This note is private. Click the sidebar row"
-            " and enter your password to unlock.",
+            label=tr(
+                "This note is private. Click the sidebar row"
+                " and enter your password to unlock."
+            ),
             xalign=0.5,
         )
         label.add_css_class("lock-overlay-label")

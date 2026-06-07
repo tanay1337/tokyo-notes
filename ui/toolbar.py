@@ -7,6 +7,8 @@ from typing import Any, Callable
 
 from gi.repository import Gtk
 
+from core.translations import tr
+
 # Sentinel value for special handler buttons in _GROUPS.
 _FLASHCARD = object()
 
@@ -27,15 +29,15 @@ _GROUPS: list[list[tuple[Any, str, str, str]] | None] = [
         ("**", "**", "Bold", "bold.svg"),
         ("_", "_", "Italic", "italic.svg"),
         ("~~", "~~", "Strikethrough", "strikethrough.svg"),
-        ("`", "`", "Inline code", "code.svg"),
+        ("`", "`", "Inline Code", "code.svg"),
     ],
     None,
     # Block elements
     [
-        ("```\n", "\n```", "Code block", "block.svg"),
-        ("> ", "", "Block quote", "quote.svg"),
-        ("- ", "", "Bullet list", "list.svg"),
-        ("- [ ] ", "", "Task / checkbox", "checkbox.svg"),
+        ("```\n", "\n```", "Code Block", "block.svg"),
+        ("> ", "", "Block Quote", "quote.svg"),
+        ("- ", "", "Bullet List", "list.svg"),
+        ("- [ ] ", "", "Task / Checkbox", "checkbox.svg"),
         (_FLASHCARD, "", "Insert flashcard", "flashcard.svg"),
     ],
     None,
@@ -72,7 +74,7 @@ def build_toolbar(
 
         for prefix, suffix, tooltip, icon_file in group:
             btn = Gtk.Button()
-            btn.set_tooltip_text(tooltip)
+            btn.set_tooltip_text(tr(tooltip))
             btn.add_css_class("toolbar-btn")
             icon_path = assets_dir / icon_file
             if icon_path.exists():
@@ -80,7 +82,7 @@ def build_toolbar(
                 img.set_pixel_size(16)
                 btn.set_child(img)
             else:
-                btn.set_label(tooltip.split(" ")[0])
+                btn.set_label(tr(tooltip.split(" ")[0]))
             if prefix is _FLASHCARD:
                 btn.connect("clicked", on_format, prefix, "")
             else:
@@ -93,7 +95,7 @@ def build_toolbar(
 
     if on_history:
         history_btn = Gtk.Button()
-        history_btn.set_tooltip_text("View version history")
+        history_btn.set_tooltip_text(tr("View version history"))
         history_btn.add_css_class("toolbar-btn")
         hist_path = assets_dir.parent / "toolbar" / "history.svg"
         if hist_path.exists():
@@ -101,7 +103,7 @@ def build_toolbar(
             hist_img.set_pixel_size(16)
             history_btn.set_child(hist_img)
         else:
-            history_btn.set_label("Hist")
+            history_btn.set_label(tr("Hist"))
         history_btn.connect("clicked", lambda _: on_history())
         history_btn.set_visible(False)
         inner.append(history_btn)

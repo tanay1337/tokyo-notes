@@ -13,7 +13,8 @@ from gi.repository import GLib, Gtk
 
 from core.graph_manager import GraphManager
 from core.services import get_week_boundaries
-from core.utils import create_empty_state_widget
+from core.translations import tr
+from core.utils import create_empty_state_widget, is_entry_focused
 from ui.dashboard import Dashboard
 from ui.flashcard_review import FlashcardReview
 from ui.graph_view import GraphView
@@ -77,7 +78,7 @@ class NavigationController:
         # Pass already-fetched checkboxes to avoid a second get_all_checkboxes call.
         self._populate_dashboard(checkboxes, default_filter)
         app.content_stack.set_visible_child_name("dashboard")
-        self.update_header_ui("Dashboard", is_editor=False)
+        self.update_header_ui(tr("Dashboard"), is_editor=False)
         app.sidebar.set_active_view("dashboard")
         app._set_backlinks_visible(False)
 
@@ -100,14 +101,18 @@ class NavigationController:
         if app.dashboard_view is None:
             return
         count = app.dashboard_view.populate(checkboxes, filter_type)
-        app.win.set_title(f"Dashboard — {count} items" if count else "Dashboard")
+        app.win.set_title(
+            tr("Dashboard — {count} items").format(count=count)
+            if count
+            else tr("Dashboard")
+        )
 
     def on_dashboard_empty(self, filter_type: str) -> None:
         """Insert an empty-state widget when the dashboard has no items."""
         msg = (
-            "No tasks found."
+            tr("No tasks found.")
             if filter_type == "all"
-            else f"No tasks for {filter_type}."
+            else tr("No tasks for {filter_type}.").format(filter_type=filter_type)
         )
         widget = create_empty_state_widget(msg, self.app.base_dir)
         self.app.dashboard_list.append(widget)
@@ -150,7 +155,7 @@ class NavigationController:
         else:
             app.graph_view.update_data(graph_data)
         app.content_stack.set_visible_child_name("graph")
-        self.update_header_ui("Knowledge Graph", is_editor=False)
+        self.update_header_ui(tr("Knowledge Graph"), is_editor=False)
         app.sidebar.set_active_view("graph")
         app._set_backlinks_visible(False)
 
@@ -181,6 +186,7 @@ class NavigationController:
                     "lock_timeout_minutes": app.cfg.get("lock_timeout_minutes", 5),
                     "font_family": app.cfg.get("font_family"),
                     "font_size": app.cfg.get("font_size"),
+                    "language": app.cfg.get("language", "en"),
                     "has_encrypted_notes": has_encrypted,
                     "git_available": app.git_controller.is_git_installed(),
                     "git_enabled": app.cfg.get("git_enabled", False),
@@ -206,7 +212,7 @@ class NavigationController:
             app.settings_view.refresh_templates(templates)
 
         app.content_stack.set_visible_child_name("settings")
-        self.update_header_ui("Settings", is_editor=False)
+        self.update_header_ui(tr("Settings"), is_editor=False)
         app.sidebar.set_active_view("settings")
         app._set_backlinks_visible(False)
 
@@ -226,7 +232,7 @@ class NavigationController:
             app.content_stack.add_named(app.flashcard_view, "flashcard")
         app.flashcard_view.refresh()
         app.content_stack.set_visible_child_name("flashcard")
-        self.update_header_ui("Flashcards", is_editor=False)
+        self.update_header_ui(tr("Flashcards"), is_editor=False)
         app.sidebar.set_active_view("flashcard")
         app._set_backlinks_visible(False)
 
@@ -239,7 +245,7 @@ class NavigationController:
         if current_page in ("dashboard", "graph", "settings", "flashcard"):
             target = "split_editor" if app.split_editor is not None else "editor"
             app.content_stack.set_visible_child_name(target)
-            title = app.current_note if app.current_note else "Tokyo Notes"
+            title = app.current_note if app.current_note else tr("Tokyo Notes")
             self.update_header_ui(title, is_editor=True)
             app.sidebar.set_active_view("editor")
             app._set_backlinks_visible(True)
@@ -252,7 +258,8 @@ class NavigationController:
             app.sidebar.search_entry.set_text("")
             # set_text does not emit search-changed, so refresh manually.
             app.refresh_list()
-            app.text_view.grab_focus()
+            if not is_entry_focused(app.win.get_focus()):
+                app.text_view.grab_focus()
             return True
         return False
 

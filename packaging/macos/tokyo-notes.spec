@@ -12,6 +12,7 @@ datas = [
     (str(ROOT / "assets"), "assets"),
     (str(ROOT / "themes"), "themes"),
     (str(ROOT / "style.css"), "."),
+    (str(ROOT / "translations"), "translations"),
 ]
 
 hiddenimports = [

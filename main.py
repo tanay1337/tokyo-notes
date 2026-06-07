@@ -1,6 +1,7 @@
 """Tokyo Notes — main application entry point."""
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -24,9 +25,12 @@ from core.startup_checks import validate_notes_folder
 from core.storage import NotesManager
 from core.template_manager import TemplateManager
 from core.theme_manager import ThemeManager
+from core.translations import load as load_i18n
+from core.translations import tr
 from core.utils import (
     CB_ANY_RE,
     confirm_destructive_dialog,
+    is_entry_focused,
     set_response_suggested,
 )
 from core.window_manager import WindowManager
@@ -149,17 +153,17 @@ class TokyoNotes(Adw.Application):
 
         dialog = Adw.MessageDialog(
             transient_for=self.win,
-            heading="Enable git versioning for your notes?",
-            body=(
+            heading=tr("Enable git versioning for your notes?"),
+            body=tr(
                 "This creates a local git repository in your notes folder"
                 " to track changes over time.\n\n"
                 "You will be able to browse history, view diffs,"
                 " and restore previous versions of any note."
             ),
         )
-        dialog.add_response("dismiss", "Not Now")
-        dialog.add_response("hide", "Don't show again")
-        dialog.add_response("enable", "Enable")
+        dialog.add_response("dismiss", tr("Not Now"))
+        dialog.add_response("hide", tr("Don't show again"))
+        dialog.add_response("enable", tr("Enable"))
         dialog.set_default_response("enable")
         dialog.set_close_response("dismiss")
         from core.utils import set_response_suggested
@@ -171,10 +175,10 @@ class TokyoNotes(Adw.Application):
                 ok = self.git_controller.init_repo()
                 if ok:
                     self.cfg.set("git_enabled", True)
-                    self._show_toast("Git versioning enabled")
+                    self._show_toast(tr("Git versioning enabled"))
                     self._update_toolbar_versioning_buttons()
                 else:
-                    self._show_toast("Failed to initialize git repository")
+                    self._show_toast(tr("Failed to initialize git repository"))
             elif response == "hide":
                 self.cfg.set("git_init_dismissed", True)
 
@@ -188,14 +192,14 @@ class TokyoNotes(Adw.Application):
     def _on_snapshot_clicked(self) -> None:
         """Create a manual snapshot commit."""
         if not self.git_controller.is_available():
-            self._show_toast("Git versioning is not enabled")
+            self._show_toast(tr("Git versioning is not enabled"))
             return
 
         def _do_snapshot():
             ok = self.git_controller.snapshot()
             GLib.idle_add(
                 lambda: self._show_toast(
-                    "Snapshot created" if ok else "No changes to snapshot"
+                    tr("Snapshot created") if ok else tr("No changes to snapshot")
                 )
             )
 
@@ -232,7 +236,9 @@ class TokyoNotes(Adw.Application):
             self._set_buffer_text(content)
             if self.highlighter:
                 self.highlighter.highlight()
-        self._show_toast(f"'{note_name}' restored to previous version")
+        self._show_toast(
+            tr("'{note_name}' restored to previous version").format(note_name=note_name)
+        )
 
     def _update_toolbar_versioning_buttons(self) -> None:
         """Show/hide the versioning toolbar button based on git availability."""
@@ -266,7 +272,7 @@ class TokyoNotes(Adw.Application):
             if self.notes_manager.is_encrypted(n)
         ]
         if not encrypted_notes:
-            self._show_toast("No private notes to unlock")
+            self._show_toast(tr("No private notes to unlock"))
             return
 
         first_note = encrypted_notes[0]
@@ -274,7 +280,7 @@ class TokyoNotes(Adw.Application):
             ciphertext_bytes = self.notes_manager.read_encrypted_raw(first_note)
         except FileNotFoundError:
             logger.warning("Encrypted note '%s' not found on disk", first_note)
-            self._show_toast("Corrupted encrypted note — cannot unlock")
+            self._show_toast(tr("Corrupted encrypted note — cannot unlock"))
             return
 
         password_bytes = bytearray(password.encode("utf-8"))
@@ -338,9 +344,9 @@ class TokyoNotes(Adw.Application):
                 self._start_unlock_cooldown()
 
             if hasattr(self, "_unlock_dialog") and self._unlock_dialog is not None:
-                self._unlock_dialog.on_verification_failed("Wrong password")
+                self._unlock_dialog.on_verification_failed(tr("Wrong password"))
             else:
-                self._show_toast("Wrong password")
+                self._show_toast(tr("Wrong password"))
             return
 
         self._session_password_bytes = password
@@ -349,7 +355,7 @@ class TokyoNotes(Adw.Application):
         self._cancel_unlock_cooldown()
         self._update_sidebar_lock_state()
         self._reset_lock_timer()
-        self._show_toast("Private notes unlocked")
+        self._show_toast(tr("Private notes unlocked"))
         self.editor.set_editable(True)
 
         if hasattr(self, "_unlock_dialog") and self._unlock_dialog is not None:
@@ -392,7 +398,11 @@ class TokyoNotes(Adw.Application):
                     self._encryption_key_cache[note] = key_bytes
                     self.sidebar.set_row_encrypted(note, True)
                 self.refresh_list(self.sidebar.search_entry.get_text())
-                self._show_toast(f"Encrypted {len(plain_notes)} note(s) in '{folder}'")
+                self._show_toast(
+                    tr("Encrypted {n} note(s) in '{folder}'").format(
+                        n=len(plain_notes), folder=folder
+                    )
+                )
             except Exception as e:
                 logger.error("Failed to encrypt pending folder after unlock: %s", e)
         if self._pending_auto_encrypt_in_folder:
@@ -412,7 +422,7 @@ class TokyoNotes(Adw.Application):
                 self.cfg.mark_encrypted(note_name)
                 self._encryption_key_cache[note_name] = key_bytes
                 self.sidebar.set_row_encrypted(note_name, True)
-                self._show_toast("New note encrypted")
+                self._show_toast(tr("New note encrypted"))
             except Exception as e:
                 logger.error("Failed to auto-encrypt new note after unlock: %s", e)
 
@@ -433,7 +443,7 @@ class TokyoNotes(Adw.Application):
                 and self._is_session_locked
             ):
                 self._pending_auto_encrypt_in_folder = None
-                self._show_toast("Note was not encrypted. Encrypt it manually.")
+                self._show_toast(tr("Note was not encrypted. Encrypt it manually."))
 
         dialog.connect("response", _on_dismissed)
         self._unlock_dialog = dialog
@@ -463,8 +473,8 @@ class TokyoNotes(Adw.Application):
             if self.highlighter:
                 self.highlighter.highlight()
         self._show_toast(
-            "Private notes locked",
-            action_label="Unlock",
+            tr("Private notes locked"),
+            action_label=tr("Unlock"),
             action=self._show_unlock_popover,
         )
 
@@ -607,7 +617,7 @@ class TokyoNotes(Adw.Application):
             self.highlighter.highlight()
             self._full_pass_complete = True
             self._pending_highlight_id = 0
-        self._show_toast(f"'{note_name}' is now private")
+        self._show_toast(tr("'{note_name}' is now private").format(note_name=note_name))
 
     def _load_encrypted_note(self, note_name: str) -> None:
         """Decrypt and load an encrypted note into the editor."""
@@ -621,12 +631,20 @@ class TokyoNotes(Adw.Application):
             self._set_buffer_text(plaintext)
 
             self._restore_cursor_for_note(note_name)
-            GLib.idle_add(self.text_view.grab_focus)
+            GLib.idle_add(
+                lambda: (
+                    self.text_view.grab_focus()
+                    if not is_entry_focused(self.win.get_focus())
+                    else None
+                )
+            )
 
             self._schedule_full_highlight()
         except Exception as e:
             logger.error("Failed to decrypt note '%s': %s", note_name, e)
-            self._show_toast(f"Failed to decrypt '{note_name}'")
+            self._show_toast(
+                tr("Failed to decrypt '{note_name}'").format(note_name=note_name)
+            )
             self._set_buffer_text("")
 
     def _set_buffer_text(self, content: str) -> None:
@@ -679,6 +697,10 @@ class TokyoNotes(Adw.Application):
             self._pending_highlight_id = GLib.idle_add(
                 self.lifecycle._highlight_chunk, current, 0
             )
+
+    def _focus_text_view(self) -> None:
+        if not is_entry_focused(self.win.get_focus()):
+            self.text_view.grab_focus()
 
     def _show_toast(
         self, message: str, action_label: str | None = None, action=None
@@ -737,7 +759,7 @@ class TokyoNotes(Adw.Application):
             self.text_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
             if self.highlighter:
                 self.highlighter.highlight(start_line=0, end_line=30)
-            self.text_view.grab_focus()
+            self._focus_text_view()
 
         picker = TemplatePicker(
             self.template_manager.get_all_templates(),
@@ -777,11 +799,11 @@ class TokyoNotes(Adw.Application):
         current = self.current_note
 
         if not current:
-            self._show_toast("Open a note first")
+            self._show_toast(tr("Open a note first"))
             return
 
         if note_name == current:
-            self._show_toast("Already open")
+            self._show_toast(tr("Already open"))
             return
 
         from ui.split_editor import SplitEditor
@@ -833,21 +855,23 @@ class TokyoNotes(Adw.Application):
         self.content_stack.set_visible_child_name("editor")
         self.sidebar.set_active_view("editor")
         self._select_sidebar_row(note_name)
-        self.text_view.grab_focus()
+        self._focus_text_view()
 
     def _show_save_template_dialog(self, note_name: str, content: str) -> None:
         """Show a dialog to name and save a template."""
         dialog = Adw.MessageDialog(
             transient_for=self.win,
-            heading="Save as Template",
-            body=f"Enter a name for the template (based on '{note_name}'):",
+            heading=tr("Save as Template"),
+            body=tr("Enter a name for the template (based on '{note_name}'):").format(
+                note_name=note_name
+            ),
         )
         entry = Gtk.Entry()
         entry.set_text(note_name)
         entry.set_activates_default(True)
         dialog.set_extra_child(entry)
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("save", "Save")
+        dialog.add_response("cancel", tr("Cancel"))
+        dialog.add_response("save", tr("Save"))
         set_response_suggested(dialog, "save")
         dialog.set_default_response("save")
         dialog.set_close_response("cancel")
@@ -861,10 +885,10 @@ class TokyoNotes(Adw.Application):
             return
         name = entry.get_text().strip()
         if not name:
-            self._show_toast("Template name cannot be empty")
+            self._show_toast(tr("Template name cannot be empty"))
             return
         slug = self.template_manager.save_as_template(name, content)
-        self._show_toast(f"Template '{slug}' saved")
+        self._show_toast(tr("Template '{slug}' saved").format(slug=slug))
 
     def _on_new_template(self) -> None:
         """Create a blank new template and open it in the editor."""
@@ -889,7 +913,7 @@ class TokyoNotes(Adw.Application):
         self.content_stack.set_visible_child_name("editor")
         if self.highlighter:
             self.highlighter.highlight(start_line=0, end_line=30)
-        self.text_view.grab_focus()
+        self._focus_text_view()
 
     def _on_restore_builtins(self) -> None:
         """Restore all built-in templates to factory defaults."""
@@ -897,12 +921,12 @@ class TokyoNotes(Adw.Application):
         templates = self.template_manager.get_all_templates()
         if self.settings_view is not None:
             self.settings_view.refresh_templates(templates)
-        self._show_toast("Built-in templates restored")
+        self._show_toast(tr("Built-in templates restored"))
 
     def _on_delete_template(self, slug: str) -> bool:
         """Delete a template by slug. Returns True on success."""
         if self.template_manager.delete_template(slug):
-            self._show_toast(f"Template '{slug}' deleted")
+            self._show_toast(tr("Template '{slug}' deleted").format(slug=slug))
             return True
         return False
 
@@ -918,7 +942,11 @@ class TokyoNotes(Adw.Application):
         if opener:
             subprocess.Popen([opener, templates_dir])
         else:
-            self._show_toast(f"Templates folder: {templates_dir}")
+            self._show_toast(
+                tr("Templates folder: {templates_dir}").format(
+                    templates_dir=templates_dir
+                )
+            )
 
     # GIO actions
 
@@ -1056,7 +1084,11 @@ class TokyoNotes(Adw.Application):
             except Exception as e:
                 logger.error("Failed to encrypt '%s' after setup: %s", note, e)
         self.refresh_list(self.sidebar.search_entry.get_text())
-        self._show_toast(f"Encrypted {len(remaining)} note(s) in '{folder}'")
+        self._show_toast(
+            tr("Encrypted {n} note(s) in '{folder}'").format(
+                n=len(remaining), folder=folder
+            )
+        )
 
     def _show_password_change_dialog(self) -> None:
         from ui.password_change_dialog import PasswordChangeDialog
@@ -1072,12 +1104,12 @@ class TokyoNotes(Adw.Application):
 
         dialog = confirm_destructive_dialog(
             transient_for=self.win,
-            heading="Remove Privacy?",
-            body=(
-                f"This will save '{note_name}' as plain text. "
-                "The note will no longer be encrypted. Are you sure?"
-            ),
-            confirm_label="Remove Privacy",
+            heading=tr("Remove Privacy?"),
+            body=tr(
+                "This will save '{note_name}' as plain text."
+                " The note will no longer be encrypted. Are you sure?"
+            ).format(note_name=note_name),
+            confirm_label=tr("Remove Privacy"),
         )
         dialog.connect("response", self._on_remove_privacy_response, note_name)
         dialog.present()
@@ -1117,7 +1149,7 @@ class TokyoNotes(Adw.Application):
 
     def on_select_folder(self, _button=None) -> None:
         dialog = Gtk.FileDialog()
-        dialog.set_title("Select Notes Folder")
+        dialog.set_title(tr("Select Notes Folder"))
         # Use home directory as initial folder to avoid GTK4 bug where
         # selecting a parent of the initial folder fails silently.
         dialog.set_initial_folder(Gio.File.new_for_path(str(Path.home())))
@@ -1128,7 +1160,7 @@ class TokyoNotes(Adw.Application):
             folder = dialog.select_folder_finish(result)
         except GLib.Error as e:
             logger.warning("Folder selection failed or cancelled: %s", e)
-            self._show_toast("Folder selection cancelled")
+            self._show_toast(tr("Folder selection cancelled"))
             return
 
         if not folder:
@@ -1137,7 +1169,7 @@ class TokyoNotes(Adw.Application):
         new_folder = folder.get_path()
         logger.info("Selected folder: %s (current: %s)", new_folder, self.notes_folder)
         if new_folder == self.notes_folder:
-            self._show_toast("Already using this folder")
+            self._show_toast(tr("Already using this folder"))
             return
 
         self._flush_pending_save()
@@ -1171,9 +1203,9 @@ class TokyoNotes(Adw.Application):
         self.current_note = None
         self._has_images = False
         self._set_buffer_text("")
-        self.win.set_title("Tokyo Notes")
+        self.win.set_title(tr("Tokyo Notes"))
         self.refresh_list()
-        self._show_toast("Notes folder changed")
+        self._show_toast(tr("Notes folder changed"))
 
     # Activation / window construction
 
@@ -1190,6 +1222,7 @@ class TokyoNotes(Adw.Application):
 
     def _build_layout(self) -> None:
         """Construct the main window layout."""
+        load_i18n(self.cfg.get("language", "en"))
         self.theme_manager.setup_providers()
         self.win = self.window_manager.create_window()
         self.apply_theme(self.cfg.get("theme"))
@@ -1300,11 +1333,11 @@ class TokyoNotes(Adw.Application):
 
     def _build_content_header(self) -> Adw.HeaderBar:
         header = Adw.HeaderBar()
-        self.content_title = Gtk.Label(label="Tokyo Notes")
+        self.content_title = Gtk.Label(label=tr("Tokyo Notes"))
         header.set_title_widget(self.content_title)
         header.pack_start(self.sidebar_toggle)
 
-        self.help_btn = Gtk.Button(tooltip_text="Keyboard shortcuts")
+        self.help_btn = Gtk.Button(tooltip_text=tr("Keyboard shortcuts"))
         help_img = Gtk.Image.new_from_file(
             str(self.base_dir / "assets" / "header" / "help.svg")
         )
@@ -1315,7 +1348,7 @@ class TokyoNotes(Adw.Application):
         header.pack_end(self.help_btn)
 
         # Back to Notes button — shown only when a secondary view is active.
-        self.back_btn = Gtk.Button(tooltip_text="Back to Notes")
+        self.back_btn = Gtk.Button(tooltip_text=tr("Back to Notes"))
         back_img = Gtk.Image.new_from_file(
             str(self.base_dir / "assets" / "header" / "back.svg")
         )
@@ -1440,6 +1473,40 @@ class TokyoNotes(Adw.Application):
             self._apply_font(self.cfg.get("font_family"), value)
         elif key == "git_enabled":
             self._update_toolbar_versioning_buttons()
+        elif key == "language":
+            self._show_language_restart_dialog()
+
+    def _show_language_restart_dialog(self) -> None:
+        dialog = Adw.MessageDialog(
+            transient_for=self.win,
+            heading=tr("Restart Required"),
+            body=tr(
+                "The language change will take effect after restart. "
+                "Restart now or later?"
+            ),
+        )
+        dialog.add_response("later", tr("Later"))
+        dialog.add_response("restart", tr("Restart Now"))
+        set_response_suggested(dialog, "restart")
+        dialog.set_default_response("later")
+        dialog.set_close_response("later")
+        dialog.connect("response", self._on_language_restart_response)
+        dialog.present()
+
+    def _on_language_restart_response(
+        self, dialog: Adw.MessageDialog, response: str
+    ) -> None:
+        if response == "restart":
+            self._restart_app()
+
+    def _restart_app(self) -> None:
+        self.cfg.flush_immediate()
+        try:
+            os.execv(sys.executable, [sys.executable, *sys.argv])
+        except OSError:
+            self._show_toast(
+                tr("Failed to restart the application. Please restart manually.")
+            )
 
     def _update_backlinks(self) -> None:
         """Update the backlinks button visibility and count."""
@@ -1454,7 +1521,9 @@ class TokyoNotes(Adw.Application):
             self.backlinks_btn.set_visible(True)
             self.backlinks_count.set_label(str(len(backlinks)))
             self.backlinks_count.set_visible(True)
-            self.backlinks_btn.set_tooltip_text(f"{len(backlinks)} backlink(s)")
+            self.backlinks_btn.set_tooltip_text(
+                tr("{n} backlink(s)").format(n=len(backlinks))
+            )
         else:
             self.backlinks_container.set_visible(False)
 
@@ -1553,7 +1622,7 @@ class TokyoNotes(Adw.Application):
                 cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
                 cursor_iter.backward_chars(len(suffix))
                 self.buffer.place_cursor(cursor_iter)
-        self.text_view.grab_focus()
+        self._focus_text_view()
 
     def insert_flashcard(self) -> None:
         template = "```flashcard\nQuestion\n---\nAnswer\n```"
@@ -1565,7 +1634,7 @@ class TokyoNotes(Adw.Application):
             self.buffer.insert(start, formatted)
         else:
             self.buffer.insert_at_cursor(template)
-        self.text_view.grab_focus()
+        self._focus_text_view()
 
     # Note list / sidebar
 
@@ -1599,11 +1668,11 @@ class TokyoNotes(Adw.Application):
 
         menu = Gio.Menu()
         if note_name in self.cfg.pinned:
-            menu.append("Unpin", f"app.unpin::{note_name}")
+            menu.append(tr("Unpin"), f"app.unpin::{note_name}")
         else:
-            menu.append("Pin", f"app.pin::{note_name}")
+            menu.append(tr("Pin"), f"app.pin::{note_name}")
         menu.append(
-            "Unarchive" if is_archived else "Archive",
+            tr("Unarchive") if is_archived else tr("Archive"),
             f"app.archive::{note_name}",
         )
 
@@ -1612,10 +1681,10 @@ class TokyoNotes(Adw.Application):
         folders = list(self.notes_manager.get_folders())
         if current_folder or folders:
             move_section = Gio.Menu()
-            move_item = Gio.MenuItem.new("Move to folder", None)
+            move_item = Gio.MenuItem.new(tr("Move to folder"), None)
             move_submenu = Gio.Menu()
             if current_folder:
-                move_submenu.append("Home", f"app.move_note::{note_name}|")
+                move_submenu.append(tr("Home"), f"app.move_note::{note_name}|")
             for folder in sorted(folders):
                 folder_str = str(folder)
                 if folder_str == current_folder:
@@ -1629,29 +1698,31 @@ class TokyoNotes(Adw.Application):
 
         template_section = Gio.Menu()
         template_section.append(
-            "Save as Template", f"app.save_as_template::{note_name}"
+            tr("Save as Template"), f"app.save_as_template::{note_name}"
         )
         menu.append_section(None, template_section)
 
         privacy_section = Gio.Menu()
         if self.notes_manager.is_encrypted(note_name):
-            privacy_section.append("Remove privacy", f"app.remove_privacy::{note_name}")
+            privacy_section.append(
+                tr("Remove privacy"), f"app.remove_privacy::{note_name}"
+            )
         else:
-            privacy_section.append("Make private", f"app.make_private::{note_name}")
+            privacy_section.append(tr("Make private"), f"app.make_private::{note_name}")
         menu.append_section(None, privacy_section)
 
         if self.git_controller.is_available():
             versioning_section = Gio.Menu()
-            versioning_section.append("History", f"app.show_history::{note_name}")
+            versioning_section.append(tr("History"), f"app.show_history::{note_name}")
             menu.append_section(None, versioning_section)
 
         split_section = Gio.Menu()
-        split_section.append("Open", f"app.open_active::{note_name}")
-        split_section.append("Open in Split View", f"app.open_split::{note_name}")
+        split_section.append(tr("Open"), f"app.open_active::{note_name}")
+        split_section.append(tr("Open in Split View"), f"app.open_split::{note_name}")
         menu.append_section(None, split_section)
 
         danger = Gio.Menu()
-        danger.append("Delete", f"app.delete::{note_name}")
+        danger.append(tr("Delete"), f"app.delete::{note_name}")
         menu.append_section(None, danger)
 
         popover = Gtk.PopoverMenu.new_from_model(menu)
@@ -1678,25 +1749,25 @@ class TokyoNotes(Adw.Application):
         menu = Gio.Menu()
 
         create_section = Gio.Menu()
-        create_section.append("New Note", f"app.new_note_in_folder::{folder_path}")
+        create_section.append(tr("New Note"), f"app.new_note_in_folder::{folder_path}")
         create_section.append(
-            "New Note from Template",
+            tr("New Note from Template"),
             f"app.new_note_from_template_in_folder::{folder_path}",
         )
-        create_section.append("New Folder", f"app.new_subfolder::{folder_path}")
+        create_section.append(tr("New Folder"), f"app.new_subfolder::{folder_path}")
         menu.append_section(None, create_section)
 
         folder_section = Gio.Menu()
-        folder_section.append("Rename folder", f"app.rename_folder::{folder_path}")
+        folder_section.append(tr("Rename folder"), f"app.rename_folder::{folder_path}")
 
         # Move folder submenu
         all_folders = list(self.notes_manager.get_folders())
-        folder_move_item = Gio.MenuItem.new("Move to", None)
+        folder_move_item = Gio.MenuItem.new(tr("Move to"), None)
         move_submenu = Gio.Menu()
 
         folder_parent = folder_path.rsplit("/", 1)[0] if "/" in folder_path else ""
         if folder_parent:
-            move_submenu.append("Home", f"app.move_folder::{folder_path}|")
+            move_submenu.append(tr("Home"), f"app.move_folder::{folder_path}|")
         for f in sorted(all_folders):
             f_str = str(f)
             if (
@@ -1712,23 +1783,25 @@ class TokyoNotes(Adw.Application):
             folder_section.append_item(folder_move_item)
 
         if is_pinned:
-            folder_section.append("Unpin folder", f"app.unpin_folder::{folder_path}")
+            folder_section.append(
+                tr("Unpin folder"), f"app.unpin_folder::{folder_path}"
+            )
         else:
-            folder_section.append("Pin folder", f"app.pin_folder::{folder_path}")
+            folder_section.append(tr("Pin folder"), f"app.pin_folder::{folder_path}")
         menu.append_section(None, folder_section)
 
         encrypt_section = Gio.Menu()
-        encrypt_section.append("Encrypt all", f"app.encrypt_folder::{folder_path}")
+        encrypt_section.append(tr("Encrypt all"), f"app.encrypt_folder::{folder_path}")
         if has_encrypted:
             encrypt_section.append(
-                "Remove privacy (decrypt all)",
+                tr("Remove privacy (decrypt all)"),
                 f"app.remove_privacy_folder::{folder_path}",
             )
         menu.append_section(None, encrypt_section)
 
         danger_section = Gio.Menu()
-        danger_section.append("Archive all", f"app.archive_folder::{folder_path}")
-        danger_section.append("Delete folder", f"app.delete_folder::{folder_path}")
+        danger_section.append(tr("Archive all"), f"app.archive_folder::{folder_path}")
+        danger_section.append(tr("Delete folder"), f"app.delete_folder::{folder_path}")
         menu.append_section(None, danger_section)
 
         popover = Gtk.PopoverMenu.new_from_model(menu)
@@ -1771,7 +1844,7 @@ class TokyoNotes(Adw.Application):
         self.content_stack.set_visible_child_name("editor")
         self.refresh_list()
         self._select_sidebar_row(name)
-        self.text_view.grab_focus()
+        self._focus_text_view()
 
         # Auto-encrypt new notes in folders that already have encrypted notes
         notes_in_folder = self.notes_manager.get_notes_in_folder(folder)
@@ -1812,11 +1885,13 @@ class TokyoNotes(Adw.Application):
 
         dialog = Adw.MessageDialog(
             transient_for=self.props.active_window,
-            heading="New Subfolder",
-            body=f"Enter a name for the new folder inside '{parent_folder}':",
+            heading=tr("New Subfolder"),
+            body=tr("Enter a name for the new folder inside '{parent_folder}':").format(
+                parent_folder=parent_folder
+            ),
         )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("create", "Create")
+        dialog.add_response("cancel", tr("Cancel"))
+        dialog.add_response("create", tr("Create"))
         dialog.set_default_response("create")
         dialog.set_close_response("cancel")
         try:
@@ -1840,11 +1915,17 @@ class TokyoNotes(Adw.Application):
                     return
                 full_path = self.notes_manager.notes_dir / parent_folder / name
                 if full_path.exists():
-                    self._show_toast(f"Folder '{parent_folder}/{name}' already exists")
+                    self._show_toast(
+                        tr("Folder '{path}' already exists").format(
+                            path=f"{parent_folder}/{name}"
+                        )
+                    )
                     return
                 full_path.mkdir(parents=True)
                 self.refresh_list(self.sidebar.search_entry.get_text())
-                self._show_toast(f"Created folder '{parent_folder}/{name}'")
+                self._show_toast(
+                    tr("Created folder '{path}'").format(path=f"{parent_folder}/{name}")
+                )
 
         dialog.connect("response", _on_response)
         dialog.present()
@@ -1855,11 +1936,11 @@ class TokyoNotes(Adw.Application):
         """Show a dialog to create a new folder."""
         dialog = Adw.MessageDialog(
             transient_for=self.props.active_window,
-            heading="New Folder",
-            body="Enter a name for the new folder:",
+            heading=tr("New Folder"),
+            body=tr("Enter a name for the new folder:"),
         )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("create", "Create")
+        dialog.add_response("cancel", tr("Cancel"))
+        dialog.add_response("create", tr("Create"))
         dialog.set_default_response("create")
         dialog.set_close_response("cancel")
         try:
@@ -1883,11 +1964,13 @@ class TokyoNotes(Adw.Application):
                     return
                 folder_path = self.notes_manager.notes_dir / name
                 if folder_path.exists():
-                    self._show_toast(f"Folder '{name}' already exists")
+                    self._show_toast(
+                        tr("Folder '{name}' already exists").format(name=name)
+                    )
                     return
                 folder_path.mkdir(parents=True)
                 self.refresh_list(self.sidebar.search_entry.get_text())
-                self._show_toast(f"Created folder '{name}'")
+                self._show_toast(tr("Created folder '{name}'").format(name=name))
 
         dialog.connect("response", _on_response)
         dialog.present()
@@ -1902,7 +1985,9 @@ class TokyoNotes(Adw.Application):
             self.cfg.toggle_archive(note)
         self.sidebar.maybe_exit_archive_view()
         self.refresh_list(self.sidebar.search_entry.get_text())
-        self._show_toast(f"Archived {len(notes)} note(s) in '{folder}'")
+        self._show_toast(
+            tr("Archived {n} note(s) in '{folder}'").format(n=len(notes), folder=folder)
+        )
 
     def _on_encrypt_folder(
         self, action: Gio.SimpleAction, parameter: GLib.Variant
@@ -1912,7 +1997,7 @@ class TokyoNotes(Adw.Application):
         notes = self.notes_manager.get_notes_in_folder(folder)
         plain_notes = [n for n in notes if not self.notes_manager.is_encrypted(n)]
         if not plain_notes:
-            self._show_toast("No plain notes to encrypt in this folder")
+            self._show_toast(tr("No plain notes to encrypt in this folder"))
             return
 
         if self._session_password_bytes is not None:
@@ -1928,7 +2013,11 @@ class TokyoNotes(Adw.Application):
                 self._encryption_key_cache[note] = key_bytes
                 self.sidebar.set_row_encrypted(note, True)
             self.refresh_list(self.sidebar.search_entry.get_text())
-            self._show_toast(f"Encrypted {len(plain_notes)} note(s) in '{folder}'")
+            self._show_toast(
+                tr("Encrypted {n} note(s) in '{folder}'").format(
+                    n=len(plain_notes), folder=folder
+                )
+            )
         elif self._is_session_locked and self._session_password_bytes is None:
             has_any_encrypted = any(
                 self.notes_manager.is_encrypted(n)
@@ -1953,22 +2042,21 @@ class TokyoNotes(Adw.Application):
         notes = self.notes_manager.get_notes_in_folder(folder)
         encrypted_notes = [n for n in notes if self.notes_manager.is_encrypted(n)]
         if not encrypted_notes:
-            self._show_toast("No encrypted notes in this folder")
+            self._show_toast(tr("No encrypted notes in this folder"))
             return
 
         if self._is_session_locked or self._session_password_bytes is None:
-            self._show_toast("Unlock your session first")
+            self._show_toast(tr("Unlock your session first"))
             return
 
         dialog = confirm_destructive_dialog(
             transient_for=self.win,
-            heading="Remove Privacy?",
-            body=(
-                f"This will save {len(encrypted_notes)} note(s) in "
-                f"'{folder}' as plain text. "
-                "The notes will no longer be encrypted. Are you sure?"
-            ),
-            confirm_label="Remove Privacy",
+            heading=tr("Remove Privacy?"),
+            body=tr(
+                "This will save {n} note(s) in '{folder}' as plain text."
+                " The notes will no longer be encrypted. Are you sure?"
+            ).format(n=len(encrypted_notes), folder=folder),
+            confirm_label=tr("Remove Privacy"),
         )
         dialog.connect(
             "response", self._on_remove_privacy_folder_response, encrypted_notes
@@ -2004,7 +2092,7 @@ class TokyoNotes(Adw.Application):
                 logger.error("Failed to decrypt '%s': %s", note_name, e)
 
         self.refresh_list(self.sidebar.search_entry.get_text())
-        self._show_toast(f"Decrypted {len(encrypted_notes)} note(s)")
+        self._show_toast(tr("Decrypted {n} note(s)").format(n=len(encrypted_notes)))
 
     def _on_rename_folder(
         self, action: Gio.SimpleAction, parameter: GLib.Variant
@@ -2015,11 +2103,11 @@ class TokyoNotes(Adw.Application):
 
         dialog = Adw.MessageDialog(
             transient_for=self.props.active_window,
-            heading="Rename folder",
-            body=f"Enter a new name for '{old_name}':",
+            heading=tr("Rename folder"),
+            body=tr("Enter a new name for '{old_name}':").format(old_name=old_name),
         )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("rename", "Rename")
+        dialog.add_response("cancel", tr("Cancel"))
+        dialog.add_response("rename", tr("Rename"))
         dialog.set_default_response("rename")
         dialog.set_close_response("cancel")
         try:
@@ -2049,9 +2137,9 @@ class TokyoNotes(Adw.Application):
     def _validate_folder_name(self, name: str) -> str | None:
         """Validate a folder name. Return error message or None."""
         if not name or not name.strip():
-            return "Name cannot be empty"
+            return tr("Name cannot be empty")
         if "/" in name:
-            return "Folder name cannot contain '/'"
+            return tr("Folder name cannot contain '/'")
         try:
             self.notes_manager.validate_name(f"{name}/placeholder")
         except ValueError as e:
@@ -2069,9 +2157,11 @@ class TokyoNotes(Adw.Application):
                 [new_name if f == old_folder else f for f in self.cfg.folder_order]
             )
             self.refresh_list(self.sidebar.search_entry.get_text())
-            self._show_toast(f"Folder renamed to '{new_name}'")
+            self._show_toast(
+                tr("Folder renamed to '{new_name}'").format(new_name=new_name)
+            )
         except OSError as e:
-            self._show_toast(f"Could not rename folder: {e}")
+            self._show_toast(tr("Could not rename folder: {error}").format(error=e))
 
     def _on_delete_folder(
         self, action: Gio.SimpleAction, parameter: GLib.Variant
@@ -2079,15 +2169,15 @@ class TokyoNotes(Adw.Application):
         """Delete a folder and all notes inside it (with confirmation)."""
         folder = parameter.get_string()
         notes = self.notes_manager.get_notes_in_folder(folder)
-        body = (
-            f"Delete folder '{folder}' and its {len(notes)} note(s)?\n"
+        body = tr(
+            "Delete folder '{folder}' and its {n} note(s)?\n"
             "This action cannot be undone."
-        )
+        ).format(folder=folder, n=len(notes))
         dialog = confirm_destructive_dialog(
             transient_for=self.props.active_window,
-            heading=f"Delete folder '{folder}'?",
+            heading=tr("Delete folder '{folder}'?").format(folder=folder),
             body=body,
-            confirm_label="Delete",
+            confirm_label=tr("Delete"),
         )
 
         def _on_response(d: Any, response: str) -> None:
@@ -2119,10 +2209,12 @@ class TokyoNotes(Adw.Application):
                                 self._safe_source_remove(attr)
                             self.current_note = None
                             self._set_buffer_text("")
-                            self.win.set_title("Tokyo Notes")
+                            self.win.set_title(tr("Tokyo Notes"))
 
                         self.refresh_list(self.sidebar.search_entry.get_text())
-                        self._show_toast(f"Deleted folder '{folder}'")
+                        self._show_toast(
+                            tr("Deleted folder '{folder}'").format(folder=folder)
+                        )
 
                         if was_current:
                             remaining = self.notes_manager.get_notes()
@@ -2131,7 +2223,9 @@ class TokyoNotes(Adw.Application):
                             else:
                                 self.lifecycle.on_new_note(None)
                     except OSError as e:
-                        self._show_toast(f"Could not delete folder: {e}")
+                        self._show_toast(
+                            tr("Could not delete folder: {error}").format(error=e)
+                        )
 
         dialog.connect("response", _on_response)
         dialog.present()
@@ -2150,7 +2244,7 @@ class TokyoNotes(Adw.Application):
         old_folder = note_name.rsplit("/", 1)[0] if "/" in note_name else ""
 
         if not self.notes_manager.rename_note(note_name, new_name):
-            self._show_toast("Could not move note")
+            self._show_toast(tr("Could not move note"))
             return
 
         # Recreate the source folder directory if rename_note cleaned it up
@@ -2170,7 +2264,7 @@ class TokyoNotes(Adw.Application):
 
         self.refresh_list(self.sidebar.search_entry.get_text())
         self._select_sidebar_row(new_name)
-        self._show_toast(f"Moved to '{dest_folder or 'Home'}'")
+        self._show_toast(tr("Moved to '{dest}'").format(dest=dest_folder or tr("Home")))
 
     def _on_move_folder(
         self, action: Gio.SimpleAction, parameter: GLib.Variant
@@ -2189,7 +2283,7 @@ class TokyoNotes(Adw.Application):
         new_path = self.notes_manager.notes_dir / new_folder
 
         if new_path.exists():
-            self._show_toast("Target folder already exists")
+            self._show_toast(tr("Target folder already exists"))
             return
 
         # Collect affected note names before the move
@@ -2199,7 +2293,7 @@ class TokyoNotes(Adw.Application):
         try:
             old_path.rename(new_path)
         except OSError as e:
-            self._show_toast(f"Could not move folder: {e}")
+            self._show_toast(tr("Could not move folder: {error}").format(error=e))
             return
 
         # Migrate config sets
@@ -2240,7 +2334,9 @@ class TokyoNotes(Adw.Application):
             self.win.set_title(self.current_note.replace("/", " / "))
 
         self.refresh_list(self.sidebar.search_entry.get_text())
-        self._show_toast(f"Moved folder to '{new_folder}'")
+        self._show_toast(
+            tr("Moved folder to '{new_folder}'").format(new_folder=new_folder)
+        )
 
     def _select_sidebar_row(self, note_name: str) -> bool:
         """Select the sidebar row matching *note_name* (case-insensitive).
@@ -2321,10 +2417,15 @@ class TokyoNotes(Adw.Application):
                 except OSError as e:
                     logger.error("Critical save failure: %s", e)
                     self.show_export_dialog(
-                        "Save Failed",
-                        f"Could not save note '{self.current_note}'.\n\n"
-                        f"Reason: {e.strerror or str(e)}\n\n"
-                        "Your changes are still in memory.",
+                        tr("Save Failed"),
+                        tr(
+                            "Could not save note '{note}'.\n\n"
+                            "Reason: {reason}\n\n"
+                            "Your changes are still in memory."
+                        ).format(
+                            note=self.current_note,
+                            reason=e.strerror or str(e),
+                        ),
                         is_error=True,
                     )
 
@@ -2393,43 +2494,43 @@ class TokyoNotes(Adw.Application):
 
         section.append(
             _group(
-                "Navigation",
+                tr("Navigation"),
                 [
-                    ("<Primary>n", "New note"),
-                    ("<Primary><Shift>n", "New from template"),
-                    ("<Primary>d", "Dashboard"),
-                    ("<Primary>g", "Knowledge graph"),
-                    ("<Primary><Shift>f", "Flashcards"),
-                    ("<Primary>f", "Search  (press again to clear)"),
-                    ("<Primary>h", "This shortcuts window"),
-                    ("<Primary><Shift>s", "Settings"),
-                    ("Escape", "Back to editor / clear search"),
+                    ("<Primary>n", tr("New note")),
+                    ("<Primary><Shift>n", tr("New from template")),
+                    ("<Primary>d", tr("Dashboard")),
+                    ("<Primary>g", tr("Knowledge graph")),
+                    ("<Primary><Shift>f", tr("Flashcards")),
+                    ("<Primary>f", tr("Search  (press again to clear)")),
+                    ("<Primary>h", tr("This shortcuts window")),
+                    ("<Primary><Shift>s", tr("Settings")),
+                    ("Escape", tr("Back to editor / clear search")),
                 ],
             )
         )
         section.append(
             _group(
-                "Notes",
+                tr("Notes"),
                 [
-                    ("Delete", "Delete selected note"),
-                    ("<Primary><Shift>p", "Pin / unpin note"),
-                    ("<Primary><Shift>a", "Archive / unarchive note"),
-                    ("<Primary>l", "Lock private notes"),
-                    ("<Primary>t", "Quick add task"),
-                    ("<Primary><Shift>t", "Insert timestamp"),
-                    ("<Primary><Shift>z", "Zen mode"),
-                    ("<Primary>q", "Quit"),
+                    ("Delete", tr("Delete selected note")),
+                    ("<Primary><Shift>p", tr("Pin / unpin note")),
+                    ("<Primary><Shift>a", tr("Archive / unarchive note")),
+                    ("<Primary>l", tr("Lock private notes")),
+                    ("<Primary>t", tr("Quick add task")),
+                    ("<Primary><Shift>t", tr("Insert timestamp")),
+                    ("<Primary><Shift>z", tr("Zen mode")),
+                    ("<Primary>q", tr("Quit")),
                 ],
             )
         )
         section.append(
             _group(
-                "Editor",
+                tr("Editor"),
                 [
-                    ("bracketleft bracketleft", "Open note link picker  ( [[ )"),
-                    ("at", "Open deadline picker  ( @ )"),
-                    ("braceleft braceleft", "Open variable picker  ( {{ )"),
-                    ("Return", "Continue list or task on new line"),
+                    ("bracketleft bracketleft", tr("Open note link picker  ( [[ )")),
+                    ("at", tr("Open deadline picker  ( @ )")),
+                    ("braceleft braceleft", tr("Open variable picker  ( {{ )")),
+                    ("Return", tr("Continue list or task on new line")),
                 ],
             )
         )
@@ -2446,11 +2547,11 @@ class TokyoNotes(Adw.Application):
         # is reserved for actions that destroy data, not for error messages.
         try:
             dialog = Adw.AlertDialog(heading=title, body=body)
-            dialog.add_response("ok", "OK")
+            dialog.add_response("ok", tr("OK"))
             dialog.present(self.win)
         except AttributeError:
             dialog = Adw.MessageDialog(transient_for=self.win, heading=title, body=body)
-            dialog.add_response("ok", "OK")
+            dialog.add_response("ok", tr("OK"))
             dialog.present()
 
     # Cursor / click
@@ -2665,7 +2766,11 @@ class TokyoNotes(Adw.Application):
             self.refresh_list()
 
         if self.notes_manager.is_encrypted(note_name):
-            self._show_toast(f"Cannot add to encrypted note '{note_name}'")
+            self._show_toast(
+                tr("Cannot add to encrypted note '{note_name}'").format(
+                    note_name=note_name
+                )
+            )
             return
 
         if note_name in self.cfg.archived:
@@ -2690,7 +2795,7 @@ class TokyoNotes(Adw.Application):
         if self.dashboard_view is not None:
             self.nav.refresh_dashboard(self.dashboard_view.active_filter)
 
-        self._show_toast(f"Task added to {note_name}")
+        self._show_toast(tr("Task added to {note_name}").format(note_name=note_name))
 
     def _on_quick_add_shortcut(self) -> bool:
         """Ctrl+T — open Quick Add popover from any view."""

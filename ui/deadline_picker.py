@@ -11,6 +11,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
+from core.translations import tr
+
 
 class DeadlinePicker(Gtk.Popover):
     """Calendar + optional time entry for picking a task deadline."""
@@ -36,13 +38,13 @@ class DeadlinePicker(Gtk.Popover):
         box.append(self.calendar)
 
         self.time_entry = Gtk.Entry()
-        self.time_entry.set_placeholder_text("HH:MM (optional)")
+        self.time_entry.set_placeholder_text(tr("HH:MM (optional)"))
         box.append(self.time_entry)
 
         # Action row: clear on the left, set on the right.
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
-        clear_btn = Gtk.Button(label="Clear")
+        clear_btn = Gtk.Button(label=tr("Clear"))
         clear_btn.connect("clicked", self.on_clear_clicked)
         btn_row.append(clear_btn)
 
@@ -50,7 +52,7 @@ class DeadlinePicker(Gtk.Popover):
         spacer.set_hexpand(True)
         btn_row.append(spacer)
 
-        set_btn = Gtk.Button(label="Set Deadline")
+        set_btn = Gtk.Button(label=tr("Set Deadline"))
         set_btn.add_css_class("suggested-action")
         set_btn.connect("clicked", self.on_set_clicked)
         btn_row.append(set_btn)

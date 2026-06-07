@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import gi
 
+from core.translations import tr
 from core.utils import set_response_suggested
 
 gi.require_version("Gtk", "4.0")
@@ -47,15 +48,15 @@ def _do_validate(app: TokyoNotes) -> None:
 
     dialog = Adw.MessageDialog(
         transient_for=app.win,
-        heading="Notes Folder Not Found",
-        body=(
-            f"The configured notes folder could not be accessed:\n\n"
-            f"{folder}\n\n"
+        heading=tr("Notes Folder Not Found"),
+        body=tr(
+            "The configured notes folder could not be accessed:\n\n"
+            "{folder}\n\n"
             "Would you like to locate it or switch to the default location?"
-        ),
+        ).format(folder=folder),
     )
-    dialog.add_response("default", "Use Default Location")
-    dialog.add_response("locate", "Locate Folder…")
+    dialog.add_response("default", tr("Use Default Location"))
+    dialog.add_response("locate", tr("Locate Folder"))
     set_response_suggested(dialog, "locate")
     dialog.connect("response", _on_recovery_response, app)
     dialog.present()
@@ -71,7 +72,7 @@ def _on_recovery_response(
         _apply_folder(app, new_folder)
     elif response == "locate":
         file_dialog = Gtk.FileDialog()
-        file_dialog.set_title("Select Notes Folder")
+        file_dialog.set_title(tr("Select Notes Folder"))
         file_dialog.select_folder(app.win, None, _on_folder_chosen, app)
 
 
@@ -101,6 +102,6 @@ def _apply_folder(app: TokyoNotes, new_folder: str) -> None:
 
     app.current_note = None
     app._set_buffer_text("")
-    app.win.set_title("Tokyo Notes")
+    app.win.set_title(tr("Tokyo Notes"))
     app.refresh_list()
     logger.info("Notes folder switched to: %s", new_folder)

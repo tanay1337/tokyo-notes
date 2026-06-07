@@ -14,6 +14,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
+from core.translations import tr
+
 if TYPE_CHECKING:
     from main import TokyoNotes
 
@@ -51,7 +53,9 @@ class ActionsHandler:
             if not note_dir.exists() or not note_dir.is_dir():
                 logger.error("Invalid notes directory: %s", note_dir)
                 self.app.show_export_dialog(
-                    "Paste Failed", "Notes directory is invalid.", is_error=True
+                    tr("Paste Failed"),
+                    tr("Notes directory is invalid."),
+                    is_error=True,
                 )
                 return
             img_id = str(uuid.uuid4())
@@ -64,7 +68,7 @@ class ActionsHandler:
         except Exception:
             logger.exception("Failed to paste image")
             self.app.show_export_dialog(
-                "Paste Failed", "Could not paste image.", is_error=True
+                tr("Paste Failed"), tr("Could not paste image."), is_error=True
             )
 
     # Timestamp / Zen
