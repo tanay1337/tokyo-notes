@@ -75,6 +75,8 @@ class GraphView(Gtk.Box):
         self.canvas.set_vexpand(True)
         self.canvas.set_hexpand(True)
         self._label_layout = None
+        self._label_family = "Sans"
+        self._label_size = 11
         self._realized = False
         self.canvas.connect("realize", self._on_realize)
         self.canvas.connect("unrealize", self._on_unrealize)
@@ -105,6 +107,19 @@ class GraphView(Gtk.Box):
         self.append(self.canvas)
 
         self._layout_nodes()
+
+    def update_font(self, family: str | None, size: int | None) -> None:
+        """Update font used for node labels when settings change."""
+        if family:
+            self._label_family = family
+        if size:
+            self._label_size = size
+        if self._label_layout is not None:
+            desc = Pango.FontDescription.from_string(
+                f"{self._label_family} {self._label_size}"
+            )
+            self._label_layout.set_font_description(desc)
+            self.canvas.queue_draw()
 
     # Data
 
@@ -319,9 +334,10 @@ class GraphView(Gtk.Box):
 
         if self._label_layout is None:
             self._label_layout = PangoCairo.create_layout(cr)
-            self._label_layout.set_font_description(
-                Pango.FontDescription.from_string("Sans 9")
+            desc = Pango.FontDescription.from_string(
+                f"{self._label_family} {self._label_size}"
             )
+            self._label_layout.set_font_description(desc)
         layout = self._label_layout
 
         # Compute label bounding boxes for collision detection

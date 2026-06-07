@@ -54,6 +54,7 @@ class SettingsView(Gtk.Box):
         self._on_restore_builtins = on_restore_builtins
         self._templates = templates or []
         self._git_available = initial_values.get("git_available", False)
+        self._switch_rows: dict[str, Adw.SwitchRow] = {}
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
@@ -485,6 +486,7 @@ class SettingsView(Gtk.Box):
                 key, r.get_active()
             ),
         )
+        self._switch_rows[config_key] = row
         return row
 
     def _make_lock_timeout_row(
@@ -539,7 +541,7 @@ class SettingsView(Gtk.Box):
         factory.connect("bind", self._on_font_item_bind)
         factory.connect("unbind", self._on_font_item_unbind)
 
-        row = Adw.ComboRow(
+        self._font_row = Adw.ComboRow(
             title="App Font",
             subtitle="Font used throughout the application",
             model=model,
@@ -548,14 +550,14 @@ class SettingsView(Gtk.Box):
 
         current = self._initial_values.get("font_family")
         if current is None:
-            row.set_selected(0)
+            self._font_row.set_selected(0)
         else:
             try:
-                row.set_selected(families.index(current) + 1)
+                self._font_row.set_selected(families.index(current) + 1)
             except ValueError:
-                row.set_selected(0)
+                self._font_row.set_selected(0)
 
-        row.connect(
+        self._font_row.connect(
             "notify::selected",
             lambda r, _pspec: self.on_config_changed(
                 "font_family",
@@ -564,7 +566,7 @@ class SettingsView(Gtk.Box):
                 else r.get_model().get_string(r.get_selected()),
             ),
         )
-        return row
+        return self._font_row
 
     @staticmethod
     def _on_font_item_setup(
@@ -602,18 +604,18 @@ class SettingsView(Gtk.Box):
         subtitle = "Base font size for the application"
         row = Adw.ActionRow(title="Font Size", subtitle=subtitle)
 
-        spin = Gtk.SpinButton.new_with_range(8, 24, 1)
-        spin.set_valign(Gtk.Align.CENTER)
+        self._font_size_spin = Gtk.SpinButton.new_with_range(8, 24, 1)
+        self._font_size_spin.set_valign(Gtk.Align.CENTER)
         current = self._initial_values.get("font_size")
         if current is not None:
-            spin.set_value(float(current))
+            self._font_size_spin.set_value(float(current))
         else:
-            spin.set_value(12)
-        spin.connect(
+            self._font_size_spin.set_value(12)
+        self._font_size_handler_id = self._font_size_spin.connect(
             "notify::value",
             lambda s, _pspec: self.on_config_changed("font_size", int(s.get_value())),
         )
-        row.add_suffix(spin)
+        row.add_suffix(self._font_size_spin)
 
         reset_btn = Gtk.Button()
         reset_icon = Gtk.Image.new_from_icon_name("edit-undo-symbolic")
@@ -622,13 +624,13 @@ class SettingsView(Gtk.Box):
         reset_btn.set_valign(Gtk.Align.CENTER)
         reset_btn.add_css_class("flat")
         reset_btn.set_tooltip_text("Reset to default")
-        reset_btn.connect("clicked", lambda _: self._on_font_size_reset(spin))
+        reset_btn.connect("clicked", lambda _: self._on_font_size_reset())
         row.add_suffix(reset_btn)
 
         return row
 
-    def _on_font_size_reset(self, spin: Gtk.SpinButton) -> None:
-        spin.set_value(12)
+    def _on_font_size_reset(self) -> None:
+        self._font_size_spin.set_value(12)
         self.on_config_changed("font_size", None)
 
     def _make_theme_row(self, theme: dict[str, str], is_active: bool) -> Gtk.ListBoxRow:
@@ -751,7 +753,15 @@ class SettingsView(Gtk.Box):
         }
         for key, value in defaults.items():
             self.on_config_changed(key, value)
-        self.on_theme_selected("tokyo-night")
+        self.select_theme("tokyo-night")
+
+        for key, value in defaults.items():
+            if key in self._switch_rows:
+                self._switch_rows[key].set_active(value)
+        self._font_row.set_selected(0)
+        self._font_size_spin.handler_block(self._font_size_handler_id)
+        self._font_size_spin.set_value(12)
+        self._font_size_spin.handler_unblock(self._font_size_handler_id)
 
         button.set_label("Reset ✓")
         button.set_sensitive(False)

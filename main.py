@@ -1495,6 +1495,20 @@ class TokyoNotes(Adw.Application):
                 self.win.add_css_class("dark-theme")
                 self.win.remove_css_class("light-theme")
 
+    # Font-family ratio for UI elements that have explicit style.css sizes.
+    # Values are X/12 so they scale proportionally with the base font-size.
+    _SCALED_SELECTORS: dict[str, float] = {
+        ".sidebar-label": 11 / 12,
+        ".sidebar-snippet": 8 / 12,
+        ".toolbar-btn": 10 / 12,
+        ".stats-label": 9 / 12,
+        ".day-header": 11 / 12,
+        ".note-chip": 8 / 12,
+        ".time-column": 8 / 12,
+        ".view-title": 18 / 12,
+        ".flashcard-text": 16 / 12,
+    }
+
     def _apply_font(self, family: str | None, size: int | None = None) -> None:
         """Set app-wide font family/size, or clear to use style.css defaults."""
         rules = []
@@ -1502,8 +1516,18 @@ class TokyoNotes(Adw.Application):
             rules.append(f"font-family: '{family}'")
         if size:
             rules.append(f"font-size: {size}pt")
-        css = f"window {{ {'; '.join(rules)}; }}" if rules else ""
-        self._font_provider.load_from_string(css)
+
+        css_lines: list[str] = []
+        if rules:
+            css_lines.append(f"window {{ {'; '.join(rules)}; }}")
+        if size:
+            for sel, ratio in self._SCALED_SELECTORS.items():
+                css_lines.append(f"{sel} {{ font-size: {ratio:.2f}em; }}")
+        self._font_provider.load_from_string("\n".join(css_lines))
+
+        gv = getattr(self, "graph_view", None)
+        if gv is not None:
+            gv.update_font(family, size)
 
     # Formatting
 
