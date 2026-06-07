@@ -29,6 +29,7 @@ from core.translations import load as load_i18n
 from core.translations import tr
 from core.utils import (
     CB_ANY_RE,
+    IS_MAC,
     confirm_destructive_dialog,
     is_entry_focused,
     set_response_suggested,
@@ -1506,8 +1507,17 @@ class TokyoNotes(Adw.Application):
     def _restart_app(self) -> None:
         self.cfg.flush_immediate()
         try:
-            os.execv(sys.executable, [sys.executable, *sys.argv])
-        except OSError:
+            if IS_MAC and getattr(sys, "frozen", False):
+                # On macOS, bundled apps should be restarted using 'open'
+                # to ensure the full bundle environment is correctly re-initialized.
+                import subprocess
+
+                app_path = str(Path(sys.executable).parents[2])
+                subprocess.Popen(["open", "-n", app_path])
+                self.quit()
+            else:
+                os.execv(sys.executable, [sys.executable, *sys.argv])
+        except Exception:
             self._show_toast(
                 tr("Failed to restart the application. Please restart manually.")
             )
