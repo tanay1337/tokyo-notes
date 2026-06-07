@@ -13,6 +13,7 @@ datas = [
     (str(ROOT / "themes"), "themes"),
     (str(ROOT / "style.css"), "."),
     (str(ROOT / "translations"), "translations"),
+    (str(ROOT / "core" / "templates"), "core/templates"),
 ]
 
 hiddenimports = [
