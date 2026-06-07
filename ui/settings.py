@@ -136,6 +136,8 @@ class SettingsView(Gtk.Box):
                 "sakura_effect",
             )
         )
+
+        group.add(self._make_font_row())
         return group
 
     def _build_editor_group(self) -> Adw.PreferencesGroup:
@@ -515,6 +517,85 @@ class SettingsView(Gtk.Box):
         )
         return row
 
+    def _make_font_row(self) -> Adw.ComboRow:
+        """Create a dropdown listing all installed system fonts."""
+        families: list[str] = []
+        try:
+            context = self.get_pango_context()
+            font_map = context.get_font_map()
+            if font_map is not None:
+                families = sorted(f.get_name() for f in font_map.list_families())
+        except Exception:
+            families = []
+
+        model = Gtk.StringList()
+        model.append("System Default")
+        for name in families:
+            model.append(name)
+
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._on_font_item_setup)
+        factory.connect("bind", self._on_font_item_bind)
+        factory.connect("unbind", self._on_font_item_unbind)
+
+        row = Adw.ComboRow(
+            title="App Font",
+            subtitle="Font used throughout the application",
+            model=model,
+            factory=factory,
+        )
+
+        current = self._initial_values.get("font_family")
+        if current is None:
+            row.set_selected(0)
+        else:
+            try:
+                row.set_selected(families.index(current) + 1)
+            except ValueError:
+                row.set_selected(0)
+
+        row.connect(
+            "notify::selected",
+            lambda r, _pspec: self.on_config_changed(
+                "font_family",
+                None
+                if r.get_selected() == 0
+                else r.get_model().get_string(r.get_selected()),
+            ),
+        )
+        return row
+
+    @staticmethod
+    def _on_font_item_setup(
+        factory: Gtk.SignalListItemFactory, list_item: Gtk.ListItem
+    ) -> None:
+        label = Gtk.Label(xalign=0)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        list_item.set_child(label)
+
+    def _on_font_item_bind(
+        self, factory: Gtk.SignalListItemFactory, list_item: Gtk.ListItem
+    ) -> None:
+        label: Gtk.Label = list_item.get_child()
+        string_obj = list_item.get_item()
+        name = string_obj.get_string() if string_obj else ""
+        label.set_text(name)
+        if name and name != "System Default":
+            desc = Pango.FontDescription.from_string(name)
+            desc.set_size(11 * Pango.SCALE)
+            attrs = Pango.AttrList()
+            attrs.insert(Pango.attr_font_desc_new(desc))
+            label.set_attributes(attrs)
+        else:
+            label.set_attributes(Pango.AttrList())
+
+    @staticmethod
+    def _on_font_item_unbind(
+        factory: Gtk.SignalListItemFactory, list_item: Gtk.ListItem
+    ) -> None:
+        label: Gtk.Label = list_item.get_child()
+        label.set_attributes(Pango.AttrList())
+
     def _make_theme_row(self, theme: dict[str, str], is_active: bool) -> Gtk.ListBoxRow:
         """Create a theme selection card row with color palette preview."""
         row = Gtk.ListBoxRow()
@@ -630,6 +711,7 @@ class SettingsView(Gtk.Box):
             "git_enabled": False,
             "git_auto_commit": True,
             "theme": "tokyo-night",
+            "font_family": None,
         }
         for key, value in defaults.items():
             self.on_config_changed(key, value)

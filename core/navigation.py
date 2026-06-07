@@ -179,6 +179,7 @@ class NavigationController:
                     "show_progress_rings": app.cfg.get("show_progress_rings", True),
                     "show_backlinks": app.cfg.get("show_backlinks", True),
                     "lock_timeout_minutes": app.cfg.get("lock_timeout_minutes", 5),
+                    "font_family": app.cfg.get("font_family"),
                     "has_encrypted_notes": has_encrypted,
                     "git_available": app.git_controller.is_git_installed(),
                     "git_enabled": app.cfg.get("git_enabled", False),

@@ -1194,6 +1194,16 @@ class TokyoNotes(Adw.Application):
         self.win = self.window_manager.create_window()
         self.apply_theme(self.cfg.get("theme"))
 
+        self._font_provider = Gtk.CssProvider()
+        display = Gdk.Display.get_default()
+        if display is not None:
+            Gtk.StyleContext.add_provider_for_display(
+                display,
+                self._font_provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+            )
+        self._apply_font(self.cfg.get("font_family"))
+
         self.split_view = Adw.OverlaySplitView()
 
         # Build the toggle button before the sidebar so _build_content_header
@@ -1424,6 +1434,8 @@ class TokyoNotes(Adw.Application):
             self.nav.refresh_dashboard(self.dashboard_view.active_filter)
         elif key == "show_backlinks":
             self._update_backlinks()
+        elif key == "font_family":
+            self._apply_font(value)
         elif key == "git_enabled":
             self._update_toolbar_versioning_buttons()
 
@@ -1480,6 +1492,11 @@ class TokyoNotes(Adw.Application):
             else:
                 self.win.add_css_class("dark-theme")
                 self.win.remove_css_class("light-theme")
+
+    def _apply_font(self, family: str | None) -> None:
+        """Set the app-wide font family, or clear to fall back to style.css defaults."""
+        css = f"window, window * {{ font-family: '{family}'; }}" if family else ""
+        self._font_provider.load_from_string(css)
 
     # Formatting
 
