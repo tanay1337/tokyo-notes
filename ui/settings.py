@@ -635,11 +635,12 @@ class SettingsView(Gtk.Box):
         row.add_suffix(self._font_size_spin)
 
         reset_btn = Gtk.Button()
-        reset_icon = Gtk.Image.new_from_icon_name("edit-undo-symbolic")
+        reset_icon = Gtk.Image.new_from_file(str(self._assets_dir / "undo.svg"))
         reset_icon.set_pixel_size(16)
         reset_btn.set_child(reset_icon)
         reset_btn.set_valign(Gtk.Align.CENTER)
         reset_btn.add_css_class("flat")
+        reset_btn.add_css_class("settings-icon-btn")
         reset_btn.set_tooltip_text(tr("Reset to default"))
         reset_btn.connect("clicked", lambda _: self._on_font_size_reset())
         row.add_suffix(reset_btn)
