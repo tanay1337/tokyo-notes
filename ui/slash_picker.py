@@ -30,7 +30,7 @@ _COMMANDS: list[tuple[str, str, str, str | None]] = [
     ("Numbered List", "1. ", _BLOCKS, None),
     ("Block Quote", "> ", _BLOCKS, None),
     ("Divider", "---\n", _BLOCKS, None),
-    ("Flashcard", "```flashcard\nQ\n---\nA\n```", _BLOCKS, None),
+    ("Flashcard", "```flashcard\nQuestion\n---\nAnswer\n```", _BLOCKS, None),
     ("Task / Checkbox", "- [ ] ", _TASKS, None),
     ("Deadline", "@deadline", _TASKS, "opens date picker"),
     ("External Link", "[text](url)", _LINKS, None),

@@ -163,6 +163,7 @@ class Editor(Gtk.Box):
             Gdk.KEY_asciitilde: ("~~", "~~"),
             Gdk.KEY_parenleft: ("(", ")"),
             Gdk.KEY_bracketleft: ("[", "]"),
+            Gdk.KEY_quotedbl: ('"', '"'),
         }
         if keyval not in pairs:
             return False
@@ -210,6 +211,7 @@ class Editor(Gtk.Box):
             Gdk.KEY_asciitilde,
             Gdk.KEY_parenleft,
             Gdk.KEY_bracketleft,
+            Gdk.KEY_quotedbl,
         ):
             if self._auto_pair_delimiter(buffer, keyval):
                 return True
