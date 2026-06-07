@@ -1202,7 +1202,7 @@ class TokyoNotes(Adw.Application):
                 self._font_provider,
                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
             )
-        self._apply_font(self.cfg.get("font_family"))
+        self._apply_font(self.cfg.get("font_family"), self.cfg.get("font_size"))
 
         self.split_view = Adw.OverlaySplitView()
 
@@ -1435,7 +1435,9 @@ class TokyoNotes(Adw.Application):
         elif key == "show_backlinks":
             self._update_backlinks()
         elif key == "font_family":
-            self._apply_font(value)
+            self._apply_font(value, self.cfg.get("font_size"))
+        elif key == "font_size":
+            self._apply_font(self.cfg.get("font_family"), value)
         elif key == "git_enabled":
             self._update_toolbar_versioning_buttons()
 
@@ -1493,9 +1495,14 @@ class TokyoNotes(Adw.Application):
                 self.win.add_css_class("dark-theme")
                 self.win.remove_css_class("light-theme")
 
-    def _apply_font(self, family: str | None) -> None:
-        """Set the app-wide font family, or clear to fall back to style.css defaults."""
-        css = f"window, window * {{ font-family: '{family}'; }}" if family else ""
+    def _apply_font(self, family: str | None, size: int | None = None) -> None:
+        """Set app-wide font family/size, or clear to use style.css defaults."""
+        rules = []
+        if family:
+            rules.append(f"font-family: '{family}'")
+        if size:
+            rules.append(f"font-size: {size}pt")
+        css = f"window {{ {'; '.join(rules)}; }}" if rules else ""
         self._font_provider.load_from_string(css)
 
     # Formatting

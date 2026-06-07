@@ -138,6 +138,7 @@ class SettingsView(Gtk.Box):
         )
 
         group.add(self._make_font_row())
+        group.add(self._make_font_size_row())
         return group
 
     def _build_editor_group(self) -> Adw.PreferencesGroup:
@@ -596,6 +597,40 @@ class SettingsView(Gtk.Box):
         label: Gtk.Label = list_item.get_child()
         label.set_attributes(Pango.AttrList())
 
+    def _make_font_size_row(self) -> Adw.ActionRow:
+        """Create a row with a spin button and reset for the base font size."""
+        subtitle = "Base font size for the application"
+        row = Adw.ActionRow(title="Font Size", subtitle=subtitle)
+
+        spin = Gtk.SpinButton.new_with_range(8, 24, 1)
+        spin.set_valign(Gtk.Align.CENTER)
+        current = self._initial_values.get("font_size")
+        if current is not None:
+            spin.set_value(float(current))
+        else:
+            spin.set_value(12)
+        spin.connect(
+            "notify::value",
+            lambda s, _pspec: self.on_config_changed("font_size", int(s.get_value())),
+        )
+        row.add_suffix(spin)
+
+        reset_btn = Gtk.Button()
+        reset_icon = Gtk.Image.new_from_icon_name("edit-undo-symbolic")
+        reset_icon.set_pixel_size(16)
+        reset_btn.set_child(reset_icon)
+        reset_btn.set_valign(Gtk.Align.CENTER)
+        reset_btn.add_css_class("flat")
+        reset_btn.set_tooltip_text("Reset to default")
+        reset_btn.connect("clicked", lambda _: self._on_font_size_reset(spin))
+        row.add_suffix(reset_btn)
+
+        return row
+
+    def _on_font_size_reset(self, spin: Gtk.SpinButton) -> None:
+        spin.set_value(12)
+        self.on_config_changed("font_size", None)
+
     def _make_theme_row(self, theme: dict[str, str], is_active: bool) -> Gtk.ListBoxRow:
         """Create a theme selection card row with color palette preview."""
         row = Gtk.ListBoxRow()
@@ -712,6 +747,7 @@ class SettingsView(Gtk.Box):
             "git_auto_commit": True,
             "theme": "tokyo-night",
             "font_family": None,
+            "font_size": None,
         }
         for key, value in defaults.items():
             self.on_config_changed(key, value)
