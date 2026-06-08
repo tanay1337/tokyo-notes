@@ -254,7 +254,9 @@ class SplitEditor(Gtk.Box):
         if cursor_pos is not None and cursor_pos <= info.editor.buffer.get_char_count():
             it = info.editor.buffer.get_iter_at_offset(cursor_pos)
             info.editor.buffer.place_cursor(it)
-            info.editor.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0)
+            GLib.idle_add(
+                lambda: info.editor.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0)
+            )
 
     @staticmethod
     def _select_and_load_note(
@@ -274,7 +276,9 @@ class SplitEditor(Gtk.Box):
         if cursor_pos is not None and cursor_pos <= app.buffer.get_char_count():
             it = app.buffer.get_iter_at_offset(cursor_pos)
             app.buffer.place_cursor(it)
-            app.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0)
+            GLib.idle_add(
+                lambda: app.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0)
+            )
         GLib.idle_add(app.text_view.grab_focus)
         if app.highlighter:
             app.highlighter.highlight()

@@ -673,7 +673,11 @@ class TokyoNotes(Adw.Application):
         else:
             it = end
         self.buffer.place_cursor(it)
-        self.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0)
+        GLib.idle_add(lambda: self.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0))
+
+    def _scroll_to_cursor(self) -> None:
+        it = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+        GLib.idle_add(lambda: self.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0))
 
     def _load_encrypted_note_to_buffer(
         self, note_name: str, buffer: Gtk.TextBuffer
@@ -2726,7 +2730,10 @@ class TokyoNotes(Adw.Application):
         if self._has_images:
             self.editor.update_images(
                 Path(self.notes_manager.notes_dir).resolve(),
-                done_callback=lambda: self.update_highlighting(immediate=False),
+                done_callback=lambda: (
+                    self._scroll_to_cursor(),
+                    self.update_highlighting(immediate=False),
+                ),
             )
         return False
 
