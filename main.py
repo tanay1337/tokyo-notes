@@ -2493,9 +2493,24 @@ class TokyoNotes(Adw.Application):
 
     def show_shortcuts_dialog(self) -> bool:
         """Show the keyboard shortcuts window (Ctrl+H)."""
-        win = Gtk.ShortcutsWindow(transient_for=self.win, modal=True)
+        win = Gtk.Window(
+            transient_for=self.win,
+            modal=True,
+            default_width=520,
+            default_height=480,
+        )
+        win.set_title(tr("Keyboard shortcuts"))
+        win.add_css_class("shortcuts-dialog")
 
-        section = Gtk.ShortcutsSection(visible=True)
+        esc_ctrl = Gtk.EventControllerKey.new()
+        esc_ctrl.connect(
+            "key-pressed",
+            lambda c, k, *a: win.close() or True if k == Gdk.KEY_Escape else None,
+        )
+        win.add_controller(esc_ctrl)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
         def _group(title: str, shortcuts: list[tuple[str, str]]) -> Gtk.ShortcutsGroup:
             group = Gtk.ShortcutsGroup(title=title, visible=True)
@@ -2506,7 +2521,8 @@ class TokyoNotes(Adw.Application):
                 group.append(item)
             return group
 
-        section.append(
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.append(
             _group(
                 tr("Navigation"),
                 [
@@ -2522,7 +2538,7 @@ class TokyoNotes(Adw.Application):
                 ],
             )
         )
-        section.append(
+        content.append(
             _group(
                 tr("Notes"),
                 [
@@ -2537,7 +2553,7 @@ class TokyoNotes(Adw.Application):
                 ],
             )
         )
-        section.append(
+        content.append(
             _group(
                 tr("Editor"),
                 [
@@ -2549,7 +2565,8 @@ class TokyoNotes(Adw.Application):
             )
         )
 
-        win.add_section(section)
+        scrolled.set_child(content)
+        win.set_child(scrolled)
         win.present()
         return True
 

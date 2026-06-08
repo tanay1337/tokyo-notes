@@ -669,3 +669,21 @@ button.pill {
 .split-close-btn:hover {
     background-color: @selection_color;
 }
+
+/* Shortcuts dialog */
+.shortcuts-dialog {
+    background-color: @bg_color;
+}
+
+shortcuts-group {
+    padding: 20px;
+    border-bottom: 1px solid @border_color;
+}
+
+shortcuts-group:last-child {
+    border-bottom: none;
+}
+
+shortcuts-shortcut {
+    padding: 4px 0;
+}
