@@ -54,7 +54,7 @@ def _make_app(**overrides: object) -> MagicMock:
     cfg.encrypted = set()
 
     editor = MagicMock()
-    editor.is_updating_images = False
+    editor._image_update_running = False
     editor.status_bar.get_visible.return_value = False
 
     template_manager = MagicMock()

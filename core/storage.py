@@ -25,6 +25,7 @@ from typing import Any
 from core.utils import (
     CB_EXTRACT_RE,
     CB_UPDATE_RE,
+    MD_URL_BALANCED,
     get_snippet,
 )
 
@@ -500,6 +501,39 @@ class NotesManager:
         self._update_link_index(name, content)
         self._backlink_cache.clear()
 
+        threading.Thread(
+            target=self._cleanup_orphan_images,
+            args=(name, content),
+            daemon=True,
+        ).start()
+
+    def _cleanup_orphan_images(self, note_name: str, current_content: str) -> None:
+        """Remove .images/ files not referenced in *current_content* nor other notes."""
+        images_dir = self.notes_dir / ".images"
+        if not images_dir.exists():
+            return
+
+        referenced = self._extract_image_paths(current_content)
+
+        for f in list(images_dir.iterdir()):
+            if not f.is_file():
+                continue
+            # Preserve remote image cache files — they're managed by the
+            # download system and referenced via URL in the markdown, not
+            # by a literal .images/… path.
+            if f.name.startswith("remote_"):
+                continue
+            rel = f".images/{f.name}"
+            if rel in referenced:
+                continue
+            if self._is_image_used_by_other_notes(rel, note_name):
+                continue
+            try:
+                f.unlink()
+                logger.info("Removed orphan image: %s", rel)
+            except OSError as exc:
+                logger.warning("Failed to remove orphan image %s: %s", rel, exc)
+
     def save_encrypted(self, name: str, ciphertext: bytes) -> None:
         """Write encrypted *ciphertext* to disk for *name*."""
         self.validate_name(name)
@@ -557,6 +591,34 @@ class NotesManager:
         self._backlink_index.pop(name, None)
         self._backlink_cache.clear()
 
+    def _extract_image_paths(self, content: str) -> set[str]:
+        """Extract all .images/... paths from markdown image syntax."""
+        img_re = re.compile(r"!\[([^\]]*)\]\((" + MD_URL_BALANCED + r")\)")
+        paths: set[str] = set()
+        for m in img_re.finditer(content):
+            path = m.group(2)
+            if path.startswith(".images/"):
+                paths.add(path)
+        return paths
+
+    def _is_image_used_by_other_notes(
+        self, image_rel_path: str, exclude_note: str
+    ) -> bool:
+        """Check if *image_rel_path* is referenced by other notes."""
+        for other in self.get_notes():
+            if other == exclude_note:
+                continue
+            if self.is_encrypted(other):
+                # Can't check encrypted notes; keep the image to be safe
+                return True
+            try:
+                content = self.read_plain(other)
+                if f"({image_rel_path})" in content:
+                    return True
+            except Exception:
+                return True
+        return False
+
     def delete_note(self, name: str) -> None:
         self._sync_delete_note(name)
         self._backlink_cache.clear()
@@ -564,12 +626,35 @@ class NotesManager:
     def _sync_delete_note(self, name: str) -> None:
         note_path = self.notes_dir / f"{name}.md"
         enc_path = self.notes_dir / f"{name}.md.enc"
+
+        # Read content before deletion to find referenced images
+        content: str | None = None
+        try:
+            if note_path.exists():
+                content = note_path.read_text(encoding="utf-8")
+        except OSError:
+            content = None
+
         if enc_path.exists():
             from core.encryption import best_effort_overwrite
 
             best_effort_overwrite(enc_path)
         if note_path.exists():
             note_path.unlink()
+
+        # Clean up orphaned images if we could read the content
+        if content is not None:
+            image_paths = self._extract_image_paths(content)
+            for img_rel in image_paths:
+                img_abs = (self.notes_dir / img_rel).resolve()
+                if img_abs.exists() and not self._is_image_used_by_other_notes(
+                    img_rel, name
+                ):
+                    try:
+                        img_abs.unlink()
+                    except OSError:
+                        pass
+
         # Clean up empty parent directories up to notes_dir
         parent = note_path.parent
         while parent != self.notes_dir:

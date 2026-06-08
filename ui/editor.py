@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
 import re
+import shutil
+import threading
+import urllib.parse
+import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
@@ -13,11 +20,13 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
 from core.translations import tr
+from core.utils import MD_URL_BALANCED
 from ui.deadline_picker import DeadlinePicker
 from ui.link_picker import LinkPicker
 from ui.slash_picker import SlashPicker
 
 logger = logging.getLogger(__name__)
+
 
 # Patterns checked against the text typed so far on the current line.
 # Each entry is (compiled_regex, kind_string). Order matters: task must
@@ -33,6 +42,13 @@ def resolve_image_path(notes_dir: Path, image_path: str) -> Path | None:
     """Resolve an image path only if it stays inside *notes_dir*."""
     notes_dir_resolved = notes_dir.resolve()
     full_path = (notes_dir / image_path).resolve()
+    logger.debug(
+        "resolve_image_path: notes_dir=%s image_path=%r -> full=%s relative=%s",
+        notes_dir_resolved,
+        image_path,
+        full_path,
+        full_path.is_relative_to(notes_dir_resolved),
+    )
     if not full_path.is_relative_to(notes_dir_resolved):
         return None
     return full_path
@@ -72,6 +88,10 @@ class Editor(Gtk.Box):
         self.text_view.set_receives_default(True)
         self.text_view.connect("paste-clipboard", on_paste_clipboard)
 
+        drop_target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        drop_target.connect("drop", self._on_image_drop)
+        self.text_view.add_controller(drop_target)
+
         key_ctrl = Gtk.EventControllerKey()
         key_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         key_ctrl.connect("key-pressed", self.on_key_pressed)
@@ -104,7 +124,14 @@ class Editor(Gtk.Box):
 
         self.image_anchors: list[Gtk.TextChildAnchor] = []
         self.image_widgets: list[Gtk.Widget] = []
-        self.is_updating_images: bool = False
+        self._image_update_running: bool = False
+        self._image_update_pending: bool = False
+        self._pending_notes_dir: Path = Path()
+        self._notes_dir: Path = Path()
+        self._image_pixbuf_cache: dict[str, tuple[float, GdkPixbuf.Pixbuf]] = {}
+        self._last_image_text_hash: str = ""
+        self._image_update_done_callback: Callable | None = None
+
         self._picker_open: bool = False
 
     def _build_lock_overlay(self) -> Gtk.Box:
@@ -443,79 +470,227 @@ class Editor(Gtk.Box):
     def _trigger_deadline_after_slash(self) -> None:
         self.buffer.insert_at_cursor("@")
 
+    # Drag-and-drop image support
+
+    def _on_image_drop(
+        self, drop_target: Gtk.DropTarget, value: Gdk.FileList, x: float, y: float
+    ) -> bool:
+        """Handle dropped image files from the file manager."""
+        if not self._notes_dir or not self._notes_dir.exists():
+            return False
+
+        uris: list[str] = [f.get_uri() for f in value.get_files()]
+        return self._do_drop_uris(uris)
+
+    def _do_drop_uris(self, uris: list[str]) -> bool:
+        image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
+        images_dir = self._notes_dir / ".images"
+        images_dir.mkdir(exist_ok=True)
+
+        inserted = False
+        for uri in uris:
+            raw = uri.removeprefix("file://")
+            filepath = Path(raw)
+            if filepath.suffix.lower() not in image_extensions:
+                continue
+            try:
+                filename = f"dropped_{uuid.uuid4()}{filepath.suffix}"
+                dest = images_dir / filename
+                shutil.copy2(str(filepath), str(dest))
+                insert_pos = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+                self.buffer.insert(
+                    insert_pos, f"\n![Dropped Image](.images/{filename})\n"
+                )
+                inserted = True
+            except Exception as exc:
+                logger.warning("Failed to drop image %s: %s", uri, exc)
+        return inserted
+
     # Image rendering
 
-    def update_images(self, notes_dir: Path) -> None:
-        """Scan buffer for markdown image syntax and render inline widgets."""
-        if self.is_updating_images:
-            return
-        self.is_updating_images = True
+    def _load_image_pixbuf(
+        self, full_path: Path, max_w: int = 800, max_h: int = 800
+    ) -> GdkPixbuf.Pixbuf | None:
+        """Load a pixbuf from *full_path*, using the in-memory cache."""
         try:
-            # Delete old child anchors from the buffer.
-            for anchor in reversed(self.image_anchors):
-                result = self.buffer.get_iter_at_child_anchor(anchor)
-                it = result[1] if isinstance(result, tuple) else result
-                if it is None:
-                    continue
-                it2 = it.copy()
-                it2.forward_char()
-                self.buffer.delete(it, it2)
-            self.image_widgets.clear()
-            self.image_anchors.clear()
+            mtime = full_path.stat().st_mtime
+        except OSError:
+            logger.warning("IMAGE: stat failed for %s", full_path)
+            return None
+        key = f"{full_path.resolve()}:{max_w}x{max_h}"
+        cached = self._image_pixbuf_cache.get(key)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                str(full_path), max_w, max_h, True
+            )
+            self._image_pixbuf_cache[key] = (mtime, pixbuf)
+            return pixbuf
+        except Exception as exc:
+            logger.warning("Failed to load image %s: %s", full_path, exc)
+            self._image_pixbuf_cache.pop(key, None)
+            return None
 
-            image_re = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
-            start, end = self.buffer.get_bounds()
-            text = self.buffer.get_text(start, end, False)
+    def _pixbuf_from_broken(self) -> GdkPixbuf.Pixbuf | None:
+        broken_path = (
+            Path(__file__).parent.parent / "assets" / "editor" / "broken-image.svg"
+        )
+        if not broken_path.exists():
+            return None
+        key = str(broken_path.resolve())
+        cached = self._image_pixbuf_cache.get(key)
+        if cached is not None:
+            return cached[1]
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file(str(broken_path))
+            self._image_pixbuf_cache[key] = (0.0, pixbuf)
+            return pixbuf
+        except Exception as exc:
+            logger.warning("Failed to load broken-image.svg: %s", exc)
+            return None
 
-            matches = list(image_re.finditer(text))
-            for match in reversed(matches):
-                img_path = match.group(2)
-                offset = match.end()
+    # --- Remote URL image helpers ---
 
-                img_iter = self.buffer.get_iter_at_offset(offset)
-                anchor = self.buffer.create_child_anchor(img_iter)
-                self.image_anchors.append(anchor)
+    @staticmethod
+    def _guess_image_ext(url: str) -> str:
+        path = urllib.parse.urlparse(url).path
+        ext = os.path.splitext(path)[1].lower()
+        if ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"):
+            return ext
+        return ".png"
 
-                img_widget = Gtk.Image()
-                img_widget.set_hexpand(True)
-                img_widget.set_size_request(-1, 150)
-                img_widget.add_css_class("inline-image")
+    def _remote_image_cache_path(self, url: str, notes_dir: Path) -> Path:
+        url_hash = hashlib.md5(url.encode()).hexdigest()
+        ext = self._guess_image_ext(url)
+        return notes_dir / ".images" / f"remote_{url_hash}{ext}"
 
-                full_path = resolve_image_path(notes_dir, img_path)
-                if full_path is None:
-                    continue
-                if full_path.exists():
-                    try:
-                        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                            str(full_path), 400, -1, True
-                        )
-                        img_widget.set_from_pixbuf(pixbuf)
-                    except Exception as exc:
-                        logger.warning("Failed to load image %s: %s", img_path, exc)
-                        broken_path = (
-                            Path(__file__).parent.parent
-                            / "assets"
-                            / "editor"
-                            / "broken-image.svg"
-                        )
-                        img_widget.set_from_file(str(broken_path))
-                else:
-                    broken_path = (
-                        Path(__file__).parent.parent
-                        / "assets"
-                        / "editor"
-                        / "broken-image.svg"
+    def _download_remote_image(self, url: str, cache_path: Path) -> None:
+        def _download() -> None:
+            try:
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "TokyoNotes/1.0"}
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = resp.read()
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_bytes(data)
+                GLib.idle_add(self._on_remote_image_downloaded)
+            except Exception:
+                logger.exception("Failed to download remote image: %s", url)
+
+        thread = threading.Thread(target=_download, daemon=True)
+        thread.start()
+
+    def _on_remote_image_downloaded(self) -> bool:
+        self._image_update_pending = True
+        self._finish_image_update()
+        return False
+
+    def update_images(
+        self, notes_dir: Path, done_callback: Callable | None = None
+    ) -> None:
+        """Scan buffer for markdown image syntax and render inline widgets."""
+        self._notes_dir = notes_dir
+        self._pending_notes_dir = notes_dir
+        self._image_update_done_callback = done_callback
+        if self._image_update_running:
+            self._image_update_pending = True
+            return
+        self._image_update_running = True
+        self._image_update_pending = False
+
+        editor_width = self.text_view.get_allocated_width()
+        if editor_width > 0:
+            max_load = int(editor_width * 0.47)
+            max_load = min(max_load, 700)
+        else:
+            max_load = 500
+
+        try:
+            image_re = re.compile(r"!\[([^\]]*)\]\((" + MD_URL_BALANCED + r")\)")
+
+            self.buffer.begin_user_action()
+            try:
+                for anchor in reversed(self.image_anchors):
+                    if anchor.get_deleted():
+                        continue
+                    result = self.buffer.get_iter_at_child_anchor(anchor)
+                    it = result[1] if isinstance(result, tuple) else result
+                    if it is None:
+                        continue
+                    it2 = it.copy()
+                    it2.forward_char()  # skip \uFFFC
+                    # Also delete the \n we inserted after the anchor
+                    if it2.get_char() == "\n":
+                        it2.forward_char()
+                    self.buffer.delete(it, it2)
+                self.image_widgets.clear()
+                self.image_anchors.clear()
+
+                start, end = self.buffer.get_bounds()
+                text = self.buffer.get_text(start, end, True)
+                matches = list(image_re.finditer(text))
+
+                for match in reversed(matches):
+                    img_path = match.group(2)
+
+                    self.buffer.insert(
+                        self.buffer.get_iter_at_offset(match.start()), "\n"
                     )
-                    img_widget.set_from_file(str(broken_path))
+                    anchor = self.buffer.create_child_anchor(
+                        self.buffer.get_iter_at_offset(match.start())
+                    )
+                    self.image_anchors.append(anchor)
 
-                self.text_view.add_child_at_anchor(img_widget, anchor)
-                self.image_widgets.append(img_widget)
+                    pixbuf = None
+                    if img_path.startswith(("http://", "https://")):
+                        cache_path = self._remote_image_cache_path(img_path, notes_dir)
+                        if cache_path.exists():
+                            pixbuf = self._load_image_pixbuf(
+                                cache_path, max_load, max_load
+                            )
+                        else:
+                            self._download_remote_image(img_path, cache_path)
+                    else:
+                        full_path = resolve_image_path(notes_dir, img_path)
+                        if full_path is not None and full_path.exists():
+                            pixbuf = self._load_image_pixbuf(
+                                full_path, max_load, max_load
+                            )
+
+                    if pixbuf is None:
+                        pixbuf = self._pixbuf_from_broken()
+
+                    if pixbuf is not None:
+                        img_widget = Gtk.Picture.new_for_pixbuf(pixbuf)
+                        img_widget.set_halign(Gtk.Align.START)
+                        img_widget.set_size_request(
+                            pixbuf.get_width(), pixbuf.get_height()
+                        )
+                    else:
+                        img_widget = Gtk.Picture()
+                        img_widget.set_halign(Gtk.Align.START)
+
+                    self.text_view.add_child_at_anchor(img_widget, anchor)
+                    self.image_widgets.append(img_widget)
+            finally:
+                self.buffer.end_user_action()
 
             GLib.idle_add(self._finish_image_update)
         except Exception:
-            self.is_updating_images = False
-            raise
+            logger.exception("update_images: unhandled error")
+            self._image_update_running = False
 
     def _finish_image_update(self) -> bool:
-        self.is_updating_images = False
+        self._image_update_running = False
+        cb = self._image_update_done_callback
+        self._image_update_done_callback = None
+        if cb:
+            cb()
+        if self._image_update_pending:
+            self._image_update_pending = False
+            nd = self._pending_notes_dir
+            self._pending_notes_dir = Path()
+            self.update_images(nd)
         return False

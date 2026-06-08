@@ -40,7 +40,15 @@ class ActionsHandler:
         )
         if has_image:
             clipboard.read_texture_async(None, self.on_paste_texture_finish)
-        # Fall through to default GTK paste for non-image content
+            try:
+                text_view.stop_emission("paste-clipboard")
+            except TypeError:
+                pass
+
+    def _ensure_images_dir(self, note_dir: Path) -> Path:
+        images_dir = note_dir / ".images"
+        images_dir.mkdir(exist_ok=True)
+        return images_dir
 
     def on_paste_texture_finish(
         self, clipboard: Gdk.Clipboard, result: Gio.AsyncResult
@@ -58,10 +66,12 @@ class ActionsHandler:
                     is_error=True,
                 )
                 return
+            images_dir = self._ensure_images_dir(note_dir)
             img_id = str(uuid.uuid4())
             filename = f"pasted_{img_id}.png"
-            texture.save_to_png(str(note_dir / filename))
-            self.app.buffer.insert_at_cursor(f"\n![Pasted Image]({filename})\n")
+            filepath = images_dir / filename
+            texture.save_to_png(str(filepath))
+            self.app.buffer.insert_at_cursor(f"\n![Pasted Image](.images/{filename})\n")
         except GLib.Error as e:
             # Expected when clipboard content changes between request and callback.
             logger.warning("Image paste skipped: %s", e.message)

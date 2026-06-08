@@ -33,6 +33,7 @@ from core.utils import (
     confirm_destructive_dialog,
     is_entry_focused,
     set_response_suggested,
+    strip_anchors_for_save,
 )
 from core.window_manager import WindowManager
 from ui.click_dispatcher import ClickDispatcher
@@ -2416,8 +2417,7 @@ class TokyoNotes(Adw.Application):
         if self.current_note:
             from core.services import save_note_content
 
-            start, end = self.buffer.get_bounds()
-            content = self.buffer.get_text(start, end, True)
+            content = strip_anchors_for_save(self.buffer)
             if content:
                 try:
                     save_note_content(
@@ -2686,7 +2686,7 @@ class TokyoNotes(Adw.Application):
             return False
         if not self._full_pass_complete:
             return False
-        if self.editor.is_updating_images:
+        if self.editor._image_update_running:
             return False
         cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
         cursor_line = cursor_iter.get_line()
@@ -2707,7 +2707,10 @@ class TokyoNotes(Adw.Application):
     def do_delayed_images(self) -> bool:
         self.image_timeout_id = 0
         if self._has_images:
-            self.editor.update_images(Path(self.notes_manager.notes_dir).resolve())
+            self.editor.update_images(
+                Path(self.notes_manager.notes_dir).resolve(),
+                done_callback=lambda: self.update_highlighting(immediate=False),
+            )
         return False
 
     # Dashboard callbacks

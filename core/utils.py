@@ -109,15 +109,21 @@ def confirm_destructive_dialog(
 # Matches the first H1 heading line in a markdown document.
 H1_TITLE_RE: re.Pattern = re.compile(r"^#\s*(.+)$", re.MULTILINE)
 
+# URL pattern that handles balanced parentheses (e.g., "image(1).png").
+# Used by MD_LINK_RE, MD_LINK_CLICK_RE, and by highlighter/editor directly.
+MD_URL_BALANCED: str = r"[^\s()]*(?:\([^\s()]*\)[^\s()]*)*"
+
 # Wiki-style and standard markdown links (used by snippet cleaner & highlighter).
 WIKI_LINK_RE: re.Pattern = re.compile(r"\[\[(.*?)\]\]")
-MD_LINK_RE: re.Pattern = re.compile(r"\[(.*?)\]\(.*?\)")
+MD_LINK_RE: re.Pattern = re.compile(r"\[([^\]]*)\]\((" + MD_URL_BALANCED + r")\)")
 MD_FMT_RE: re.Pattern = re.compile(r"[*_`~]")
 
 # Click-dispatch patterns (also used by click_dispatcher.py).
 WIKI_CLICK_RE: re.Pattern = re.compile(r"\[\[([^\]]+)\]\]")
-MD_LINK_CLICK_RE: re.Pattern = re.compile(r"(!?)\[([^\]]+)\]\(([^)]+)\)")
-URL_RE: re.Pattern = re.compile(r"https?://[^\s\)]+")
+MD_LINK_CLICK_RE: re.Pattern = re.compile(
+    r"(!?)\[([^\]]+)\]\((" + MD_URL_BALANCED + r")\)"
+)
+URL_RE: re.Pattern = re.compile(r"https?://" + MD_URL_BALANCED)
 TAG_RE: re.Pattern = re.compile(r"(?<!\w)#(\w+)")
 DEADLINE_RE: re.Pattern = re.compile(r"@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)")
 
@@ -252,3 +258,20 @@ def is_entry_focused(widget: object) -> bool:
     if isinstance(widget, (Gtk.Entry, Gtk.SearchEntry)):
         return True
     return is_entry_focused(widget.get_parent())
+
+
+def strip_anchors_for_save(buffer: Gtk.TextBuffer) -> str:
+    """Get buffer text sans child-anchor chars and the newline after each."""
+    start, end = buffer.get_bounds()
+    chars: list[str] = []
+    it = start.copy()
+    while it.compare(end) < 0:
+        ch = it.get_char()
+        if ord(ch) == 0xFFFC:
+            it.forward_char()
+            if it.compare(end) < 0 and it.get_char() == "\n":
+                it.forward_char()
+            continue
+        chars.append(ch)
+        it.forward_char()
+    return "".join(chars)

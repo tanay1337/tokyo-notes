@@ -96,6 +96,8 @@ class ClickDispatcher:
             app.lifecycle.on_link_clicked(match.group(1))
 
         elif kind == "mdlink":
+            if match.group(1) == "!":
+                return  # images do nothing on click
             url = match.group(3)
             if _is_safe_url(url):
                 webbrowser.open_new_tab(url)

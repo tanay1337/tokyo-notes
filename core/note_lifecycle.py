@@ -19,7 +19,12 @@ from core.services import (
     update_note_title,
 )
 from core.translations import tr
-from core.utils import confirm_destructive_dialog, get_snippet, is_entry_focused
+from core.utils import (
+    confirm_destructive_dialog,
+    get_snippet,
+    is_entry_focused,
+    strip_anchors_for_save,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +154,9 @@ class NoteLifecycleManager:
 
             app._has_images = "![" in content
 
+            app.editor._last_image_text_hash = ""
+            app.editor.image_anchors.clear()
+            app.editor.image_widgets.clear()
             app._set_buffer_text(content)
             app.content_stack.set_visible_child_name("editor")
 
@@ -182,6 +190,10 @@ class NoteLifecycleManager:
                 app.sidebar.main_list.unselect_all()
         finally:
             app.is_loading = False
+
+        # Schedule initial image render if the loaded note contains images.
+        if app._has_images:
+            app._reschedule("image_timeout_id", 200, app.do_delayed_images)
 
     def _highlight_chunk(self, expected_note: str, start_line: int) -> bool:
         app = self.app
@@ -367,8 +379,7 @@ class NoteLifecycleManager:
         if not app.current_note:
             return False
 
-        start, end = app.buffer.get_bounds()
-        content = app.buffer.get_text(start, end, True)
+        content = strip_anchors_for_save(app.buffer)
 
         if not content.strip():
             return False
@@ -480,7 +491,7 @@ class NoteLifecycleManager:
 
     def on_text_changed(self, buffer: Gtk.TextBuffer) -> None:
         app = self.app
-        if app.is_loading or not app.current_note or app.editor.is_updating_images:
+        if app.is_loading or not app.current_note or app.editor._image_update_running:
             return
         app._buffer_mod_counter += 1
         app._reset_lock_timer_on_activity()

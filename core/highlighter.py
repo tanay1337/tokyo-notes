@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any
 
-from gi.repository import Gtk, Pango
+from gi.repository import Gdk, Gtk, Pango
 
 from core.utils import (
     BLOCKQUOTE_RE,
@@ -18,6 +18,7 @@ from core.utils import (
     HR_RE,
     LIST_OL_RE,
     LIST_UL_RE,
+    MD_URL_BALANCED,
     SETEXT_RE,
     TABLE_ROW_RE,
     TABLE_SEP_RE,
@@ -78,7 +79,9 @@ class MarkdownHighlighter:
         self.re_checkbox_checked = CB_CHECKED_RE
         self.re_deadline = DEADLINE_RE
         self.re_tag = TAG_RE
-        self.re_links = re.compile(r"\[\[([^\]]+)\]\]|(!?)\[([^\]]+)\]\(([^)]+)\)")
+        self.re_links = re.compile(
+            r"\[\[([^\]]+)\]\]|(!?)\[([^\]]+)\]\((" + MD_URL_BALANCED + r")\)"
+        )
         self.re_autolink = re.compile(r"<([^>]+)>")
         self.re_html = re.compile(r"<[^>]+>")
         self.re_bold1 = re.compile(r"(\*\*)([^*]+)(\*\*)")
@@ -203,6 +206,7 @@ class MarkdownHighlighter:
         tag("inline_html", foreground=c["checkbox_empty"])
         tag("line_break", weight=Pango.Weight.BOLD)
         tag("invisible", invisible=True)
+        tag("transparent", foreground_rgba=Gdk.RGBA(0, 0, 0, 0))
         tag("dim", foreground=c["dim"])
 
     def update_theme(self, theme_name: str) -> None:
@@ -310,22 +314,20 @@ class MarkdownHighlighter:
                     self.buffer.apply_tag_by_name("code_block", line_iter, line_end)
 
         lines = text_range.split("\n")
-        line_start_offset = start_iter.get_offset()
         for i, line in enumerate(lines):
             curr_line_num = start_line + i
             is_cursor = cursor_line == curr_line_num
+            line_start_offset = self.get_iter_at_line(curr_line_num).get_offset()
             line_end_offset = line_start_offset + len(line)
 
             # Skip lines inside a fenced code block — already tagged above.
             # code_block_lines is computed once before the loop for partial passes.
             if not is_full_pass and curr_line_num in code_block_lines:
-                line_start_offset += len(line) + 1
                 continue
 
             # Fence marker lines must keep their dim tag in partial passes.
             if not is_full_pass and line.strip().startswith("```"):
                 self.apply_tag("dim", line_start_offset, line_end_offset)
-                line_start_offset += len(line) + 1
                 continue
 
             # During a full pass we also skip code-block interior lines here
@@ -336,7 +338,6 @@ class MarkdownHighlighter:
                 if line.strip().startswith("```"):
                     self._in_fence = not self._in_fence
                 if inside_fence:
-                    line_start_offset += len(line) + 1
                     continue
 
             # Setext headings — use the already-split previous line to avoid
@@ -360,13 +361,12 @@ class MarkdownHighlighter:
                         prev_offset,
                         prev_offset + len(prev_line),
                     )
-                    line_start_offset += len(line) + 1
+
                     continue
 
             # Horizontal rules
             if self.re_hr.match(line):
                 self.apply_tag("hr", line_start_offset, line_end_offset)
-                line_start_offset += len(line) + 1
                 continue
 
             # Block quotes
@@ -418,14 +418,11 @@ class MarkdownHighlighter:
                     line_start_offset,
                     marker_end,
                 )
-                line_start_offset += len(line) + 1
                 continue
 
             self.apply_tag("body", line_start_offset, line_end_offset)
 
             self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
-
-            line_start_offset += len(line) + 1
 
     # Helpers
 
@@ -437,10 +434,25 @@ class MarkdownHighlighter:
         line_offset: int,
         is_cursor: bool,
         single: bool = False,
+        exclude_ranges: set[tuple[int, int]] | None = None,
     ) -> None:
-        """Apply an inline style tag and dim/hide its markers."""
+        """Apply an inline style tag and dim/hide its markers.
+
+        If *exclude_ranges* is given, any match overlapping an excluded range
+        is skipped — used to prevent inline formatting inside link/image URLs.
+        """
         for m in pattern.finditer(line):
-            self.apply_tag(tag, line_offset + m.start(), line_offset + m.end())
+            ms = line_offset + m.start()
+            me = line_offset + m.end()
+            if exclude_ranges:
+                excluded = False
+                for es, ee in exclude_ranges:
+                    if ms < ee and me > es:
+                        excluded = True
+                        break
+                if excluded:
+                    continue
+            self.apply_tag(tag, ms, me)
             marker_tag = "dim" if is_cursor else "invisible"
             if single:
                 self.apply_tag(
@@ -499,11 +511,35 @@ class MarkdownHighlighter:
 
         self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
 
+    def _collect_link_ranges(
+        self, line: str, line_start_offset: int
+    ) -> set[tuple[int, int]]:
+        """Collect absolute buffer ranges for markdown links and images."""
+        ranges: set[tuple[int, int]] = set()
+        for m in self.re_links.finditer(line):
+            ranges.add(
+                (
+                    line_start_offset + m.start(),
+                    line_start_offset + m.end(),
+                )
+            )
+        for m in self.re_autolink.finditer(line):
+            ranges.add(
+                (
+                    line_start_offset + m.start(),
+                    line_start_offset + m.end(),
+                )
+            )
+        return ranges
+
     def _apply_inline_tags(
         self, line: str, line_start_offset: int, line_end_offset: int, is_cursor: bool
     ) -> None:
         """Apply inline patterns shared between the full and partial
         highlight passes."""
+
+        # Collect link/image ranges FIRST so inline styles can skip them.
+        link_ranges = self._collect_link_ranges(line, line_start_offset)
 
         # Checkboxes
         for m in self.re_checkbox_empty.finditer(line):
@@ -519,18 +555,56 @@ class MarkdownHighlighter:
                 line_start_offset + m.end(),
             )
 
-        # Inline styles
-        self._inline(self.re_bold1, "bold", line, line_start_offset, is_cursor)
-        self._inline(self.re_bold2, "bold", line, line_start_offset, is_cursor)
+        # Inline styles — skip matches that overlap link/image URLs
         self._inline(
-            self.re_italic1, "italic", line, line_start_offset, is_cursor, single=True
+            self.re_bold1,
+            "bold",
+            line,
+            line_start_offset,
+            is_cursor,
+            exclude_ranges=link_ranges,
         )
         self._inline(
-            self.re_italic2, "italic", line, line_start_offset, is_cursor, single=True
+            self.re_bold2,
+            "bold",
+            line,
+            line_start_offset,
+            is_cursor,
+            exclude_ranges=link_ranges,
         )
-        self._inline(self.re_code, "code", line, line_start_offset, is_cursor)
         self._inline(
-            self.re_strikethrough, "strikethrough", line, line_start_offset, is_cursor
+            self.re_italic1,
+            "italic",
+            line,
+            line_start_offset,
+            is_cursor,
+            single=True,
+            exclude_ranges=link_ranges,
+        )
+        self._inline(
+            self.re_italic2,
+            "italic",
+            line,
+            line_start_offset,
+            is_cursor,
+            single=True,
+            exclude_ranges=link_ranges,
+        )
+        self._inline(
+            self.re_code,
+            "code",
+            line,
+            line_start_offset,
+            is_cursor,
+            exclude_ranges=link_ranges,
+        )
+        self._inline(
+            self.re_strikethrough,
+            "strikethrough",
+            line,
+            line_start_offset,
+            is_cursor,
+            exclude_ranges=link_ranges,
         )
 
         # Links and images
@@ -544,7 +618,23 @@ class MarkdownHighlighter:
                     self.apply_tag("invisible", fe - 2, fe)
             else:
                 if m.group(2):  # ![image](...)
-                    self.apply_tag("image", fs, fe)
+                    alt_s = fs + 2
+                    alt_e = alt_s + len(m.group(3))
+                    self.apply_tag("image", alt_s, alt_e)
+                    if is_cursor:
+                        self.apply_tag("dim", fs, fs + 1)  # !
+                        self.apply_tag("dim", fs + 1, fs + 2)  # [
+                        self.apply_tag("dim", alt_e, alt_e + 1)  # ]
+                        self.apply_tag("dim", alt_e + 1, alt_e + 2)  # (
+                        self.apply_tag("dim", alt_e + 2, fe - 1)  # url
+                        self.apply_tag("dim", fe - 1, fe)  # )
+                    else:
+                        self.apply_tag("invisible", fs, fs + 1)  # !
+                        self.apply_tag("invisible", fs + 1, fs + 2)  # [
+                        self.apply_tag("invisible", alt_e, alt_e + 1)  # ]
+                        self.apply_tag("invisible", alt_e + 1, alt_e + 2)  # (
+                        self.apply_tag("invisible", alt_e + 2, fe - 1)  # url
+                        self.apply_tag("invisible", fe - 1, fe)  # )
                 else:  # [text](url)
                     text_s = fs + 1
                     text_e = text_s + len(m.group(3))

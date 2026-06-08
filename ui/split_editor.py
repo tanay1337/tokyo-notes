@@ -11,6 +11,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
 from core.highlighter import MarkdownHighlighter
+from core.utils import strip_anchors_for_save
 from ui.editor import Editor
 
 if TYPE_CHECKING:
@@ -153,8 +154,7 @@ class SplitEditor(Gtk.Box):
         app = self._app
         from core.services import save_note_content
 
-        start, end = info.editor.buffer.get_bounds()
-        content = info.editor.buffer.get_text(start, end, True)
+        content = strip_anchors_for_save(info.editor.buffer)
         if not content.strip():
             return False
 
@@ -181,8 +181,7 @@ class SplitEditor(Gtk.Box):
         app = self._app
         from core.services import save_note_content
 
-        start, end = info.editor.buffer.get_bounds()
-        content = info.editor.buffer.get_text(start, end, True)
+        content = strip_anchors_for_save(info.editor.buffer)
         if not content.strip():
             return
 
