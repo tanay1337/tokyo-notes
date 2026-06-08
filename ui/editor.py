@@ -101,7 +101,9 @@ class Editor(Gtk.Box):
         self.buffer: Gtk.TextBuffer = self.text_view.get_buffer()
         self.buffer.connect("insert-text", self.on_insert_text)
         self.changed_handler_id = self.buffer.connect("changed", on_text_changed)
-        self.buffer.connect("notify::cursor-position", on_cursor_moved)
+        self.cursor_handler_id = self.buffer.connect(
+            "notify::cursor-position", on_cursor_moved
+        )
 
         scrolled_editor.set_child(self.text_view)
 
@@ -132,9 +134,36 @@ class Editor(Gtk.Box):
         self._last_image_text_hash: str = ""
         self._image_update_done_callback: Callable | None = None
 
-        self._picker_open: bool = False
+        self._picker_open = False
+
+    def clear_images(self) -> None:
+        """Properly remove all image widgets and clear anchor/widget lists."""
+        for widget in self.image_widgets:
+            parent = widget.get_parent()
+            if parent == self.text_view:
+                try:
+                    self.text_view.remove(widget)
+                except Exception:
+                    widget.unparent()
+            elif parent:
+                widget.unparent()
+        self.image_widgets.clear()
+        self.image_anchors.clear()
+
+    def close_pickers(self) -> None:
+        """Close any open picker popovers."""
+        self._picker_open = False
+        # We need to find all children that are Popovers and pop them down.
+        # In GTK 4, popovers are often not direct children in the same way.
+        # But pickers in this app are parented to text_view.
+        child = self.text_view.get_first_child()
+        while child:
+            if isinstance(child, Gtk.Popover):
+                child.popdown()
+            child = child.get_next_sibling()
 
     def _build_lock_overlay(self) -> Gtk.Box:
+
         overlay_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=16,
@@ -610,6 +639,9 @@ class Editor(Gtk.Box):
         try:
             image_re = re.compile(r"!\[([^\]]*)\]\((" + MD_URL_BALANCED + r")\)")
 
+            self.buffer.handler_block(self.changed_handler_id)
+            if hasattr(self, "cursor_handler_id"):
+                self.buffer.handler_block(self.cursor_handler_id)
             self.buffer.begin_user_action()
             try:
                 for anchor in reversed(self.image_anchors):
@@ -625,8 +657,8 @@ class Editor(Gtk.Box):
                     if it2.get_char() == "\n":
                         it2.forward_char()
                     self.buffer.delete(it, it2)
-                self.image_widgets.clear()
-                self.image_anchors.clear()
+
+                self.clear_images()
 
                 start, end = self.buffer.get_bounds()
                 text = self.buffer.get_text(start, end, True)
@@ -676,6 +708,9 @@ class Editor(Gtk.Box):
                     self.image_widgets.append(img_widget)
             finally:
                 self.buffer.end_user_action()
+                if hasattr(self, "cursor_handler_id"):
+                    self.buffer.handler_unblock(self.cursor_handler_id)
+                self.buffer.handler_unblock(self.changed_handler_id)
 
             GLib.idle_add(self._finish_image_update)
         except Exception:

@@ -154,9 +154,9 @@ class NoteLifecycleManager:
 
             app._has_images = "![" in content
 
+            app.editor.close_pickers()
             app.editor._last_image_text_hash = ""
-            app.editor.image_anchors.clear()
-            app.editor.image_widgets.clear()
+            app.editor.clear_images()
             app._set_buffer_text(content)
             app.content_stack.set_visible_child_name("editor")
 

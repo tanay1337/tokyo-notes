@@ -254,8 +254,14 @@ class SplitEditor(Gtk.Box):
         if cursor_pos is not None and cursor_pos <= info.editor.buffer.get_char_count():
             it = info.editor.buffer.get_iter_at_offset(cursor_pos)
             info.editor.buffer.place_cursor(it)
+
+            # Use mark for stable scrolling
+            mark = info.editor.buffer.create_mark(None, it, True)
             GLib.idle_add(
-                lambda: info.editor.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0)
+                lambda: (
+                    info.editor.text_view.scroll_to_mark(mark, 0.0, False, 0.0, 0.0),
+                    info.editor.buffer.delete_mark(mark),
+                )
             )
 
     @staticmethod
@@ -318,7 +324,26 @@ class SplitEditor(Gtk.Box):
             return
 
         content = app.notes_manager.read_plain(note_name) or ""
-        info.editor.buffer.set_text(content)
+        info.editor.close_pickers()
+        info.editor.clear_images()
+
+        buf = info.editor.buffer
+        handlers = []
+        if hasattr(info.editor, "changed_handler_id"):
+            handlers.append((buf, info.editor.changed_handler_id))
+        if hasattr(info.editor, "cursor_handler_id"):
+            handlers.append((buf, info.editor.cursor_handler_id))
+
+        for b, h in handlers:
+            b.handler_block(h)
+        try:
+            start, end = buf.get_bounds()
+            buf.remove_all_tags(start, end)
+            buf.set_text(content)
+        finally:
+            for b, h in reversed(handlers):
+                b.handler_unblock(h)
+
         self._restore_cursor_in_pane(info, note_name, app)
         info.editor.set_editable(True)
         info.highlighter.highlight()

@@ -650,14 +650,30 @@ class TokyoNotes(Adw.Application):
             self._set_buffer_text("")
 
     def _set_buffer_text(self, content: str) -> None:
-        """Set editor buffer content without triggering the text-changed handler."""
-        if self.changed_handler_id:
-            self.buffer.handler_block(self.changed_handler_id)
+        """Set editor buffer content without triggering handlers."""
+        handlers_to_block = []
+        if hasattr(self, "changed_handler_id") and self.changed_handler_id:
+            handlers_to_block.append((self.buffer, self.changed_handler_id))
+        elif hasattr(self, "editor") and hasattr(self.editor, "changed_handler_id"):
+            handlers_to_block.append((self.buffer, self.editor.changed_handler_id))
+
+        if hasattr(self, "mark_set_handler_id") and self.mark_set_handler_id:
+            handlers_to_block.append((self.buffer, self.mark_set_handler_id))
+
+        if hasattr(self, "editor") and hasattr(self.editor, "cursor_handler_id"):
+            handlers_to_block.append((self.buffer, self.editor.cursor_handler_id))
+
+        for obj, hid in handlers_to_block:
+            obj.handler_block(hid)
+
         try:
+            # Remove all tags to avoid Pango/btree sync issues during replacement.
+            start, end = self.buffer.get_bounds()
+            self.buffer.remove_all_tags(start, end)
             self.buffer.set_text(content)
         finally:
-            if self.changed_handler_id:
-                self.buffer.handler_unblock(self.changed_handler_id)
+            for obj, hid in reversed(handlers_to_block):
+                obj.handler_unblock(hid)
 
     def _save_current_cursor(self) -> None:
         if self.current_note and hasattr(self, "buffer") and not self.is_loading:
@@ -673,11 +689,22 @@ class TokyoNotes(Adw.Application):
         else:
             it = end
         self.buffer.place_cursor(it)
-        GLib.idle_add(lambda: self.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0))
+
+        # Use a mark for stable scrolling across modifications (e.g. images)
+        mark = self.buffer.create_mark(None, it, True)
+
+        GLib.idle_add(self._do_scroll_to_mark, mark)
+
+    def _do_scroll_to_mark(self, mark: Gtk.TextMark) -> bool:
+        if self.buffer:
+            self.text_view.scroll_to_mark(mark, 0.0, False, 0.0, 0.0)
+            self.buffer.delete_mark(mark)
+        return False
 
     def _scroll_to_cursor(self) -> None:
         it = self.buffer.get_iter_at_mark(self.buffer.get_insert())
-        GLib.idle_add(lambda: self.text_view.scroll_to_iter(it, 0.0, False, 0.0, 0.0))
+        mark = self.buffer.create_mark(None, it, True)
+        GLib.idle_add(self._do_scroll_to_mark, mark)
 
     def _load_encrypted_note_to_buffer(
         self, note_name: str, buffer: Gtk.TextBuffer
@@ -1400,7 +1427,7 @@ class TokyoNotes(Adw.Application):
 
         self.last_cursor_line = -1
         self._has_selection = False
-        self.buffer.connect("mark-set", self._on_mark_set)
+        self.mark_set_handler_id = self.buffer.connect("mark-set", self._on_mark_set)
 
         gesture = Gtk.GestureClick.new()
         gesture.set_button(1)
