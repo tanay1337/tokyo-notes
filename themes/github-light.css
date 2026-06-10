@@ -4,18 +4,18 @@
 @define-color selected_fg_color #ffffff;
 @define-color accent_color #0969da;
 @define-color selection_color #ddf4ff;
-@define-color header_bg #f6f8fa;
+@define-color header_bg #ffffff;
 @define-color border_color #d0d7de;
 @define-color deadline_color #cf222e;
 @define-color editor_bg #ffffff;
-@define-color card_bg #f6f8fa;
+@define-color card_bg #ffffff;
 @define-color input_bg #ffffff;
 @define-color input_border #d0d7de;
-@define-color hover_bg #f6f8fa;
+@define-color hover_bg #f0f2f4;
 @define-color active_bg #ddf4ff;
 @define-color secondary_fg #656d76;
 @define-color scrollbar_bg #f6f8fa;
-@define-color scrollbar_fg #d0d7de;
+@define-color scrollbar_fg #c8ced6;
 
 @define-color syntax_h1 #cf222e;
 @define-color syntax_h2 #8250df;
@@ -23,9 +23,9 @@
 @define-color syntax_h4 #1a7f37;
 @define-color syntax_h5 #9a6700;
 @define-color syntax_h6 #cf222e;
-@define-color syntax_code_bg #f6f8fa;
+@define-color syntax_code_bg #eef0f4;
 @define-color syntax_code_fg #9a6700;
-@define-color syntax_code_block_bg #f6f8fa;
+@define-color syntax_code_block_bg #eef0f4;
 @define-color syntax_code_block_fg #1f2328;
 @define-color syntax_checkbox_empty #cf222e;
 @define-color syntax_checkbox_checked #1a7f37;

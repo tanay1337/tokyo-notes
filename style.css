@@ -23,6 +23,7 @@ headerbar {
 .sidebar {
     background-color: @sidebar_bg;
     border-right: 1px solid @border_color;
+    box-shadow: 1px 0 4px rgba(0, 0, 0, 0.04);
 }
 
 .sidebar-label {
@@ -44,35 +45,39 @@ list {
 row {
     padding: 10px 15px;
     margin: 2px 8px;
-    border-radius: 6px;
+    border-radius: 8px;
     border: none;
 }
 
 row:selected {
     background-color: @selection_color;
-    color: @selected_fg_color;
+    color: @fg_color;
+}
+
+textview {
+    background-color: @editor_bg;
 }
 
 textview text {
-    background-color: @bg_color;
+    background-color: @editor_bg;
     color: @fg_color;
     font-size: 12pt;
-    line-height: 2.1;
+    line-height: 1.8;
 }
 
 .toolbar button.active {
     background-color: @selection_color;
-    color: @selected_fg_color;
+    color: @fg_color;
 }
 
 .dashboard-toolbar button.active {
     background-color: @selection_color;
-    color: @selected_fg_color;
+    color: @fg_color;
 }
 
 button.filter-btn.active {
     background-color: @selection_color;
-    color: @selected_fg_color;
+    color: @fg_color;
 }
 
 .filter-btn {
@@ -101,10 +106,19 @@ button.filter-btn.active {
     filter: invert(1);
 }
 
-
+button:focus-visible {
+    outline: 2px solid @accent_color;
+    outline-offset: -2px;
+    border-radius: 4px;
+}
 
 button:hover {
-    background-color: @selection_color;
+    background-color: @hover_bg;
+}
+
+entry:focus {
+    border-color: @accent_color;
+    outline: none;
 }
 
 entry {
@@ -220,11 +234,13 @@ text {
 }
 
 .theme-card:hover {
-    background-color: @selection_color;
+    background-color: @hover_bg;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 .theme-card.active {
     border-color: @accent_color;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
 .theme-name {
@@ -277,7 +293,7 @@ calendar > grid > label.other-month {
 }
 
 calendar > grid > label.today {
-    color: @selected_fg_color;
+    color: @fg_color;
     font-weight: bold;
     background-color: @selection_color;
     border: 1px solid @accent_color;
@@ -302,7 +318,7 @@ popover > contents {
     padding: 8px;
     border: 1px solid @border_color;
     border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .deadline-picker-popover entry {
@@ -373,7 +389,7 @@ popover > contents {
 /* Active footer nav button */
 button.dashboard-footer-btn.active {
     background-color: @selection_color;
-    color: @selected_fg_color;
+    color: @fg_color;
 }
 
 /* Toolbar group separator */
@@ -390,7 +406,7 @@ button.backlinks-fab {
     background-color: @header_bg;
     border: 1px solid @border_color;
     border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .dark-theme button.backlinks-fab image {
@@ -623,7 +639,7 @@ button.pill {
     background-color: @header_bg;
     border: 1px solid @border_color;
     border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .flashcard-text {
