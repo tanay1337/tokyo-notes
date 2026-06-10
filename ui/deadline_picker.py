@@ -20,11 +20,11 @@ class DeadlinePicker(Gtk.Popover):
     def __init__(
         self,
         callback: Callable[[str | None], None],
+        has_deadline: bool = False,
     ) -> None:
         super().__init__()
         self.add_css_class("deadline-picker-popover")
         self.callback = callback
-        self.set_autohide(False)
         self.connect("closed", lambda *_: GLib.idle_add(self.unparent))
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -45,6 +45,7 @@ class DeadlinePicker(Gtk.Popover):
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
         clear_btn = Gtk.Button(label=tr("Clear"))
+        clear_btn.set_sensitive(has_deadline)
         clear_btn.connect("clicked", self.on_clear_clicked)
         btn_row.append(clear_btn)
 

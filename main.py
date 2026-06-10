@@ -2912,7 +2912,8 @@ class TokyoNotes(Adw.Application):
         widget: Gtk.Widget | None = None,
     ) -> None:
         picker = DeadlinePicker(
-            lambda deadline: self._apply_deadline_update(note_name, line_num, deadline)
+            lambda deadline: self._apply_deadline_update(note_name, line_num, deadline),
+            has_deadline=True,
         )
         rect = Gdk.Rectangle()
         rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1

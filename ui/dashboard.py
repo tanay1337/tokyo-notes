@@ -314,7 +314,9 @@ class Dashboard(Gtk.Box):
         self.open_quick_add_popover()
 
     def _on_quick_add_deadline_clicked(self, btn: Gtk.Button) -> None:
-        picker = DeadlinePicker(self._on_quick_add_deadline_selected)
+        picker = DeadlinePicker(
+            self._on_quick_add_deadline_selected, has_deadline=False
+        )
         picker.connect(
             "closed",
             lambda *_: GLib.idle_add(

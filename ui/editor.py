@@ -586,12 +586,13 @@ class Editor(Gtk.Box):
     def show_deadline_picker(self) -> None:
         """Show the deadline picker popover at the cursor."""
         self._picker_open = True
-        picker = DeadlinePicker(self.on_deadline_selected)
+        picker = DeadlinePicker(self.on_deadline_selected, has_deadline=False)
         picker.connect("closed", lambda *_: setattr(self, "_picker_open", False))
         self._popup_at_cursor(picker)
 
-    def on_deadline_selected(self, deadline: str) -> None:
-        self.buffer.insert_at_cursor(deadline)
+    def on_deadline_selected(self, deadline: str | None) -> None:
+        if deadline is not None:
+            self.buffer.insert_at_cursor(deadline)
 
     def show_variable_picker(self) -> None:
         """Show the variable picker popover at the cursor."""
