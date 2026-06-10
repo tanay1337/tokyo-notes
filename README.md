@@ -1,8 +1,43 @@
-# Tokyo Notes
+# Tokyo Notes 🌸
 
-A minimal GTK4 Markdown note-taking app.
+Tokyo Notes is a beautiful markdown note-taking app that combines interactive diagrams, flashcards, a task dashboard, knowledge graph, encrypted private notes, and git backed version history in an offline-first desktop application.
 
-<img src="https://imglink.cc/cdn/P8DiOqf543.png" width="500" />
+## Screenshots
+
+<table>
+<tr>
+<td width="50%">
+
+**Editing Notes**
+
+![Editing Notes](https://imglink.cc/cdn/o4fhsJKX3c.png)
+
+</td>
+<td width="50%">
+
+**Dashboard**
+
+![Dashboard](https://imglink.cc/cdn/6qB-Mik3E5.png)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Knowledge Graph**
+
+![Knowledge Graph](https://imglink.cc/cdn/RFk4ISjHU3.png)
+
+</td>
+<td width="50%">
+
+**Diagram Editor**
+
+![Diagram Editor](https://imglink.cc/cdn/Vm5ewhzaQZ.png)
+
+</td>
+</tr>
+</table>
 
 ## Features
 - **Task Management**: Dashboard with Today, Week, and All views, featuring deadline tracking and jump-to-line navigation.
