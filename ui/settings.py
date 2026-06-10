@@ -702,20 +702,19 @@ class SettingsView(Gtk.Box):
         except ValueError:
             idx = sp_langs.index("en") if "en" in sp_langs else 0
 
-        self._spell_lang_codes = sp_langs
-        self._spell_language_row = Adw.ComboRow(
+        row = Adw.ComboRow(
             title=tr("Spell Check Language"),
             subtitle=tr("Dictionary language for spell checking"),
             model=model,
         )
-        self._spell_language_row.set_selected(idx)
-        self._spell_language_row.connect(
+        row.set_selected(idx)
+        row.connect(
             "notify::selected",
             lambda r, _pspec: self.on_config_changed(
-                "spell_check_language", self._spell_lang_codes[r.get_selected()]
+                "spell_check_language", sp_langs[r.get_selected()]
             ),
         )
-        return self._spell_language_row
+        return row
 
     def _make_theme_row(self, theme: dict[str, str], is_active: bool) -> Gtk.ListBoxRow:
         """Create a theme selection card row with color palette preview."""
@@ -853,12 +852,6 @@ class SettingsView(Gtk.Box):
         try:
             lang_idx = self._lang_codes.index("en")
             self._language_row.set_selected(lang_idx)
-        except ValueError:
-            pass
-
-        try:
-            sp_idx = self._spell_lang_codes.index("en")
-            self._spell_language_row.set_selected(sp_idx)
         except ValueError:
             pass
 

@@ -15,6 +15,7 @@ A minimal GTK4 Markdown note-taking app.
 - **Templates**: Create notes from reusable templates with auto-filled variables like `{{today}}`, `{{now}}`, `{{time}}`, and `{{weekday}}`.
 - **Version History**: Automatic save-points, manual snapshots, and one-click restore from any previous version via Git.
 - **Flashcards**: Extract Q/A cards from flashcard codeblocks and flip through them to review. See format below.
+- **Diagrams**: Create, edit, and embed interactive node diagrams directly in your notes.
 
 ## Installation
 

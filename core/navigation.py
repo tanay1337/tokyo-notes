@@ -187,8 +187,6 @@ class NavigationController:
                     "font_family": app.cfg.get("font_family"),
                     "font_size": app.cfg.get("font_size"),
                     "language": app.cfg.get("language", "en"),
-                    "spell_check_enabled": app.cfg.get("spell_check_enabled", True),
-                    "spell_check_language": app.cfg.get("spell_check_language", "en"),
                     "has_encrypted_notes": has_encrypted,
                     "git_available": app.git_controller.is_git_installed(),
                     "git_enabled": app.cfg.get("git_enabled", False),
@@ -244,7 +242,10 @@ class NavigationController:
         """Return to the editor from any secondary view, or clear search."""
         app = self.app
         current_page = app.content_stack.get_visible_child_name()
-        if current_page in ("dashboard", "graph", "settings", "flashcard"):
+        if current_page in ("dashboard", "graph", "settings", "flashcard", "diagram"):
+            if current_page == "diagram":
+                app._on_diagram_close()
+                return True
             target = "split_editor" if app.split_editor is not None else "editor"
             app.content_stack.set_visible_child_name(target)
             title = app.current_note if app.current_note else tr("Tokyo Notes")

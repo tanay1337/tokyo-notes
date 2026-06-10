@@ -15,6 +15,8 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 from core.actions import ActionsHandler
 from core.config import ConfigManager
 from core.crash_handler import install as install_crash_handler
+from core.diagram import Diagram
+from core.diagram_manager import DiagramManager
 from core.highlighter import MarkdownHighlighter
 from core.instance_lock import InstanceLock
 from core.navigation import NavigationController
@@ -39,6 +41,7 @@ from core.utils import (
 from core.window_manager import WindowManager
 from ui.click_dispatcher import ClickDispatcher
 from ui.deadline_picker import DeadlinePicker
+from ui.diagram_view import DiagramView
 from ui.editor import Editor
 from ui.sakura_overlay import SakuraOverlay
 from ui.sidebar import Sidebar
@@ -74,9 +77,11 @@ class TokyoNotes(Adw.Application):
         self.lifecycle = NoteLifecycleManager(self)
         self.search = SearchController(self.refresh_list)
         self.template_manager = TemplateManager(self)
+        self.diagram_manager = DiagramManager(notes_dir=self.notes_folder)
 
         # Runtime state — all timeout IDs kept together for easy auditing
         self.current_note: str | None = None
+        self.current_open_diagram: Diagram | None = None
         self.is_loading: bool = False
         self.highlighter: MarkdownHighlighter | None = None
         self.spell_checker: SpellChecker | None = None
@@ -1235,6 +1240,12 @@ class TokyoNotes(Adw.Application):
         self.dashboard_view = None
         self.dashboard_list = None
 
+        if self.diagram_view:
+            self.content_stack.remove(self.diagram_view)
+        self.diagram_view = None
+        self.current_open_diagram = None
+        self.diagram_manager = DiagramManager(notes_dir=new_folder)
+
         self.current_note = None
         self._has_images = False
         self._set_buffer_text("")
@@ -1320,6 +1331,7 @@ class TokyoNotes(Adw.Application):
         self.flashcard_view = None
         self.split_editor = None
         self._single_editor_ref = None
+        self.diagram_view = None
 
         overlay = self._build_content_stack()
 
@@ -1453,6 +1465,11 @@ class TokyoNotes(Adw.Application):
         scroll_ctrl.connect("scroll", self._on_editor_scroll)
         scroll_ctrl.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
         self.text_view.add_controller(scroll_ctrl)
+
+        # Diagram callbacks
+        self.editor._diagram_manager = self.diagram_manager
+        self.editor._on_diagram_slash = self._on_insert_diagram_action
+        self.editor._on_open_diagram = self._on_open_diagram_action
 
     def _build_content_stack(self) -> Gtk.Overlay:
         self.content_stack = Gtk.Stack()
@@ -1671,8 +1688,11 @@ class TokyoNotes(Adw.Application):
     # Formatting
 
     def apply_format(self, btn, prefix: str, suffix: str) -> None:
-        from ui.toolbar import _FLASHCARD
+        from ui.toolbar import _DIAGRAM, _FLASHCARD
 
+        if prefix is _DIAGRAM:
+            self._show_diagram_insert_popover(btn)
+            return
         if prefix is _FLASHCARD:
             self.insert_flashcard()
             return
@@ -1705,6 +1725,170 @@ class TokyoNotes(Adw.Application):
         else:
             self.buffer.insert_at_cursor(template)
         self._focus_text_view()
+
+    # Diagram actions
+
+    def _on_insert_diagram_action(self) -> None:
+        """Create a new diagram and open the diagram editor."""
+        self._save_current_cursor()
+        entry = Gtk.Entry()
+        entry.set_placeholder_text(tr("My Diagram"))
+        entry.set_activates_default(True)
+        dialog = Adw.MessageDialog(
+            transient_for=self.win,
+            heading=tr("New Diagram"),
+            body=tr("Give your diagram a name:"),
+        )
+        dialog.set_extra_child(entry)
+        dialog.add_response("cancel", tr("Cancel"))
+        dialog.add_response("ok", tr("Create"))
+        dialog.set_default_response("ok")
+        dialog.set_close_response("cancel")
+        from core.utils import set_response_suggested
+
+        set_response_suggested(dialog, "ok")
+
+        def on_response(d: Adw.MessageDialog, response: str) -> None:
+            if response == "ok":
+                title = entry.get_text().strip() or tr("Untitled Diagram")
+                diagram = Diagram.new(title=title)
+                self._open_diagram_editor(diagram)
+            d.close()
+
+        dialog.connect("response", on_response)
+        dialog.present()
+        entry.grab_focus()
+
+    def _show_diagram_insert_popover(self, btn: Gtk.Button) -> None:
+        """Show a popover with New Diagram + list of existing diagrams."""
+        self._save_current_cursor()
+        titles = self.diagram_manager.list_titles()
+        popover = Gtk.Popover()
+        popover.set_autohide(True)
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        vbox.set_margin_top(4)
+        vbox.set_margin_bottom(4)
+
+        style_provider = Gtk.CssProvider()
+        style_provider.load_from_data(
+            b".menu-row { padding: 0 8px; margin: 2px 6px;"
+            b" border-radius: 6px; }"
+            b".menu-row:hover {"
+            b" background: alpha(@theme_fg_color, 0.08); }"
+        )
+
+        def _menu_item(label_text: str, fn) -> None:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+            row.get_style_context().add_class("menu-row")
+            row.get_style_context().add_provider(
+                style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
+            lbl = Gtk.Label(label=label_text)
+            lbl.set_halign(Gtk.Align.START)
+            lbl.set_margin_start(12)
+            lbl.set_margin_end(12)
+            lbl.set_margin_top(8)
+            lbl.set_margin_bottom(8)
+            row.append(lbl)
+            evk = Gtk.GestureClick()
+            evk.connect("pressed", lambda *_: (popover.popdown(), fn()))
+            row.add_controller(evk)
+            vbox.append(row)
+
+        _menu_item(tr("New Diagram"), self._on_insert_diagram_action)
+
+        if titles:
+            separator = Gtk.Box()
+            separator.set_size_request(-1, 1)
+            separator.set_margin_top(2)
+            separator.set_margin_bottom(2)
+            sep_provider = Gtk.CssProvider()
+            sep_provider.load_from_data(
+                b"box { background: alpha(@theme_fg_color, 0.2); }"
+            )
+            separator.get_style_context().add_provider(
+                sep_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
+            vbox.append(separator)
+
+            for did, dtitle in titles:
+                _menu_item(dtitle, lambda d=did: self._insert_diagram_reference(d))
+
+        popover.set_child(vbox)
+        popover.set_parent(btn)
+        popover.popup()
+
+    def _on_open_diagram_action(self, diagram_id: str) -> None:
+        """Open an existing diagram by ID for editing."""
+        diagram = self.diagram_manager.load(diagram_id)
+        if diagram is None:
+            self._show_toast(tr("Diagram not found"))
+            return
+        self._open_diagram_editor(diagram)
+
+    def _open_diagram_editor(self, diagram: Diagram) -> None:
+        """Switch to the diagram editor with the given diagram."""
+        if self.diagram_view is None:
+            self.diagram_view = DiagramView(
+                diagram_manager=self.diagram_manager,
+                on_save_and_insert=self._on_diagram_save_and_insert,
+                on_close=self._on_diagram_close,
+                on_save_only=self._on_diagram_save_only,
+                on_diagram_delete=self._on_diagram_delete,
+                on_title_changed=lambda t: self.nav.update_header_ui(
+                    t, is_editor=False
+                ),
+                transient_for=self.win,
+            )
+            self.content_stack.add_named(self.diagram_view, "diagram")
+        self.current_open_diagram = diagram
+        self.diagram_view.set_diagram(diagram)
+        self.content_stack.set_visible_child_name("diagram")
+        self.nav.update_header_ui(diagram.title, is_editor=False)
+        self._set_backlinks_visible(False)
+
+    def _on_diagram_save_only(self, diagram: Diagram) -> None:
+        """Save diagram without inserting a reference."""
+        self.diagram_manager.save(diagram)
+        if self.current_open_diagram:
+            self.current_open_diagram = diagram
+
+    def _insert_diagram_reference(self, did: str) -> None:
+        """Insert an existing diagram reference into the current note."""
+        if not self.current_note:
+            return
+        ref = f"\n![diagram]({did})\n"
+        self.buffer.insert_at_cursor(ref)
+        self._has_images = True
+        self._reschedule("image_timeout_id", 200, self.do_delayed_images)
+        self._schedule_full_highlight()
+        self._focus_text_view()
+
+    def _on_diagram_save_and_insert(self, diagram: Diagram) -> None:
+        """Save diagram and insert its reference into the current note."""
+        self.diagram_manager.save(diagram)
+        self._on_diagram_close()
+        self._insert_diagram_reference(diagram.id)
+
+    def _on_diagram_close(self) -> None:
+        """Close the diagram editor and return to the previous note."""
+        if self.diagram_view:
+            self.diagram_view.save_if_dirty()
+        target = "split_editor" if self.split_editor is not None else "editor"
+        self.content_stack.set_visible_child_name(target)
+        title = self.current_note if self.current_note else tr("Tokyo Notes")
+        self.nav.update_header_ui(title, is_editor=True)
+        self._set_backlinks_visible(True)
+        self.current_open_diagram = None
+        self._has_images = True
+        self._reschedule("image_timeout_id", 200, self.do_delayed_images)
+
+    def _on_diagram_delete(self, diagram_id: str) -> None:
+        """Delete a diagram by ID and return to editor."""
+        self._show_toast(tr("Diagram deleted"))
+        self.diagram_manager.delete(diagram_id)
+        self._on_diagram_close()
 
     # Note list / sidebar
 

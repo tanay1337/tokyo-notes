@@ -39,6 +39,7 @@ def get_commands() -> list[tuple[str, str, str, str | None]]:
         (tr("Deadline"), "@deadline", tasks, tr("opens date picker")),
         (tr("External Link"), "[text](url)", links, None),
         (tr("Image"), "![alt](url)", links, None),
+        (tr("Diagram"), "![diagram]()", blocks, tr("inserts interactive diagram")),
     ]
 
 

@@ -9,8 +9,9 @@ from gi.repository import Gtk
 
 from core.translations import tr
 
-# Sentinel value for special handler buttons in _GROUPS.
+# Sentinel values for special handler buttons in _GROUPS.
 _FLASHCARD = object()
+_DIAGRAM = object()
 
 # Groups: (prefix, suffix, tooltip, icon_file)
 # A None entry inserts a visual separator between groups.
@@ -45,6 +46,7 @@ _GROUPS: list[list[tuple[Any, str, str, str]] | None] = [
     [
         ("[Link](url)", "", "Insert link", "link.svg"),
         ("![Alt](url)", "", "Insert image", "image.svg"),
+        (_DIAGRAM, "", "Insert diagram", "diagram.svg"),
     ],
 ]
 

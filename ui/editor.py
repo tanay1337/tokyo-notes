@@ -640,6 +640,11 @@ class Editor(Gtk.Box):
                 self.text_view._skip_focus_restore = True
                 self._pending_slash_action = "deadline"
                 return
+            if command_label == "Diagram":
+                self.text_view._skip_focus_restore = True
+                if callable(getattr(self, "_on_diagram_slash", None)):
+                    GLib.idle_add(self._on_diagram_slash)
+                return
             if command_label in ("Code Block", "Flashcard", "Divider"):
                 self.buffer.insert_at_cursor(insert_text)
                 if command_label in ("Code Block", "Flashcard"):
@@ -717,6 +722,68 @@ class Editor(Gtk.Box):
             except Exception as exc:
                 logger.warning("Failed to drop image %s: %s", uri, exc)
         return inserted
+
+    # Diagram embed
+
+    def _build_diagram_embed(self, diagram_id: str) -> Gtk.Widget | None:
+        """Build a clickable preview widget for a diagram reference."""
+        dm = getattr(self, "_diagram_manager", None)
+        pixbuf: GdkPixbuf.Pixbuf | None = None
+        if dm is not None:
+            diagram = dm.load(diagram_id)
+            if diagram is not None:
+                from ui.diagram_view import render_diagram_preview
+
+                ctx = self.text_view.get_style_context()
+                ok_bg, bg = ctx.lookup_color("editor_bg")
+                if not ok_bg:
+                    ok_bg, bg = ctx.lookup_color("theme_base_color")
+                ok_fg, fg = ctx.lookup_color("theme_fg_color")
+
+                editor_width = self.text_view.get_allocated_width()
+                max_w = 400
+                max_h = 300
+                if editor_width > 0:
+                    max_w = max(400, min(int(editor_width * 0.47), 700))
+                    max_h = max(300, int(max_w * 0.6))
+
+                pixbuf = render_diagram_preview(
+                    diagram,
+                    max_width=max_w,
+                    max_height=max_h,
+                    bg_color=bg if ok_bg else None,
+                    text_color=fg if ok_fg else None,
+                )
+
+        if pixbuf is not None:
+            img = Gtk.Picture.new_for_pixbuf(pixbuf)
+            img.set_halign(Gtk.Align.START)
+            img.set_size_request(pixbuf.get_width(), pixbuf.get_height())
+            img.set_cursor(Gdk.Cursor.new_from_name("pointer"))
+            gesture = Gtk.GestureClick.new()
+            gesture.connect("pressed", lambda *_: self._open_diagram(diagram_id))
+            img.add_controller(gesture)
+            img.set_tooltip_text(tr("Click to edit diagram"))
+            return img
+
+        # Fallback: placeholder label
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box.add_css_class("diagram-embed")
+        box.set_halign(Gtk.Align.START)
+        label = Gtk.Label(label=tr("Diagram: {id}").format(id=diagram_id))
+        label.set_hexpand(True)
+        box.append(label)
+        open_btn = Gtk.Button(label=tr("Open"))
+        open_btn.add_css_class("pill")
+        open_btn.add_css_class("suggested-action")
+        open_btn.connect("clicked", lambda *_: self._open_diagram(diagram_id))
+        box.append(open_btn)
+        return box
+
+    def _open_diagram(self, diagram_id: str) -> None:
+        callback = getattr(self, "_on_open_diagram", None)
+        if callable(callback):
+            callback(diagram_id)
 
     # Image rendering
 
@@ -848,6 +915,7 @@ class Editor(Gtk.Box):
                 matches = list(image_re.finditer(text))
 
                 for match in reversed(matches):
+                    alt_text = match.group(1)
                     img_path = match.group(2)
 
                     self.buffer.insert(
@@ -857,6 +925,14 @@ class Editor(Gtk.Box):
                         self.buffer.get_iter_at_offset(match.start())
                     )
                     self.image_anchors.append(anchor)
+
+                    if alt_text == "diagram" and img_path:
+                        diagram_id = img_path
+                        embed = self._build_diagram_embed(diagram_id)
+                        if embed:
+                            self.text_view.add_child_at_anchor(embed, anchor)
+                            self.image_widgets.append(embed)
+                        continue
 
                     pixbuf = None
                     if img_path.startswith(("http://", "https://")):
