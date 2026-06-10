@@ -15,6 +15,7 @@ dependencies = [
     "pycairo==1.29.0",
     "cryptography==48.0.0",
     "gitpython>=3.1",
+    "pyspellchecker>=0.8.0",
 ]
 
 [project.optional-dependencies]

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from gi.repository import Gdk, Gtk, Pango
+
+if TYPE_CHECKING:
+    from core.spell_checker import SpellChecker
 
 from core.utils import (
     BLOCKQUOTE_RE,
@@ -64,6 +67,8 @@ class MarkdownHighlighter:
         self.theme_manager = theme_manager
         self.enabled = True
         self.theme_name = theme_name
+        self.spell_checker: SpellChecker | None = None
+        self.spell_check_enabled: bool = False
 
         # Standard patterns imported from core.utils to ensure consistency.
         self.re_fenced_code = FENCED_CODE_RE
@@ -208,6 +213,7 @@ class MarkdownHighlighter:
         tag("invisible", invisible=True)
         tag("transparent", foreground_rgba=Gdk.RGBA(0, 0, 0, 0))
         tag("dim", foreground=c["dim"])
+        tag("misspelled", underline=Pango.Underline.ERROR)
 
     def update_theme(self, theme_name: str) -> None:
         self.theme_name = theme_name
@@ -423,6 +429,10 @@ class MarkdownHighlighter:
             self.apply_tag("body", line_start_offset, line_end_offset)
 
             self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
+
+        if self.spell_checker and self.spell_check_enabled:
+            code_block_lines = self._code_block_line_set()
+            self._spell_check_pass(start_line, end_line, code_block_lines)
 
     # Helpers
 
@@ -727,6 +737,74 @@ class MarkdownHighlighter:
             self._apply_line_tags(
                 line_start, line_end, line, md, is_cursor=(line_num == cursor_line)
             )
+
+        if self.spell_checker and self.spell_check_enabled:
+            self._spell_check_pass(start_line, end_line + 1, code_block_lines)
+
+    def set_spell_checker(
+        self, spell_checker: SpellChecker | None, enabled: bool = True
+    ) -> None:
+        self.spell_checker = spell_checker
+        self.spell_check_enabled = enabled if spell_checker else False
+        if self.enabled:
+            self.highlight()
+
+    _SPELL_WORD_RE = re.compile(r"[a-zA-Z\u00C0-\u024F]+(?:['\u2019][a-zA-Z]+)?")
+    _INLINE_CODE_RE = re.compile(r"`[^`]*`")
+    _AUTOLINK_RE = re.compile(r"<[^>]+>")
+    _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]+\)")
+    _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]+\)")
+
+    def _spell_check_pass(
+        self, start_line: int, end_line: int, code_block_lines: set[int] | None = None
+    ) -> None:
+        """Apply misspelled tag to misspelled words in [start_line, end_line)."""
+        if not self.spell_checker or not self.spell_check_enabled:
+            return
+
+        if code_block_lines is None:
+            code_block_lines = self._code_block_line_set()
+
+        for line_num in range(start_line, end_line):
+            if line_num in code_block_lines:
+                continue
+            it = self.get_iter_at_line(line_num)
+            it_end = it.copy()
+            if not it_end.ends_line():
+                it_end.forward_to_line_end()
+            line = self.buffer.get_text(it, it_end, True)
+            line_start = it.get_offset()
+
+            skip_ranges: set[tuple[int, int]] = set()
+            for pattern in (
+                self._INLINE_CODE_RE,
+                self._AUTOLINK_RE,
+                self._MD_LINK_RE,
+                self._IMAGE_RE,
+            ):
+                for m in pattern.finditer(line):
+                    skip_ranges.add((m.start(), m.end()))
+
+            def in_skip(pos: int) -> bool:
+                for s, e in skip_ranges:
+                    if s <= pos < e:
+                        return True
+                return False
+
+            for m in self._SPELL_WORD_RE.finditer(line):
+                word = m.group()
+                if len(word) <= 1:
+                    continue
+                if word.isupper() and len(word) > 2:
+                    continue
+                if any(ch.isdigit() for ch in word):
+                    continue
+                word_start = line_start + m.start()
+                word_end = line_start + m.end()
+                if in_skip(m.start()):
+                    continue
+                if not self.spell_checker.check(word):
+                    self.apply_tag("misspelled", word_start, word_end)
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled

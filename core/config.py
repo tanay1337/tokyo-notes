@@ -31,6 +31,8 @@ _DEFAULTS: dict[str, Any] = {
     "font_family": None,
     "font_size": None,
     "language": "en",
+    "spell_check_enabled": True,
+    "spell_check_language": "en",
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).

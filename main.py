@@ -21,6 +21,7 @@ from core.navigation import NavigationController
 from core.note_lifecycle import NoteLifecycleManager
 from core.search import SearchController
 from core.shortcuts import setup_shortcuts
+from core.spell_checker import SpellChecker
 from core.startup_checks import validate_notes_folder
 from core.storage import NotesManager
 from core.template_manager import TemplateManager
@@ -78,6 +79,7 @@ class TokyoNotes(Adw.Application):
         self.current_note: str | None = None
         self.is_loading: bool = False
         self.highlighter: MarkdownHighlighter | None = None
+        self.spell_checker: SpellChecker | None = None
         self.highlight_timeout_id: int = 0
         self.rename_timeout_id: int = 0
         self.sidebar_update_timeout_id: int = 0
@@ -1425,6 +1427,15 @@ class TokyoNotes(Adw.Application):
         )
         self.highlighter.highlight()
 
+        # Spell checker
+        self.spell_checker = SpellChecker(
+            language=self.cfg.get("spell_check_language", "en"),
+        )
+        self.highlighter.set_spell_checker(
+            self.spell_checker, self.cfg.get("spell_check_enabled", True)
+        )
+        self.editor.highlighter = self.highlighter
+
         self.last_cursor_line = -1
         self._has_selection = False
         self.mark_set_handler_id = self.buffer.connect("mark-set", self._on_mark_set)
@@ -1512,6 +1523,19 @@ class TokyoNotes(Adw.Application):
             self._update_toolbar_versioning_buttons()
         elif key == "language":
             self._show_language_restart_dialog()
+        elif key == "spell_check_enabled":
+            if self.highlighter and self.spell_checker:
+                self.highlighter.set_spell_checker(self.spell_checker, enabled=value)
+            self.editor.invalidate_spell_cache()
+        elif key == "spell_check_language":
+            if self.spell_checker:
+                self.spell_checker.load_dictionary(value)
+            if self.highlighter:
+                self.highlighter.set_spell_checker(
+                    self.spell_checker,
+                    enabled=self.cfg.get("spell_check_enabled", True),
+                )
+            self.editor.invalidate_spell_cache()
 
     def _show_language_restart_dialog(self) -> None:
         dialog = Adw.MessageDialog(

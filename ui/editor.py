@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import logging
 import os
@@ -17,7 +18,7 @@ from typing import Any, Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 
 from core.translations import tr
 from core.utils import MD_URL_BALANCED
@@ -98,12 +99,35 @@ class Editor(Gtk.Box):
         self.text_view.add_controller(key_ctrl)
         self.controller = key_ctrl
 
+        spell_actions = Gio.SimpleActionGroup()
+        replace_action = Gio.SimpleAction.new("replace", GLib.VariantType("s"))
+        replace_action.connect("activate", self._on_spell_replace)
+        spell_actions.add_action(replace_action)
+        add_dict_action = Gio.SimpleAction.new("add-dict", None)
+        add_dict_action.connect("activate", self._on_spell_add_dict)
+        spell_actions.add_action(add_dict_action)
+        ignore_action = Gio.SimpleAction.new("ignore", None)
+        ignore_action.connect("activate", self._on_spell_ignore)
+        spell_actions.add_action(ignore_action)
+        self.insert_action_group("spell", spell_actions)
+
+        self._spell_offset: int = 0
+        self._spell_end_offset: int = 0
+        self._spell_word: str = ""
+        self._last_suggest_word: str = ""
+        self._last_suggestions: list[str] = []
+        self.highlighter: Any = None
+        self._spell_updating: bool = False
+        self._menu_update_pending: int = 0
+        self._suggest_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
         self.buffer: Gtk.TextBuffer = self.text_view.get_buffer()
         self.buffer.connect("insert-text", self.on_insert_text)
         self.changed_handler_id = self.buffer.connect("changed", on_text_changed)
         self.cursor_handler_id = self.buffer.connect(
             "notify::cursor-position", on_cursor_moved
         )
+        self.buffer.connect("notify::cursor-position", self._on_spell_cursor_moved)
 
         scrolled_editor.set_child(self.text_view)
 
@@ -135,6 +159,164 @@ class Editor(Gtk.Box):
         self._image_update_done_callback: Callable | None = None
 
         self._picker_open = False
+
+    def _on_spell_cursor_moved(
+        self,
+        buffer: Gtk.TextBuffer,
+        pspec: GLib.ParamSpec | None = None,
+    ) -> None:
+        """Debounced handler — schedules a deferred spell menu update."""
+        if self._menu_update_pending:
+            GLib.source_remove(self._menu_update_pending)
+        self._menu_update_pending = GLib.timeout_add(
+            100, self._update_spell_extra_menu, buffer
+        )
+
+    @staticmethod
+    def _should_suggest(word: str) -> bool:
+        """Return False if *word* is unlikely to be a real-language word."""
+        if len(word) > 20:
+            return False
+        if any(ch.isdigit() for ch in word):
+            return False
+        return True
+
+    def _update_spell_extra_menu(self, buffer: Gtk.TextBuffer) -> bool:
+        """Update the extra context menu with spell suggestions for the cursor word."""
+        self._menu_update_pending = 0
+        if self._spell_updating:
+            return GLib.SOURCE_REMOVE
+        self._spell_updating = True
+        try:
+            has_suggestions = False
+            word = ""
+            if (
+                self.highlighter is not None
+                and self.highlighter.spell_check_enabled
+                and self.highlighter.spell_checker is not None
+            ):
+                cursor = buffer.get_iter_at_mark(buffer.get_insert())
+
+                start_it = cursor.copy()
+                if not start_it.starts_word():
+                    start_it.backward_word_start()
+                end_it = cursor.copy()
+                if not end_it.ends_word():
+                    end_it.forward_word_end()
+
+                if start_it.get_offset() < end_it.get_offset():
+                    word = buffer.get_text(start_it, end_it, True).strip()
+                    if len(word) > 1:
+                        tag_iter = start_it.copy()
+                        is_misspelled = False
+                        while tag_iter.compare(end_it) < 0:
+                            tags = tag_iter.get_tags()
+                            if any(
+                                t.get_property("name") == "misspelled" for t in tags
+                            ):
+                                is_misspelled = True
+                                break
+                            tag_iter.forward_char()
+
+                        if is_misspelled:
+                            self._spell_offset = start_it.get_offset()
+                            self._spell_end_offset = end_it.get_offset()
+                            self._spell_word = word
+                            has_suggestions = True
+
+            menu = self.text_view.get_extra_menu()
+            if menu is None and has_suggestions:
+                menu = Gio.Menu()
+                self.text_view.set_extra_menu(menu)
+
+            if menu is not None:
+                while menu.get_n_items() > 0:
+                    menu.remove(0)
+
+                if has_suggestions:
+                    if word == self._last_suggest_word:
+                        suggestions = self._last_suggestions
+                    elif not self._should_suggest(word):
+                        self._last_suggest_word = word
+                        self._last_suggestions = []
+                        suggestions = []
+                    else:
+                        self._last_suggest_word = word
+                        self._last_suggestions = []
+                        suggestions = []
+                        self._suggest_executor.submit(self._suggest_worker, word)
+
+                    suggestions_section = Gio.Menu()
+                    for sug in suggestions:
+                        item = Gio.MenuItem.new(sug, "spell.replace")
+                        item.set_attribute_value("target", GLib.Variant("s", sug))
+                        suggestions_section.append_item(item)
+
+                    actions_section = Gio.Menu()
+                    actions_section.append("Add to Dictionary", "spell.add-dict")
+                    actions_section.append("Ignore", "spell.ignore")
+
+                    menu.append_section(None, suggestions_section)
+                    menu.append_section(None, actions_section)
+        except Exception:
+            logger.warning("Spell extra menu update failed", exc_info=True)
+        finally:
+            self._spell_updating = False
+        return GLib.SOURCE_REMOVE
+
+    def _suggest_worker(self, word: str) -> None:
+        """Run spell suggest() in a background thread."""
+        try:
+            sp = self.highlighter.spell_checker
+            suggestions = sp.suggest(word) if sp else []
+        except Exception:
+            suggestions = []
+        GLib.idle_add(self._suggest_ready, word, suggestions)
+
+    def _suggest_ready(self, word: str, suggestions: list[str]) -> bool:
+        """Callback on main thread when background suggest completes."""
+        if word != self._last_suggest_word:
+            return GLib.SOURCE_REMOVE
+        self._last_suggestions = suggestions
+        self._on_spell_cursor_moved(self.buffer, None)
+        return GLib.SOURCE_REMOVE
+
+    def invalidate_spell_cache(self) -> None:
+        """Clear cached suggestions (call when spell config changes)."""
+        self._last_suggest_word = ""
+        self._last_suggestions = []
+
+    def _on_spell_replace(
+        self, action: Gio.SimpleAction, variant: GLib.Variant | None
+    ) -> None:
+        if variant is None:
+            return
+        sug = variant.get_string()
+        start = self.buffer.get_iter_at_offset(self._spell_offset)
+        end = self.buffer.get_iter_at_offset(self._spell_end_offset)
+        self.buffer.begin_user_action()
+        self.buffer.delete(start, end)
+        self.buffer.insert(self.buffer.get_iter_at_offset(self._spell_offset), sug, -1)
+        self.buffer.end_user_action()
+        if self.highlighter:
+            self.highlighter.highlight()
+        self._on_spell_cursor_moved(self.buffer, None)
+
+    def _on_spell_add_dict(
+        self, action: Gio.SimpleAction, variant: GLib.Variant | None
+    ) -> None:
+        if self.highlighter and self.highlighter.spell_checker:
+            self.highlighter.spell_checker.add_to_user_dict(self._spell_word)
+            self.highlighter.highlight()
+        self._on_spell_cursor_moved(self.buffer, None)
+
+    def _on_spell_ignore(
+        self, action: Gio.SimpleAction, variant: GLib.Variant | None
+    ) -> None:
+        if self.highlighter and self.highlighter.spell_checker:
+            self.highlighter.spell_checker.ignore_word(self._spell_word)
+            self.highlighter.highlight()
+        self._on_spell_cursor_moved(self.buffer, None)
 
     def clear_images(self) -> None:
         """Properly remove all image widgets and clear anchor/widget lists."""

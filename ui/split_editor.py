@@ -104,7 +104,13 @@ class SplitEditor(Gtk.Box):
             editor.buffer, app.theme_manager, app.cfg.get("theme")
         )
         highlighter.highlight()
+        if app.spell_checker:
+            highlighter.set_spell_checker(
+                app.spell_checker,
+                enabled=app.cfg.get("spell_check_enabled", True),
+            )
         info.highlighter = highlighter
+        editor.highlighter = highlighter
 
         gesture = Gtk.GestureClick.new()
         gesture.set_button(1)
@@ -235,6 +241,12 @@ class SplitEditor(Gtk.Box):
             app.buffer, app.theme_manager, app.cfg.get("theme")
         )
         app.highlighter.highlight()
+        if app.spell_checker:
+            app.highlighter.set_spell_checker(
+                app.spell_checker,
+                enabled=app.cfg.get("spell_check_enabled", True),
+            )
+        app.editor.highlighter = app.highlighter
 
         if other.note_name and not other.note_name.startswith(".template:"):
             self._select_and_load_note(app, other.note_name, other.editor.buffer)

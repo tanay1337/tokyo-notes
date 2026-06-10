@@ -11,6 +11,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango
+from spellchecker import SpellChecker as PySpellChecker
 
 from core.theme_manager import THEMES
 from core.translations import list_languages, tr
@@ -182,6 +183,15 @@ class SettingsView(Gtk.Box):
                 "create_on_link_click",
             )
         )
+        group.add(
+            self._make_switch_row(
+                tr("Spell Check"),
+                tr("Highlight misspelled words with a red squiggly underline"),
+                self._initial_values.get("spell_check_enabled", True),
+                "spell_check_enabled",
+            )
+        )
+        group.add(self._make_spell_language_row())
         return group
 
     def _build_dashboard_group(self) -> Adw.PreferencesGroup:
@@ -680,6 +690,32 @@ class SettingsView(Gtk.Box):
         )
         return self._language_row
 
+    def _make_spell_language_row(self) -> Adw.ComboRow:
+        """Create a dropdown for spell-check language selection."""
+        sp_langs = PySpellChecker.languages()
+        model = Gtk.StringList()
+        for code in sp_langs:
+            model.append(code)
+        current = self._initial_values.get("spell_check_language", "en")
+        try:
+            idx = sp_langs.index(current)
+        except ValueError:
+            idx = sp_langs.index("en") if "en" in sp_langs else 0
+
+        row = Adw.ComboRow(
+            title=tr("Spell Check Language"),
+            subtitle=tr("Dictionary language for spell checking"),
+            model=model,
+        )
+        row.set_selected(idx)
+        row.connect(
+            "notify::selected",
+            lambda r, _pspec: self.on_config_changed(
+                "spell_check_language", sp_langs[r.get_selected()]
+            ),
+        )
+        return row
+
     def _make_theme_row(self, theme: dict[str, str], is_active: bool) -> Gtk.ListBoxRow:
         """Create a theme selection card row with color palette preview."""
         row = Gtk.ListBoxRow()
@@ -798,6 +834,8 @@ class SettingsView(Gtk.Box):
             "font_family": None,
             "font_size": None,
             "language": "en",
+            "spell_check_enabled": True,
+            "spell_check_language": "en",
         }
         for key, value in defaults.items():
             self.on_config_changed(key, value)

@@ -53,7 +53,7 @@ def configure_logging() -> None:
     log_path = log_dir / "tokyo-notes.log"
 
     root = logging.getLogger()
-    root.setLevel(logging.INFO)  # handlers apply their own level filters
+    root.setLevel(logging.DEBUG)  # handlers do the actual filtering
 
     fmt = SanitizingFormatter(
         "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
