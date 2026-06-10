@@ -187,6 +187,8 @@ class NavigationController:
                     "font_family": app.cfg.get("font_family"),
                     "font_size": app.cfg.get("font_size"),
                     "language": app.cfg.get("language", "en"),
+                    "spell_check_enabled": app.cfg.get("spell_check_enabled", True),
+                    "spell_check_language": app.cfg.get("spell_check_language", "en"),
                     "has_encrypted_notes": has_encrypted,
                     "git_available": app.git_controller.is_git_installed(),
                     "git_enabled": app.cfg.get("git_enabled", False),
