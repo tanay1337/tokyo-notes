@@ -28,6 +28,8 @@ from ui.slash_picker import SlashPicker
 
 logger = logging.getLogger(__name__)
 
+_DIAGRAM_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+
 
 # Patterns checked against the text typed so far on the current line.
 # Each entry is (compiled_regex, kind_string). Order matters: task must
@@ -915,7 +917,6 @@ class Editor(Gtk.Box):
                 matches = list(image_re.finditer(text))
 
                 for match in reversed(matches):
-                    alt_text = match.group(1)
                     img_path = match.group(2)
 
                     self.buffer.insert(
@@ -926,9 +927,12 @@ class Editor(Gtk.Box):
                     )
                     self.image_anchors.append(anchor)
 
-                    if alt_text == "diagram" and img_path:
-                        diagram_id = img_path
-                        embed = self._build_diagram_embed(diagram_id)
+                    dm = getattr(self, "_diagram_manager", None)
+                    diagram = None
+                    if dm is not None and img_path and _DIAGRAM_ID_RE.match(img_path):
+                        diagram = dm.load(img_path)
+                    if diagram is not None:
+                        embed = self._build_diagram_embed(diagram.id)
                         if embed:
                             self.text_view.add_child_at_anchor(embed, anchor)
                             self.image_widgets.append(embed)
