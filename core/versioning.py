@@ -331,16 +331,20 @@ class GitVersionController:
         if not self.is_available():
             return
         try:
-            old_file = self._note_filename(old_name)
             new_file = self._note_filename(new_name)
-            old_path = self.notes_dir / old_file
-            new_path = self.notes_dir / new_file
 
-            if old_path.exists():
-                self._repo.index.add([old_file])
-                self._repo.index.remove([old_file], working_tree=True)
-            elif not old_path.exists() and new_path.exists():
-                self._repo.index.add([new_file])
+            # Always stage the new file (it exists on disk after
+            # storage.rename_note has run).
+            self._repo.index.add([new_file])
+
+            # Remove old file from index regardless of whether it still
+            # exists on disk.  Try both .md and .md.enc variants since we
+            # don't know which was previously tracked.
+            for variant in (f"{old_name}.md", f"{old_name}.md.enc"):
+                try:
+                    self._repo.index.remove([variant], working_tree=False)
+                except (git.GitCommandError, ValueError):
+                    pass
 
             logger.debug("Git rename staged: %s -> %s", old_name, new_name)
         except (git.GitCommandError, ValueError) as e:

@@ -2515,6 +2515,7 @@ class TokyoNotes(Adw.Application):
 
         if self.git_controller.is_available():
             self.git_controller.rename_note(note_name, new_name)
+            self.git_controller.auto_commit(new_name)
 
         if self.current_note == note_name:
             self.current_note = new_name
