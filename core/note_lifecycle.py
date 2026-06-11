@@ -315,13 +315,14 @@ class NoteLifecycleManager:
         if app.current_note == note_name:
             for attr in ("rename_timeout_id", "sidebar_update_timeout_id"):
                 app._safe_source_remove(attr)
+        is_enc = app.notes_manager.is_encrypted(note_name)
         app.notes_manager.delete_note(note_name)
         app.cfg.remove_note(note_name)
 
         if app.cfg.get("git_enabled", False):
 
             def _do_git_del():
-                app.git_controller.commit_deletion(note_name)
+                app.git_controller.commit_deletion(note_name, enc=is_enc)
 
             app._run_on_io_thread(_do_git_del)
         app.sidebar.maybe_exit_archive_view()
@@ -503,7 +504,7 @@ class NoteLifecycleManager:
 
     def on_text_changed(self, buffer: Gtk.TextBuffer) -> None:
         app = self.app
-        if app.is_loading or not app.current_note or app.editor._image_update_running:
+        if app.is_loading or not app.current_note:
             return
         app._buffer_mod_counter += 1
         app._reset_lock_timer_on_activity()
@@ -511,5 +512,6 @@ class NoteLifecycleManager:
             "sidebar_update_timeout_id", 150, self._update_sidebar_and_stats
         )
         app._reschedule("highlight_timeout_id", 100, app.do_delayed_highlight)
-        app._reschedule("image_timeout_id", 2000, app.do_delayed_images)
+        if not app.editor._image_update_running:
+            app._reschedule("image_timeout_id", 2000, app.do_delayed_images)
         app._reschedule("rename_timeout_id", 1000, self.do_delayed_save)

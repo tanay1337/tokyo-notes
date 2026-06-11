@@ -481,7 +481,7 @@ class NotesManager:
         note_path.parent.mkdir(parents=True, exist_ok=True)
         safe_prefix = f".{name.replace('/', '_')}-"
         fd, tmp_name = tempfile.mkstemp(
-            dir=self.notes_dir, prefix=safe_prefix, suffix=".tmp"
+            dir=note_path.parent, prefix=safe_prefix, suffix=".tmp"
         )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -560,7 +560,7 @@ class NotesManager:
         enc_path.parent.mkdir(parents=True, exist_ok=True)
         safe_prefix = f".{name.replace('/', '_')}-"
         fd, tmp_name = tempfile.mkstemp(
-            dir=self.notes_dir, prefix=safe_prefix, suffix=".tmp.enc"
+            dir=enc_path.parent, prefix=safe_prefix, suffix=".tmp.enc"
         )
         try:
             with os.fdopen(fd, "wb") as f:

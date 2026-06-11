@@ -168,12 +168,20 @@ class GitVersionController:
             logger.error("Auto-commit failed for '%s': %s", note_name, e)
             return False
 
-    def commit_deletion(self, note_name: str) -> bool:
+    def commit_deletion(self, note_name: str, enc: bool = False) -> bool:
         """Commit the deletion of a note file."""
         if not self.is_available():
             return False
         try:
-            filename = self._note_filename(note_name)
+            ext = ".md.enc" if enc else ".md"
+            filename = f"{note_name}{ext}"
+            # Also try to remove the opposite extension from the index in case the
+            # plain/encrypted variant was previously tracked.
+            alt_variant = f"{note_name}.md" if enc else f"{note_name}.md.enc"
+            try:
+                self._repo.index.remove([alt_variant], working_tree=False)
+            except (git.GitCommandError, ValueError):
+                pass
 
             self._repo.index.remove([filename], working_tree=False)
             self._repo.index.commit(f"delete: {note_name}")
