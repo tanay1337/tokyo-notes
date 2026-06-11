@@ -659,10 +659,8 @@ class TokyoNotes(Adw.Application):
     def _set_buffer_text(self, content: str) -> None:
         """Set editor buffer content without triggering handlers."""
         handlers_to_block = []
-        if hasattr(self, "changed_handler_id") and self.changed_handler_id:
+        if self.changed_handler_id:
             handlers_to_block.append((self.buffer, self.changed_handler_id))
-        elif hasattr(self, "editor") and hasattr(self.editor, "changed_handler_id"):
-            handlers_to_block.append((self.buffer, self.editor.changed_handler_id))
 
         if hasattr(self, "mark_set_handler_id") and self.mark_set_handler_id:
             handlers_to_block.append((self.buffer, self.mark_set_handler_id))

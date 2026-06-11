@@ -23,6 +23,7 @@ from core.utils import (
     confirm_destructive_dialog,
     get_snippet,
     is_entry_focused,
+    split_note_path,
     strip_anchors_for_save,
 )
 
@@ -43,6 +44,17 @@ class NoteLifecycleManager:
 
     def initial_load(self) -> bool:
         app = self.app
+        notes = app.notes_manager.get_notes()
+        if notes:
+            most_recent = notes[0]
+            # Expand the folder tree containing the most recent note so
+            # _select_sidebar_row can find its row in the listbox.
+            folder, _ = split_note_path(most_recent)
+            if folder:
+                parts = folder.split("/")
+                for i in range(len(parts)):
+                    ancestor = "/".join(parts[: i + 1])
+                    app.sidebar._folder_expanded[ancestor] = True
         app.refresh_list()
         notes = app.notes_manager.get_notes()
         if notes:
