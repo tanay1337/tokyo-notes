@@ -219,7 +219,7 @@ class GitVersionController:
             rel_path = filename
             log_output = self._repo.git.log(
                 "--follow",
-                "--format=%H|%ct|%s",
+                "--format=%H%x00%ct%x00%s",
                 f"--max-count={max_count}",
                 "--",
                 rel_path,
@@ -231,7 +231,7 @@ class GitVersionController:
             for line in log_output.strip().split("\n"):
                 if not line.strip():
                     continue
-                parts = line.split("|", 2)
+                parts = line.split("\0", 2)
                 if len(parts) < 3:
                     continue
                 hexsha, timestamp_str, message = parts
@@ -267,6 +267,9 @@ class GitVersionController:
             return ""
         try:
             filename = self._note_filename(note_name)
+            # Binary diff of encrypted ciphertext is not human-readable
+            if filename.endswith(".md.enc"):
+                return ""
             rel_path = filename
 
             commit_obj = self._repo.commit(commit_hexsha)
@@ -288,16 +291,22 @@ class GitVersionController:
             logger.error("Diff failed for '%s' at %s: %s", note_name, commit_hexsha, e)
             return ""
 
-    def restore(self, commit_hexsha: str, note_name: str) -> str | None:
+    def restore(self, commit_hexsha: str, note_name: str) -> str | bytes | None:
         """Return the content of a note file as it was at a given commit.
 
-        Returns the file content as a string, or None on error.
+        Returns str for plain-text notes and bytes for encrypted notes,
+        or None on error.
         """
         if not self.is_available():
             return None
         try:
             filename = self._note_filename(note_name)
-            content = self._repo.git.show(f"{commit_hexsha}:{filename}")
+            if filename.endswith(".md.enc"):
+                content: str | bytes = self._repo.git.show(
+                    f"{commit_hexsha}:{filename}", stdout_as_string=False
+                )
+            else:
+                content = self._repo.git.show(f"{commit_hexsha}:{filename}")
             return content
         except (git.GitCommandError, ValueError) as e:
             logger.error(

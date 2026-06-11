@@ -237,14 +237,20 @@ class TokyoNotes(Adw.Application):
         popover.set_parent(parent)
         popover.popup()
 
-    def _on_restore_version(self, note_name: str, content: str) -> None:
+    def _on_restore_version(self, note_name: str, content: str | bytes) -> None:
         """Restore a note to a previous version."""
         self._flush_pending_save()
-        self.notes_manager.save_note(note_name, content)
+        if isinstance(content, bytes):
+            self.notes_manager.save_encrypted(note_name, content)
+        else:
+            self.notes_manager.save_note(note_name, content)
         if note_name == self.current_note:
-            self._set_buffer_text(content)
-            if self.highlighter:
-                self.highlighter.highlight()
+            if isinstance(content, bytes):
+                self._load_encrypted_note(note_name)
+            else:
+                self._set_buffer_text(content)
+                if self.highlighter:
+                    self.highlighter.highlight()
         self._show_toast(
             tr("'{note_name}' restored to previous version").format(note_name=note_name)
         )

@@ -556,7 +556,6 @@ class NotesManager:
         """Atomic write of ciphertext bytes to *name*.md.enc."""
         import tempfile
 
-        self.validate_name(name)
         enc_path = self.notes_dir / f"{name}.md.enc"
         enc_path.parent.mkdir(parents=True, exist_ok=True)
         safe_prefix = f".{name.replace('/', '_')}-"

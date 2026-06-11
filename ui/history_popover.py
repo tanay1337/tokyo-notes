@@ -272,11 +272,15 @@ class HistoryPopover(Gtk.Popover):
     def _do_load_diff(self, hexsha: str) -> None:
         diff_text = self._git.diff(hexsha, self._note_name)
         if not diff_text:
-            content = self._git.restore(hexsha, self._note_name)
-            if content is not None:
-                diff_text = tr("(initial version)")
-            else:
+            is_enc = self._git._note_filename(self._note_name).endswith(".md.enc")
+            if is_enc:
                 diff_text = tr("(binary file)")
+            else:
+                content = self._git.restore(hexsha, self._note_name)
+                if content is not None:
+                    diff_text = tr("(initial version)")
+                else:
+                    diff_text = tr("(binary file)")
         GLib.idle_add(lambda: self._display_diff(diff_text))
 
     def _display_diff(self, diff_text: str) -> None:
@@ -306,7 +310,7 @@ class HistoryPopover(Gtk.Popover):
         else:
             _do_restore()
 
-    def _finish_restore(self, content: str) -> None:
+    def _finish_restore(self, content: str | bytes) -> None:
         self._on_restore(self._note_name, content)
         self.popdown()
 
