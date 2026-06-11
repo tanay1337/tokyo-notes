@@ -219,12 +219,31 @@ class GitVersionController:
 
         Returns a list of CommitInfo ordered newest-first.
         Follows renames so history is preserved across name changes.
+
+        If the note was deleted and later recreated (at any point in its
+        path history), only commits from the most recent Add commit onward
+        are returned — history from before the deletion is excluded.
         """
         if not self.is_available():
             return []
         try:
             filename = self._note_filename(note_name)
             rel_path = filename
+
+            # Find the birth of the current note life — the most recent
+            # commit where this file (or its rename ancestor) was Added.
+            # If the note was never deleted this will be the original
+            # creation commit; if it was deleted and recreated it will
+            # be the recreate commit.
+            birth_hexsha = self._repo.git.log(
+                "--follow",
+                "--diff-filter=A",
+                "--format=%H",
+                "--max-count=1",
+                "--",
+                rel_path,
+            ).strip()
+
             log_output = self._repo.git.log(
                 "--follow",
                 "--format=%H%x00%ct%x00%s",
@@ -236,6 +255,7 @@ class GitVersionController:
                 return []
 
             commits: list[CommitInfo] = []
+            hit_birth = False
             for line in log_output.strip().split("\n"):
                 if not line.strip():
                     continue
@@ -251,6 +271,18 @@ class GitVersionController:
                         timestamp=dt,
                     )
                 )
+                if birth_hexsha and hexsha == birth_hexsha:
+                    hit_birth = True
+                    break
+
+            # If we hit the birth commit, the commits list already ends at the
+            # start of the current life — return as-is.
+            # If we never hit it (no birth found or it's the only A, which is
+            # the original creation and we walked past it), return all commits.
+            if hit_birth or not birth_hexsha:
+                return commits
+            # birth found but wasn't hit in the output (walked past it) —
+            # shouldn't happen with --follow, but guard anyway
             return commits
         except (git.GitCommandError, ValueError) as e:
             logger.error("History lookup failed for '%s': %s", note_name, e)
@@ -265,11 +297,63 @@ class GitVersionController:
         except git.GitCommandError:
             self._repo.git.hash_object("-t", "tree", "-w", "--stdin", input="")
 
+    def _resolve_path_at(self, commit_hexsha: str, current_path: str) -> str | None:
+        """Find the file path at a specific git commit, following renames.
+
+        Walks the full ``--follow`` history from HEAD so that renames that
+        happened **after** *commit_hexsha* are detected (unlike ``git log
+        --follow -1 <commit>`` which walks backward from that commit and
+        never sees forward renames).
+        """
+        try:
+            output = self._repo.git.log(
+                "--follow", "--format=%H", "--name-only", "--", current_path
+            )
+            lines = output.splitlines()
+
+            # Find the target commit hash in the output
+            target_idx: int | None = None
+            for i, line in enumerate(lines):
+                if line.rstrip() == commit_hexsha:
+                    target_idx = i
+                    break
+            if target_idx is None:
+                return None
+
+            # Skip blank lines after the hash
+            j = target_idx + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+
+            # Collect file paths until the next blank line or next commit hash
+            paths: list[str] = []
+            while j < len(lines):
+                stripped = lines[j].strip()
+                if not stripped:
+                    break
+                if len(stripped) == 40 and all(
+                    c in "0123456789abcdef" for c in stripped
+                ):
+                    break
+                paths.append(stripped)
+                j += 1
+
+            if paths:
+                basename = current_path.rsplit("/", 1)[-1]
+                matching = [
+                    p for p in paths if p.endswith(f"/{basename}") or p == basename
+                ]
+                return (matching or paths)[-1]
+        except git.GitCommandError:
+            pass
+        return None
+
     def diff(self, commit_hexsha: str, note_name: str) -> str:
         """Return the diff for a note file at a given commit (vs its parent).
 
         Returns a string with the diff output.  Handles root commits (no parent)
         by diffing against the empty tree so every line appears as an addition.
+        Follows renames so pre-rename commits produce a meaningful diff.
         """
         if not self.is_available():
             return ""
@@ -294,6 +378,19 @@ class GitVersionController:
                 diff_text = self._repo.git.diff(
                     self._EMPTY_TREE, commit_hexsha, "--", rel_path
                 )
+
+            if not diff_text:
+                old_path = self._resolve_path_at(commit_hexsha, rel_path)
+                if old_path and old_path != rel_path:
+                    if commit_obj.parents:
+                        diff_text = self._repo.git.diff(
+                            f"{parent}..{commit_hexsha}", "--", old_path
+                        )
+                    else:
+                        self._ensure_empty_tree()
+                        diff_text = self._repo.git.diff(
+                            self._EMPTY_TREE, commit_hexsha, "--", old_path
+                        )
             return diff_text
         except (git.GitCommandError, ValueError) as e:
             logger.error("Diff failed for '%s' at %s: %s", note_name, commit_hexsha, e)
@@ -304,23 +401,43 @@ class GitVersionController:
 
         Returns str for plain-text notes and bytes for encrypted notes,
         or None on error.
+
+        Follows renames so pre-rename commits can be restored after a
+        folder rename or note rename.
         """
         if not self.is_available():
             return None
         try:
             filename = self._note_filename(note_name)
-            if filename.endswith(".md.enc"):
-                content: str | bytes = self._repo.git.show(
-                    f"{commit_hexsha}:{filename}", stdout_as_string=False
-                )
-            else:
-                content = self._repo.git.show(f"{commit_hexsha}:{filename}")
-            return content
+            return self._show_at_commit(commit_hexsha, filename)
         except (git.GitCommandError, ValueError) as e:
             logger.error(
                 "Restore failed for '%s' at %s: %s", note_name, commit_hexsha, e
             )
             return None
+
+    def _show_at_commit(self, commit_hexsha: str, filename: str) -> str | bytes:
+        """'git show' a file at a commit, following renames if needed."""
+        try:
+            if filename.endswith(".md.enc"):
+                return self._repo.git.show(
+                    f"{commit_hexsha}:{filename}", stdout_as_string=False
+                )
+            return self._repo.git.show(f"{commit_hexsha}:{filename}")
+        except git.GitCommandError:
+            pass
+        # Current path doesn't exist at this commit (pre-rename).
+        # Resolve the historical path via full --follow walk from HEAD.
+        old_path = self._resolve_path_at(commit_hexsha, filename)
+        if old_path and old_path != filename:
+            if filename.endswith(".md.enc"):
+                return self._repo.git.show(
+                    f"{commit_hexsha}:{old_path}", stdout_as_string=False
+                )
+            return self._repo.git.show(f"{commit_hexsha}:{old_path}")
+        raise git.GitCommandError(
+            "show", f"Could not restore {filename} at {commit_hexsha}"
+        )
 
     def _note_filename(self, note_name: str) -> str:
         """Return the on-disk filename for a note, preferring .md over .md.enc."""

@@ -2187,6 +2187,7 @@ class TokyoNotes(Adw.Application):
 
         dialog.connect("response", _on_response)
         dialog.present()
+        entry.grab_focus()
 
     def _on_new_folder(
         self, action: Gio.SimpleAction, _parameter: GLib.Variant | None
@@ -2232,6 +2233,7 @@ class TokyoNotes(Adw.Application):
 
         dialog.connect("response", _on_response)
         dialog.present()
+        entry.grab_focus()
 
     def _on_archive_folder(
         self, action: Gio.SimpleAction, parameter: GLib.Variant
@@ -2409,11 +2411,55 @@ class TokyoNotes(Adw.Application):
         old_path = self.notes_manager.notes_dir / old_folder
         parent = old_path.parent
         new_path = parent / new_name
+        new_folder = str(new_path.relative_to(self.notes_manager.notes_dir))
+
+        # Capture affected notes before the filesystem rename
+        old_notes = self.notes_manager.get_notes_in_folder(old_folder)
+
         try:
             old_path.rename(new_path)
+
+            # Migrate folder pin
+            if self.cfg.is_folder_pinned(old_folder):
+                self.cfg.pinned_folders.discard(old_folder)
+                self.cfg.pinned_folders.add(new_folder)
+                self.cfg._save_json(
+                    self.cfg.pinned_folders_path, self.cfg.pinned_folders
+                )
+
             self.cfg.set_folder_order(
-                [new_name if f == old_folder else f for f in self.cfg.folder_order]
+                [new_folder if f == old_folder else f for f in self.cfg.folder_order]
             )
+
+            # Git: stage renames and commit for each moved note
+            if self.git_controller.is_available():
+                for old_note in old_notes:
+                    new_note = old_note.replace(old_folder, new_folder, 1)
+                    self.git_controller.rename_note(old_note, new_note)
+                    self.git_controller.auto_commit(new_note)
+
+            # Migrate config + encryption key cache for moved notes
+            for old_note in old_notes:
+                new_note = old_note.replace(old_folder, new_folder, 1)
+                self.cfg.rename_note_in_config(old_note, new_note)
+                if old_note in self._encryption_key_cache:
+                    self._encryption_key_cache[new_note] = (
+                        self._encryption_key_cache.pop(old_note)
+                    )
+
+            # Update current_note if it's inside the renamed folder
+            if self.current_note is not None and self.current_note.startswith(
+                f"{old_folder}/"
+            ):
+                self.current_note = self.current_note.replace(old_folder, new_folder, 1)
+                self.win.set_title(self.current_note.replace("/", " / "))
+
+            # Migrate sidebar expand state
+            if old_folder in self.sidebar._folder_expanded:
+                self.sidebar._folder_expanded[new_folder] = (
+                    self.sidebar._folder_expanded.pop(old_folder)
+                )
+
             self.refresh_list(self.sidebar.search_entry.get_text())
             self._show_toast(
                 tr("Folder renamed to '{new_name}'").format(new_name=new_name)
@@ -2451,6 +2497,18 @@ class TokyoNotes(Adw.Application):
                             self.notes_manager._metadata_cache.pop(note, None)
                             self.notes_manager._mtime_cache.pop(note, None)
                         shutil.rmtree(folder_path)
+
+                        # Commit deletions to git so re-creating a note
+                        # at any path doesn't re-link old history.
+                        if self.git_controller.is_available():
+                            for note in notes:
+                                self.git_controller.commit_deletion(
+                                    note,
+                                    enc=self.notes_manager.is_encrypted(note),
+                                )
+
+                        # Clean up stale folder pin
+                        self.cfg.unpin_folder(folder)
 
                         # If the current note is in the deleted folder, cancel
                         # pending timers and navigate away so no auto-save can
@@ -2571,16 +2629,18 @@ class TokyoNotes(Adw.Application):
                 self.sidebar._folder_expanded.pop(src_folder)
             )
 
-        # Git: stage renames for each moved note
+        # Git: stage renames and commit for each moved note
         if self.git_controller.is_available():
             for old_note in old_notes:
                 new_note = old_note.replace(src_folder, new_folder, 1)
                 self.git_controller.rename_note(old_note, new_note)
+                self.git_controller.auto_commit(new_note)
 
-        # Migrate encryption key cache for moved notes
+        # Migrate config + encryption key cache for moved notes
         for old_note in old_notes:
+            new_note = old_note.replace(src_folder, new_folder, 1)
+            self.cfg.rename_note_in_config(old_note, new_note)
             if old_note in self._encryption_key_cache:
-                new_note = old_note.replace(src_folder, new_folder, 1)
                 self._encryption_key_cache[new_note] = self._encryption_key_cache.pop(
                     old_note
                 )
