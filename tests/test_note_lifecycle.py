@@ -322,8 +322,8 @@ class TestTextChanged:
         app.current_note = "test-note"
         lifecycle = NoteLifecycleManager(app)
         lifecycle.on_text_changed(MagicMock())
-        assert app._reschedule.call_count == 4
-        expected_calls = [150, 100, 2000, 1000]
+        assert app._reschedule.call_count == 5
+        expected_calls = [150, 100, 500, 2000, 1000]
         for call, delay in zip(app._reschedule.call_args_list, expected_calls):
             assert call[0][1] == delay
 

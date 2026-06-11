@@ -502,6 +502,20 @@ class NoteLifecycleManager:
 
         app._run_on_io_thread(_do_git)
 
+    def do_delayed_spell_check(self) -> bool:
+        """Re-check spelling for lines around the cursor (500 ms debounce)."""
+        app = self.app
+        app.spell_check_timeout_id = 0
+        if not app.highlighter or not app.highlighter.spell_check_enabled:
+            return False
+        cursor_iter = app.buffer.get_iter_at_mark(app.buffer.get_insert())
+        cursor_line = cursor_iter.get_line()
+        total = app.buffer.get_line_count()
+        start = max(0, cursor_line - 5)
+        end = min(total, cursor_line + 6)
+        app.highlighter._spell_check_pass(start, end)
+        return False
+
     # Text-changed coordination
 
     def on_text_changed(self, buffer: Gtk.TextBuffer) -> None:
@@ -514,6 +528,7 @@ class NoteLifecycleManager:
             "sidebar_update_timeout_id", 150, self._update_sidebar_and_stats
         )
         app._reschedule("highlight_timeout_id", 100, app.do_delayed_highlight)
+        app._reschedule("spell_check_timeout_id", 500, self.do_delayed_spell_check)
         if not app.editor._image_update_running:
             app._reschedule("image_timeout_id", 2000, app.do_delayed_images)
         app._reschedule("rename_timeout_id", 1000, self.do_delayed_save)

@@ -89,6 +89,7 @@ class TokyoNotes(Adw.Application):
         self.rename_timeout_id: int = 0
         self.sidebar_update_timeout_id: int = 0
         self.image_timeout_id: int = 0
+        self.spell_check_timeout_id: int = 0
         self.search_timeout_id: int = 0
         self.changed_handler_id: int = 0
         self.last_cursor_line: int = -1

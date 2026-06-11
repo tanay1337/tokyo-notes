@@ -738,9 +738,6 @@ class MarkdownHighlighter:
                 line_start, line_end, line, md, is_cursor=(line_num == cursor_line)
             )
 
-        if self.spell_checker and self.spell_check_enabled:
-            self._spell_check_pass(start_line, end_line + 1, code_block_lines)
-
     def set_spell_checker(
         self, spell_checker: SpellChecker | None, enabled: bool = True
     ) -> None:
@@ -791,6 +788,9 @@ class MarkdownHighlighter:
                         return True
                 return False
 
+            # Batch all unique words, then check against dictionary once
+            unique_words: set[str] = set()
+            word_spans: list[tuple[str, int, int]] = []
             for m in self._SPELL_WORD_RE.finditer(line):
                 word = m.group()
                 if len(word) <= 1:
@@ -799,12 +799,14 @@ class MarkdownHighlighter:
                     continue
                 if any(ch.isdigit() for ch in word):
                     continue
-                word_start = line_start + m.start()
-                word_end = line_start + m.end()
                 if in_skip(m.start()):
                     continue
-                if not self.spell_checker.check(word):
-                    self.apply_tag("misspelled", word_start, word_end)
+                unique_words.add(word.lower())
+                word_spans.append((word, line_start + m.start(), line_start + m.end()))
+            known = self.spell_checker.all_known_words(list(unique_words))
+            for word, ws, we in word_spans:
+                if word.lower() not in known:
+                    self.apply_tag("misspelled", ws, we)
 
     def toggle_cursor_markers(self, prev_line: int, curr_line: int) -> None:
         """Toggle marker visibility tags when cursor moves between lines."""
