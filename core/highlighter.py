@@ -806,6 +806,89 @@ class MarkdownHighlighter:
                 if not self.spell_checker.check(word):
                     self.apply_tag("misspelled", word_start, word_end)
 
+    def toggle_cursor_markers(self, prev_line: int, curr_line: int) -> None:
+        """Toggle marker visibility tags when cursor moves between lines."""
+        if prev_line != -1:
+            self._set_line_markers(prev_line, is_cursor=False)
+        self._set_line_markers(curr_line, is_cursor=True)
+
+    def _set_line_markers(self, line_num: int, is_cursor: bool) -> None:
+        """Apply only dim/invisible marker tags for a single line."""
+        it = self.get_iter_at_line(line_num)
+        it_end = it.copy()
+        if not it_end.ends_line():
+            it_end.forward_to_line_end()
+        line = self.buffer.get_text(it, it_end, True)
+        line_start = it.get_offset()
+
+        # Remove existing dim/invisible tags from this line
+        dim_tag = self.buffer.get_tag_table().lookup("dim")
+        inv_tag = self.buffer.get_tag_table().lookup("invisible")
+        if dim_tag:
+            self.buffer.remove_tag(dim_tag, it, it_end)
+        if inv_tag:
+            self.buffer.remove_tag(inv_tag, it, it_end)
+
+        # Code fence markers are always dim regardless of cursor
+        if line.strip().startswith("```"):
+            self.apply_tag("dim", line_start, line_start + len(line.rstrip()))
+            return
+
+        mt = "dim" if is_cursor else "invisible"
+
+        # ATX heading markers
+        for m in self.re_header.finditer(line):
+            self.apply_tag(mt, line_start, line_start + len(m.group(1)))
+
+        # Inline formatting markers
+        for pattern, single in (
+            (self.re_bold1, False),
+            (self.re_bold2, False),
+            (self.re_italic1, True),
+            (self.re_italic2, True),
+            (self.re_code, False),
+            (self.re_strikethrough, False),
+        ):
+            for m in pattern.finditer(line):
+                if single:
+                    self.apply_tag(
+                        mt, line_start + m.start(), line_start + m.start() + 1
+                    )
+                    self.apply_tag(mt, line_start + m.end() - 1, line_start + m.end())
+                else:
+                    self.apply_tag(mt, line_start + m.start(1), line_start + m.end(1))
+                    self.apply_tag(mt, line_start + m.start(3), line_start + m.end(3))
+
+        # Links and images
+        for m in self.re_links.finditer(line):
+            ms = line_start + m.start()
+            me = line_start + m.end()
+            if m.group(1):  # [[wiki link]]
+                if not is_cursor:
+                    self.apply_tag("invisible", ms, ms + 2)
+                    self.apply_tag("invisible", me - 2, me)
+            elif m.group(2):  # ![image](...)
+                alt_s = ms + 2
+                alt_e = alt_s + len(m.group(3))
+                self.apply_tag(mt, ms, ms + 1)
+                self.apply_tag(mt, ms + 1, ms + 2)
+                self.apply_tag(mt, alt_e, alt_e + 1)
+                self.apply_tag(mt, alt_e + 1, alt_e + 2)
+                self.apply_tag(mt, alt_e + 2, me - 1)
+                self.apply_tag(mt, me - 1, me)
+            else:  # [text](url)
+                text_s = ms + 1
+                text_e = text_s + len(m.group(3))
+                self.apply_tag(mt, ms, text_s)
+                self.apply_tag(mt, text_e, me)
+
+        # Autolinks: brackets always invisible
+        for m in self.re_autolink.finditer(line):
+            self.apply_tag(
+                "invisible", line_start + m.start(), line_start + m.start() + 1
+            )
+            self.apply_tag("invisible", line_start + m.end() - 1, line_start + m.end())
+
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
         if enabled:

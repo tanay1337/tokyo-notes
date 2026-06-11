@@ -359,8 +359,10 @@ class NoteLifecycleManager:
         if not app._has_images and "![" in content:
             app._has_images = True
 
-        display_title = derive_display_title(content, current)
-        snippet = get_snippet(content)
+        lines = content.split("\n")
+        head = "\n".join(lines[:10])
+        display_title = derive_display_title(head, current)
+        snippet = get_snippet(head)
 
         row_found = False
         for lb in (app.sidebar.main_list, app.sidebar.archive_list):

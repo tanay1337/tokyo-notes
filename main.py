@@ -2909,20 +2909,20 @@ class TokyoNotes(Adw.Application):
         cursor_line = cursor_iter.get_line()
         if cursor_line == self.last_cursor_line:
             return
-        # While a selection is active, skip per-line highlight passes entirely.
+        # If a delayed highlight was just scheduled by on_text_changed,
+        # skip the synchronous highlight pass so fast typing stays responsive.
+        # The debounced do_delayed_highlight will catch up after 100ms.
+        if self.highlight_timeout_id:
+            self.last_cursor_line = cursor_line
+            return
+        # While a selection is active, skip per-line marker passes entirely.
         # Those passes would reapply the invisible tag to heading markers mid-drag,
         # putting Pango and the btree out of sync and causing the byte-index crash.
         # _on_mark_set will do a full highlight restore once selection clears.
-        if not self._has_selection:
-            if self.last_cursor_line != -1:
-                self.highlighter.highlight(
-                    start_line=self.last_cursor_line,
-                    end_line=self.last_cursor_line + 1,
-                )
-            self.highlighter.highlight(
-                start_line=cursor_line,
-                end_line=cursor_line + 1,
-                cursor_line=cursor_line,
+        if not self._has_selection and not buffer.get_has_selection():
+            self.highlighter.toggle_cursor_markers(
+                prev_line=self.last_cursor_line,
+                curr_line=cursor_line,
             )
         self.last_cursor_line = cursor_line
 
