@@ -42,6 +42,19 @@ _CONTINUATION_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^(\s*[a-zA-Z]\.)\s+"), "ordered_alpha"),
 ]
 
+# Ordered list schemes cycled by nesting level (Notion/Google Docs style).
+_ORDERED_SCHEMES: list[str] = [
+    "ordered",
+    "ordered_alpha",
+    "ordered_roman",
+]
+
+_ORDERED_START_MARKERS: dict[str, str] = {
+    "ordered": "1.",
+    "ordered_alpha": "a.",
+    "ordered_roman": "i.",
+}
+
 
 def _increment_alpha(ch: str) -> str:
     """Increment a single-letter list marker (a→b, ..., y→z, z stays z)."""
@@ -122,6 +135,25 @@ def resolve_image_path(notes_dir: Path, image_path: str) -> Path | None:
     if not full_path.is_relative_to(notes_dir_resolved):
         return None
     return full_path
+
+
+def _get_list_info(
+    line_text: str,
+) -> tuple[re.Match, str, str, str, str] | None:
+    """Match a list line and return (match, p_type, indent, marker, content)."""
+    for pattern, p_type in _CONTINUATION_PATTERNS:
+        match = pattern.match(line_text)
+        if not match:
+            continue
+        marker_only = match.group(1)
+        indent_text = re.match(r"^(\s*)", marker_only).group(1)
+        marker_stripped = marker_only[len(indent_text) :]
+        if p_type == "task":
+            content = match.group(2).lstrip()
+        else:
+            content = line_text[len(marker_only) :].lstrip()
+        return match, p_type, indent_text, marker_stripped, content
+    return None
 
 
 class Editor(Gtk.Box):
@@ -230,6 +262,7 @@ class Editor(Gtk.Box):
         self._picker_open = False
         self._last_list_type: str | None = None
         self._last_list_prefix: str | None = None
+        self._last_marker_at_level: dict[int, tuple[int, str, bool]] = {}
 
     def _on_spell_cursor_moved(
         self,
@@ -464,6 +497,144 @@ class Editor(Gtk.Box):
         self.buffer.insert_at_cursor("\n" + prefix)
         return False
 
+    def _on_tab_key(self, buffer: Gtk.TextBuffer) -> bool:
+        """Indent the current list item by one nesting level."""
+        cursor = buffer.get_iter_at_mark(buffer.get_insert())
+        line_start = cursor.copy()
+        line_start.set_line_offset(0)
+        line_end = cursor.copy()
+        line_end.forward_to_line_end()
+        line_text = buffer.get_text(line_start, line_end, False)
+
+        info = _get_list_info(line_text)
+        if info is None:
+            return False
+
+        _match, p_type, indent_text, marker_stripped, content = info
+        current_level = len(indent_text) // 2
+        new_level = current_level + 1
+        new_indent = "  " * new_level
+
+        if p_type in ("ordered", "ordered_alpha", "ordered_roman"):
+            scheme = _ORDERED_SCHEMES[new_level % len(_ORDERED_SCHEMES)]
+            new_marker = _ORDERED_START_MARKERS[scheme]
+            self._last_list_type = scheme
+        else:
+            new_marker = marker_stripped
+            self._last_list_type = p_type
+
+        new_prefix = new_indent + new_marker + " "
+        new_line = new_prefix + content
+
+        if p_type in ("ordered", "ordered_alpha", "ordered_roman"):
+            marker_text = new_marker.rstrip(".")
+            if scheme == "ordered":
+                value = int(marker_text)
+            elif scheme == "ordered_alpha":
+                value = ord(marker_text) - ord("a") + 1
+            elif scheme == "ordered_roman":
+                value = _roman_to_int(marker_text) or 1
+            self._last_marker_at_level[new_level] = (value, scheme, False)
+
+        old_line_num = line_start.get_line()
+        old_offset = cursor.get_line_offset()
+        buffer.begin_user_action()
+        buffer.delete(line_start, line_end)
+
+        def _line_iter(buf, ln: int):
+            r = buf.get_iter_at_line(ln)
+            return r[1] if isinstance(r, tuple) else r
+
+        new_line_start = _line_iter(buffer, old_line_num)
+        buffer.insert(new_line_start, new_line)
+        new_cursor = _line_iter(buffer, old_line_num)
+        new_offset = max(0, old_offset + len(new_indent) - len(indent_text))
+        new_cursor.set_line_offset(min(new_offset, len(new_line)))
+        buffer.place_cursor(new_cursor)
+        buffer.end_user_action()
+
+        self._last_list_prefix = new_prefix
+        return True
+
+    def _on_shift_tab_key(self, buffer: Gtk.TextBuffer) -> bool:
+        """Outdent the current list item by one nesting level."""
+        cursor = buffer.get_iter_at_mark(buffer.get_insert())
+        line_start = cursor.copy()
+        line_start.set_line_offset(0)
+        line_end = cursor.copy()
+        line_end.forward_to_line_end()
+        line_text = buffer.get_text(line_start, line_end, False)
+
+        info = _get_list_info(line_text)
+        if info is None:
+            return False
+
+        _match, p_type, indent_text, marker_stripped, content = info
+        current_level = len(indent_text) // 2
+        if current_level == 0:
+            return False
+
+        new_level = current_level - 1
+        new_indent = "  " * new_level
+
+        if p_type in ("ordered", "ordered_alpha", "ordered_roman"):
+            stored = self._last_marker_at_level.get(new_level)
+            if stored is not None:
+                last_value, marker_type, is_upper = stored
+                next_value = last_value + 1
+                if marker_type == "ordered":
+                    new_marker = str(next_value) + "."
+                elif marker_type == "ordered_alpha":
+                    letter_idx = (next_value - 1) % 26
+                    new_marker = chr(ord("a") + letter_idx) + "."
+                elif marker_type == "ordered_roman":
+                    roman = _int_to_roman(next_value)
+                    if is_upper:
+                        roman = roman.upper()
+                    new_marker = (roman + ".") if roman else "i."
+                scheme = marker_type
+            else:
+                scheme = _ORDERED_SCHEMES[new_level % len(_ORDERED_SCHEMES)]
+                new_marker = _ORDERED_START_MARKERS[scheme]
+            self._last_list_type = scheme
+        else:
+            new_marker = marker_stripped
+            self._last_list_type = p_type
+
+        new_prefix = new_indent + new_marker + " "
+        new_line = new_prefix + content
+
+        if p_type in ("ordered", "ordered_alpha", "ordered_roman"):
+            marker_text = new_marker.rstrip(".")
+            if scheme == "ordered":
+                value = int(marker_text)
+            elif scheme == "ordered_alpha":
+                value = ord(marker_text) - ord("a") + 1
+            elif scheme == "ordered_roman":
+                value = _roman_to_int(marker_text.lower()) or 1
+            is_upper = marker_text[0].isupper() if marker_text else False
+            self._last_marker_at_level[new_level] = (value, scheme, is_upper)
+
+        old_line_num = line_start.get_line()
+        old_offset = cursor.get_line_offset()
+        buffer.begin_user_action()
+        buffer.delete(line_start, line_end)
+
+        def _line_iter(buf, ln: int):
+            r = buf.get_iter_at_line(ln)
+            return r[1] if isinstance(r, tuple) else r
+
+        new_line_start = _line_iter(buffer, old_line_num)
+        buffer.insert(new_line_start, new_line)
+        new_cursor = _line_iter(buffer, old_line_num)
+        new_offset = max(0, old_offset + len(new_indent) - len(indent_text))
+        new_cursor.set_line_offset(min(new_offset, len(new_line)))
+        buffer.place_cursor(new_cursor)
+        buffer.end_user_action()
+
+        self._last_list_prefix = new_prefix
+        return True
+
     # Key handling -- list continuation + auto-pair
 
     def _auto_pair_delimiter(self, buffer: Gtk.TextBuffer, keyval: int) -> bool:
@@ -528,6 +699,11 @@ class Editor(Gtk.Box):
             if self._auto_pair_delimiter(buffer, keyval):
                 return True
 
+        if keyval == Gdk.KEY_Tab:
+            return self._on_tab_key(buffer)
+        if keyval == Gdk.KEY_ISO_Left_Tab:
+            return self._on_shift_tab_key(buffer)
+
         if keyval not in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             return False
 
@@ -565,14 +741,95 @@ class Editor(Gtk.Box):
             # group(1) is always the list marker (possibly with indent).
             marker_only = match.group(1)
 
-            # Empty marker line -> break the list by removing the marker.
+            # Empty marker line -> break (root) or outdent (indented).
             if line_text.strip() == marker_only.strip():
-                line_end = line_start.copy()
-                line_end.forward_to_line_end()
-                buffer.delete(line_start, line_end)
-                self._last_list_type = None
-                self._last_list_prefix = None
-                return False
+                indent_text = re.match(r"^(\s*)", marker_only).group(1)
+                current_level = len(indent_text) // 2
+
+                if current_level > 0:
+                    new_level = current_level - 1
+                    new_indent = "  " * new_level
+
+                    if p_type in (
+                        "ordered",
+                        "ordered_alpha",
+                        "ordered_roman",
+                    ):
+                        stored = self._last_marker_at_level.get(new_level)
+                        if stored is not None:
+                            last_value, marker_type, is_upper = stored
+                            next_value = last_value + 1
+                            if marker_type == "ordered":
+                                new_marker_stripped = str(next_value) + "."
+                            elif marker_type == "ordered_alpha":
+                                letter_idx = (next_value - 1) % 26
+                                new_marker_stripped = chr(ord("a") + letter_idx) + "."
+                            elif marker_type == "ordered_roman":
+                                roman = _int_to_roman(next_value)
+                                if is_upper:
+                                    roman = roman.upper()
+                                new_marker_stripped = (roman + ".") if roman else "i."
+                            scheme = marker_type
+                        else:
+                            scheme = _ORDERED_SCHEMES[new_level % len(_ORDERED_SCHEMES)]
+                            new_marker_stripped = _ORDERED_START_MARKERS[scheme]
+                    else:
+                        scheme = p_type
+                        new_marker_stripped = marker_only.strip()
+
+                    new_line = new_indent + new_marker_stripped + " "
+
+                    old_line_num = line_start.get_line()
+                    line_end = line_start.copy()
+                    line_end.forward_to_line_end()
+                    buffer.begin_user_action()
+                    buffer.delete(line_start, line_end)
+
+                    def _line_iter(buf, ln: int):
+                        r = buf.get_iter_at_line(ln)
+                        return r[1] if isinstance(r, tuple) else r
+
+                    new_line_start = _line_iter(buffer, old_line_num)
+                    buffer.insert(new_line_start, new_line)
+                    after_insert = _line_iter(buffer, old_line_num)
+                    after_insert.forward_to_line_end()
+                    buffer.place_cursor(after_insert)
+                    buffer.end_user_action()
+
+                    if p_type in (
+                        "ordered",
+                        "ordered_alpha",
+                        "ordered_roman",
+                    ):
+                        self._last_list_type = scheme
+                    else:
+                        self._last_list_type = p_type
+                    self._last_list_prefix = new_line
+
+                    if p_type in ("ordered", "ordered_alpha", "ordered_roman"):
+                        marker_text = new_marker_stripped.rstrip(".")
+                        if scheme == "ordered":
+                            value = int(marker_text)
+                        elif scheme == "ordered_alpha":
+                            value = ord(marker_text) - ord("a") + 1
+                        elif scheme == "ordered_roman":
+                            value = _roman_to_int(marker_text.lower()) or 1
+                        is_upper = marker_text[0].isupper() if marker_text else False
+                        self._last_marker_at_level[new_level] = (
+                            value,
+                            scheme,
+                            is_upper,
+                        )
+
+                    return True
+                else:
+                    line_end = line_start.copy()
+                    line_end.forward_to_line_end()
+                    buffer.delete(line_start, line_end)
+                    self._last_list_type = None
+                    self._last_list_prefix = None
+                    self._last_marker_at_level.clear()
+                    return False
 
             if p_type == "task":
                 # Reset checked state on continuation.
@@ -588,18 +845,34 @@ class Editor(Gtk.Box):
                     + " "
                 )
             elif p_type == "ordered_alpha":
-                letter = marker_only.rstrip(".")
-                new_prefix = _increment_alpha(letter) + ". "
+                indent_text = marker_only[: -len(marker_only.lstrip())]
+                letter = marker_only.strip().rstrip(".")
+                new_prefix = indent_text + _increment_alpha(letter) + ". "
             elif p_type == "ordered_roman":
-                roman = marker_only.rstrip(".").lower()
+                indent_text = marker_only[: -len(marker_only.lstrip())]
+                roman = marker_only.strip().rstrip(".").lower()
                 next_roman = _increment_roman(roman)
                 if next_roman is None:
                     continue  # not a valid roman numeral, try next pattern
-                if marker_only[0].isupper():
+                marker_stripped = marker_only.strip()
+                if marker_stripped[0].isupper():
                     next_roman = next_roman.upper()
-                new_prefix = f"{next_roman}. "
+                new_prefix = indent_text + f"{next_roman}. "
             else:
                 new_prefix = marker_only.rstrip() + " "
+
+            if p_type in ("ordered", "ordered_alpha", "ordered_roman"):
+                indent_text_m = re.match(r"^(\s*)", marker_only).group(1)
+                level = len(indent_text_m) // 2
+                marker_text = marker_only.strip().rstrip(".")
+                if p_type == "ordered":
+                    value = int(marker_text)
+                elif p_type == "ordered_alpha":
+                    value = ord(marker_text) - ord("a") + 1
+                elif p_type == "ordered_roman":
+                    value = _roman_to_int(marker_text.lower()) or 1
+                is_upper = marker_text[0].isupper() if marker_text else False
+                self._last_marker_at_level[level] = (value, p_type, is_upper)
 
             self._last_list_type = p_type
             self._last_list_prefix = new_prefix

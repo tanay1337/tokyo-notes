@@ -6,6 +6,9 @@ import re
 
 from ui.editor import (
     _CONTINUATION_PATTERNS,
+    _ORDERED_SCHEMES,
+    _ORDERED_START_MARKERS,
+    _get_list_info,
     _increment_alpha,
     _increment_roman,
     _int_to_roman,
@@ -205,3 +208,156 @@ class TestContinuationPatterns:
         kinds = [k for _, k in _CONTINUATION_PATTERNS]
         assert kinds.index("ordered") < kinds.index("ordered_roman")
         assert kinds.index("ordered_roman") < kinds.index("ordered_alpha")
+
+
+class TestSchemeConstants:
+    def test_three_schemes(self) -> None:
+        assert _ORDERED_SCHEMES == ["ordered", "ordered_alpha", "ordered_roman"]
+
+    def test_start_markers(self) -> None:
+        assert _ORDERED_START_MARKERS == {
+            "ordered": "1.",
+            "ordered_alpha": "a.",
+            "ordered_roman": "i.",
+        }
+
+    def test_cycling(self) -> None:
+        n = len(_ORDERED_SCHEMES)
+        assert _ORDERED_SCHEMES[0] == "ordered"
+        assert _ORDERED_SCHEMES[1] == "ordered_alpha"
+        assert _ORDERED_SCHEMES[2] == "ordered_roman"
+        # cycle back
+        assert _ORDERED_SCHEMES[3 % n] == "ordered"
+        assert _ORDERED_SCHEMES[4 % n] == "ordered_alpha"
+        assert _ORDERED_SCHEMES[5 % n] == "ordered_roman"
+
+
+class TestGetListInfo:
+    def test_ordered(self) -> None:
+        info = _get_list_info("1. item")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "ordered"
+        assert indent == ""
+        assert marker == "1."
+        assert content == "item"
+
+    def test_ordered_indented(self) -> None:
+        info = _get_list_info("  1. item")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "ordered"
+        assert indent == "  "
+        assert marker == "1."
+        assert content == "item"
+
+    def test_alpha(self) -> None:
+        info = _get_list_info("a. item")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "ordered_alpha"
+        assert indent == ""
+        assert marker == "a."
+        assert content == "item"
+
+    def test_alpha_indented(self) -> None:
+        info = _get_list_info("    a. item")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "ordered_alpha"
+        assert indent == "    "
+        assert marker == "a."
+        assert content == "item"
+
+    def test_roman(self) -> None:
+        info = _get_list_info("ii. item")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "ordered_roman"
+        assert indent == ""
+        assert marker == "ii."
+        assert content == "item"
+
+    def test_roman_indented(self) -> None:
+        info = _get_list_info("      iii. item")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "ordered_roman"
+        assert indent == "      "
+        assert marker == "iii."
+        assert content == "item"
+
+    def test_unordered(self) -> None:
+        info = _get_list_info("- item")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "list"
+        assert indent == ""
+        assert marker == "-"
+        assert content == "item"
+
+    def test_unordered_indented(self) -> None:
+        info = _get_list_info("  - item")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "list"
+        assert indent == "  "
+        assert marker == "-"
+        assert content == "item"
+
+    def test_task(self) -> None:
+        info = _get_list_info("- [ ] task")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "task"
+        assert indent == ""
+        assert marker == "- [ ]"
+        assert content == "task"
+
+    def test_task_indented(self) -> None:
+        info = _get_list_info("    - [x] done")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "task"
+        assert indent == "    "
+        assert marker == "- [x]"
+        assert content == "done"
+
+    def test_not_a_list(self) -> None:
+        assert _get_list_info("plain text") is None
+        assert _get_list_info("# heading") is None
+        assert _get_list_info("") is None
+        assert _get_list_info("   ") is None
+
+    def test_marker_only_no_content(self) -> None:
+        """Lines with only the marker (no content)."""
+        info = _get_list_info("a. ")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "ordered_alpha"
+        assert indent == ""
+        assert marker == "a."
+        assert content == ""
+
+    def test_marker_only_indented(self) -> None:
+        info = _get_list_info("  - ")
+        assert info is not None
+        _, p_type, indent, marker, content = info
+        assert p_type == "list"
+        assert indent == "  "
+        assert marker == "-"
+        assert content == ""
+
+    def test_star_bullet(self) -> None:
+        info = _get_list_info("* item")
+        assert info is not None
+        _, p_type, _, _, content = info
+        assert p_type == "list"
+        assert content == "item"
+
+    def test_plus_bullet(self) -> None:
+        info = _get_list_info("+ item")
+        assert info is not None
+        _, p_type, _, _, content = info
+        assert p_type == "list"
+        assert content == "item"
