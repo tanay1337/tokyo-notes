@@ -755,6 +755,8 @@ class NotesManager:
         for line_num, line in enumerate(content.split("\n"), 1):
             m = CB_EXTRACT_RE.match(line)
             if m:
+                raw_indent = m.group(1)
+                indent_level = len(raw_indent.replace("\t", "  ")) // 2
                 boxes.append(
                     {
                         "note": note_name,
@@ -762,6 +764,7 @@ class NotesManager:
                         "checked": m.group(2).lower() == "x",
                         "line": line_num,
                         "deadline": m.group(4),
+                        "indent": indent_level,
                     }
                 )
         return boxes

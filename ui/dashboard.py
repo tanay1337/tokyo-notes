@@ -766,6 +766,10 @@ class Dashboard(Gtk.Box):
         if cb["checked"]:
             row.add_css_class("task-completed-row")
 
+        indent = cb.get("indent", 0)
+        if indent > 0:
+            row.set_margin_start(indent * 24)
+
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
         # Deadline badge — only show time portion if one was specified.
