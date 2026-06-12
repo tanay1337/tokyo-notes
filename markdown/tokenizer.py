@@ -23,7 +23,7 @@ from markdown.ast import MdLine
 _HEADER_ATX = re.compile(r"^(#{1,6})\s+(.*)$")
 
 _LIST_UL = re.compile(r"^(\s*)([-*+])\s+(.*)$")
-_LIST_OL = re.compile(r"^(\s*)(\d+\.\s+)(.*)$")
+_LIST_OL = re.compile(r"^(\s*)((?:[ivxlcdmIVXLCDM]+|[a-zA-Z]|\d+)\.\s+)(.*)$")
 _CODE_FENCE = re.compile(r"^```([\w-]*)$")
 _CHECKBOX = re.compile(r"^(\s*-\s*\[([ xX])\]\s*)(.*)$")
 

@@ -38,6 +38,73 @@ _CONTINUATION_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^(\s*-\s*\[[ xX]\])(.*)$"), "task"),
     (re.compile(r"^(\s*[-*+])\s+"), "list"),
     (re.compile(r"^(\s*\d+\.)\s+"), "ordered"),
+    (re.compile(r"^(\s*(?:[ivxlcdmIVXLCDM]{2,}|[ivxIVX])\.)\s+"), "ordered_roman"),
+    (re.compile(r"^(\s*[a-zA-Z]\.)\s+"), "ordered_alpha"),
+]
+
+
+def _increment_alpha(ch: str) -> str:
+    """Increment a single-letter list marker (a→b, ..., y→z, z stays z)."""
+    if ch == "z":
+        return "z"
+    if ch == "Z":
+        return "Z"
+    return chr(ord(ch) + 1)
+
+
+def _increment_roman(s: str) -> str | None:
+    """Increment a valid roman numeral (i→ii, iii→iv, iv→v, ix→x, etc.).
+
+    Returns None if *s* is not a valid canonical roman numeral.
+    """
+    n = _roman_to_int(s)
+    if n is None:
+        return None
+    return _int_to_roman(n + 1)
+
+
+def _roman_to_int(s: str) -> int | None:
+    """Convert a lowercase roman numeral to an integer, or None on invalid input."""
+    if not s:
+        return None
+    i = 0
+    result = 0
+    for value, numeral in _ROMAN_VALUES:
+        while i < len(s) and s[i : i + len(numeral)] == numeral:
+            result += value
+            i += len(numeral)
+    if i != len(s):
+        return None
+    # Validate canonical form via round-trip
+    if _int_to_roman(result) != s:
+        return None
+    return result
+
+
+def _int_to_roman(n: int) -> str:
+    """Convert an integer (1 ≤ n < 4000) to a lowercase roman numeral."""
+    result = ""
+    for value, numeral in _ROMAN_VALUES:
+        while n >= value:
+            result += numeral
+            n -= value
+    return result
+
+
+_ROMAN_VALUES: list[tuple[int, str]] = [
+    (1000, "m"),
+    (900, "cm"),
+    (500, "d"),
+    (400, "cd"),
+    (100, "c"),
+    (90, "xc"),
+    (50, "l"),
+    (40, "xl"),
+    (10, "x"),
+    (9, "ix"),
+    (5, "v"),
+    (4, "iv"),
+    (1, "i"),
 ]
 
 
@@ -161,6 +228,8 @@ class Editor(Gtk.Box):
         self._image_update_done_callback: Callable | None = None
 
         self._picker_open = False
+        self._last_list_type: str | None = None
+        self._last_list_prefix: str | None = None
 
     def _on_spell_cursor_moved(
         self,
@@ -470,7 +539,25 @@ class Editor(Gtk.Box):
         line_start.set_line_offset(0)
         line_text = buffer.get_text(line_start, cursor_iter, False)
 
+        # If the user edited the line away from what we auto-inserted
+        # (e.g. changed "b. " to "i. "), treat this as a fresh list.
+        if self._last_list_prefix is not None and not line_text.startswith(
+            self._last_list_prefix
+        ):
+            self._last_list_type = None
+            self._last_list_prefix = None
+
         for pattern, p_type in _CONTINUATION_PATTERNS:
+            # If continuing an existing list, skip patterns for a different type
+            # so that e.g. a previous alpha list doesn't jump to roman.
+            if (
+                self._last_list_type is not None
+                and p_type != self._last_list_type
+                and self._last_list_type in ("ordered_alpha", "ordered_roman")
+                and p_type in ("ordered_alpha", "ordered_roman")
+            ):
+                continue
+
             match = pattern.match(line_text)
             if not match:
                 continue
@@ -483,6 +570,8 @@ class Editor(Gtk.Box):
                 line_end = line_start.copy()
                 line_end.forward_to_line_end()
                 buffer.delete(line_start, line_end)
+                self._last_list_type = None
+                self._last_list_prefix = None
                 return False
 
             if p_type == "task":
@@ -498,9 +587,22 @@ class Editor(Gtk.Box):
                     )
                     + " "
                 )
+            elif p_type == "ordered_alpha":
+                letter = marker_only.rstrip(".")
+                new_prefix = _increment_alpha(letter) + ". "
+            elif p_type == "ordered_roman":
+                roman = marker_only.rstrip(".").lower()
+                next_roman = _increment_roman(roman)
+                if next_roman is None:
+                    continue  # not a valid roman numeral, try next pattern
+                if marker_only[0].isupper():
+                    next_roman = next_roman.upper()
+                new_prefix = f"{next_roman}. "
             else:
                 new_prefix = marker_only.rstrip() + " "
 
+            self._last_list_type = p_type
+            self._last_list_prefix = new_prefix
             GLib.idle_add(self._do_insert_continuation, new_prefix)
             return True  # suppress the default newline
 

@@ -116,6 +116,46 @@ class TestOrderedLists:
         assert md.text == "answer"
         assert not fence
 
+    def test_ol_alpha(self) -> None:
+        tok = LineTokenizer()
+        md, fence = tok.tokenize("a. item")
+        assert md.kind == "ol"
+        assert md.marker == "a. "
+        assert md.text == "item"
+        assert not fence
+
+    def test_ol_alpha_uppercase(self) -> None:
+        tok = LineTokenizer()
+        md, fence = tok.tokenize("Z. item")
+        assert md.kind == "ol"
+        assert md.marker == "Z. "
+        assert md.text == "item"
+        assert not fence
+
+    def test_ol_roman(self) -> None:
+        tok = LineTokenizer()
+        md, fence = tok.tokenize("ii. item")
+        assert md.kind == "ol"
+        assert md.marker == "ii. "
+        assert md.text == "item"
+        assert not fence
+
+    def test_ol_roman_uppercase(self) -> None:
+        tok = LineTokenizer()
+        md, fence = tok.tokenize("IV. item")
+        assert md.kind == "ol"
+        assert md.marker == "IV. "
+        assert md.text == "item"
+        assert not fence
+
+    def test_ol_roman_single_i(self) -> None:
+        tok = LineTokenizer()
+        md, fence = tok.tokenize("i. item")
+        assert md.kind == "ol"
+        assert md.marker == "i. "
+        assert md.text == "item"
+        assert not fence
+
 
 class TestTasks:
     def test_task_unchecked(self) -> None:

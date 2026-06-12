@@ -144,7 +144,9 @@ CB_CHECKED_RE: re.Pattern = re.compile(r"\[[xX]\]")
 HR_RE: re.Pattern = re.compile(r"^(\s*[-*_]){3,}\s*$")
 BLOCKQUOTE_RE: re.Pattern = re.compile(r"^(\s*>)\s*(.*)$")
 LIST_UL_RE: re.Pattern = re.compile(r"^(\s*)([-*+])\s+(.+)$")
-LIST_OL_RE: re.Pattern = re.compile(r"^(\s*)(\d+\.)\s+(.+)$")
+LIST_OL_RE: re.Pattern = re.compile(
+    r"^(\s*)((?:[ivxlcdmIVXLCDM]+|[a-zA-Z]|\d+)\.)\s+(.+)$"
+)
 TABLE_ROW_RE: re.Pattern = re.compile(r"^\s*\|.*\|\s*$")
 TABLE_SEP_RE: re.Pattern = re.compile(r"^\s*\|?[\s\-:|]+\|?\s*$")
 HEADER_ATX_RE: re.Pattern = re.compile(r"^(#+)( .+)$")
