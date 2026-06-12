@@ -111,6 +111,7 @@ def build_toolbar(
         inner.append(history_btn)
 
     scrolled = Gtk.ScrolledWindow()
+    scrolled.add_css_class("toolbar-scrolled")
     scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
     scrolled.set_vexpand(False)
     scrolled.set_child(inner)
