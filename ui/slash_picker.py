@@ -13,7 +13,7 @@ from core.translations import tr
 from ui.base_picker import SearchablePicker
 
 
-def get_commands() -> list[tuple[str, str, str, str | None]]:
+def get_commands() -> list[tuple[str, str, str, str | None, str]]:
     """Return the list of slash commands with fresh translations."""
     headings = tr("Headings")
     inline = tr("Inline")
@@ -22,24 +22,36 @@ def get_commands() -> list[tuple[str, str, str, str | None]]:
     tasks = tr("Tasks")
 
     return [
-        (tr("Heading 1"), "# ", headings, None),
-        (tr("Heading 2"), "## ", headings, None),
-        (tr("Heading 3"), "### ", headings, None),
-        (tr("Bold"), "**bold**", inline, None),
-        (tr("Italic"), "*italic*", inline, None),
-        (tr("Strikethrough"), "~~text~~", inline, None),
-        (tr("Inline Code"), "`code`", inline, None),
-        (tr("Code Block"), "```\n\n```", blocks, None),
-        (tr("Bullet List"), "- ", blocks, None),
-        (tr("Numbered List"), "1. ", blocks, None),
-        (tr("Block Quote"), "> ", blocks, None),
-        (tr("Divider"), "---\n", blocks, None),
-        (tr("Flashcard"), "```flashcard\nQuestion\n---\nAnswer\n```", blocks, None),
-        (tr("Task / Checkbox"), "- [ ] ", tasks, None),
-        (tr("Deadline"), "@deadline", tasks, tr("opens date picker")),
-        (tr("External Link"), "[text](url)", links, None),
-        (tr("Image"), "![alt](url)", links, None),
-        (tr("Diagram"), "![diagram]()", blocks, tr("inserts interactive diagram")),
+        (tr("Heading 1"), "# ", headings, None, "h1"),
+        (tr("Heading 2"), "## ", headings, None, "h2"),
+        (tr("Heading 3"), "### ", headings, None, "h3"),
+        (tr("Bold"), "**bold**", inline, None, "bold"),
+        (tr("Italic"), "*italic*", inline, None, "italic"),
+        (tr("Strikethrough"), "~~text~~", inline, None, "strikethrough"),
+        (tr("Inline Code"), "`code`", inline, None, "inline-code"),
+        (tr("Code Block"), "```\n\n```", blocks, None, "code-block"),
+        (tr("Bullet List"), "- ", blocks, None, "bullet-list"),
+        (tr("Numbered List"), "1. ", blocks, None, "numbered-list"),
+        (tr("Block Quote"), "> ", blocks, None, "block-quote"),
+        (tr("Divider"), "---\n", blocks, None, "divider"),
+        (
+            tr("Flashcard"),
+            "```flashcard\nQuestion\n---\nAnswer\n```",
+            blocks,
+            None,
+            "flashcard",
+        ),
+        (tr("Task / Checkbox"), "- [ ] ", tasks, None, "task"),
+        (tr("Deadline"), "@deadline", tasks, tr("opens date picker"), "deadline"),
+        (tr("External Link"), "[text](url)", links, None, "external-link"),
+        (tr("Image"), "![alt](url)", links, None, "image"),
+        (
+            tr("Diagram"),
+            "![diagram]()",
+            blocks,
+            tr("inserts interactive diagram"),
+            "diagram",
+        ),
     ]
 
 
@@ -48,7 +60,7 @@ class SlashPicker(SearchablePicker):
 
     def __init__(
         self,
-        on_selected: Callable[[str, str], None],
+        on_selected: Callable[[str, str, str], None],
         text_view: Gtk.Widget | None = None,
     ) -> None:
         self._on_selected_raw = on_selected
@@ -63,7 +75,7 @@ class SlashPicker(SearchablePicker):
         self.add_css_class("slash-picker")
 
     def _make_row(self, cmd: tuple[str, str, str, str | None]) -> Gtk.ListBoxRow:
-        label, _insert, category, hint = cmd
+        label, _insert, category, hint, _slug = cmd
         row = Gtk.ListBoxRow()
         row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
@@ -101,6 +113,6 @@ class SlashPicker(SearchablePicker):
 
     def on_row_activated(self, listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         if row:
-            self._on_selected_raw(*row._cmd_data[:2])
+            self._on_selected_raw(row._cmd_data[0], row._cmd_data[1], row._cmd_data[4])
             self.popdown()
             GLib.idle_add(self.unparent)

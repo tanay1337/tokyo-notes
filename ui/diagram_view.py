@@ -26,30 +26,36 @@ _NODE_PAD_X = 20.0
 _NODE_PAD_Y = 12.0
 _NODE_RADIUS = 8.0
 
-_COLOR_SWATCHES = [
-    ("#4a90d9", tr("Default")),
-    ("#e95b45", tr("Red")),
-    ("#2686C2", tr("Blue")),
-    ("#6DA861", tr("Green")),
-    ("#EAB308", tr("Yellow")),
-    ("#886ce4", tr("Purple")),
-]
 
-_SHAPES = [
-    ("pill", tr("Pill")),
-    ("rectangle", tr("Rectangle")),
-    ("circle", tr("Circle")),
-    ("diamond", tr("Diamond")),
-]
+def _get_color_swatches() -> list[tuple[str, str]]:
+    return [
+        ("#4a90d9", tr("Default")),
+        ("#e95b45", tr("Red")),
+        ("#2686C2", tr("Blue")),
+        ("#6DA861", tr("Green")),
+        ("#EAB308", tr("Yellow")),
+        ("#886ce4", tr("Purple")),
+    ]
 
-_EDGE_TYPES = [
-    ("solid", tr("Solid")),
-    ("dashed", tr("Dashed")),
-    ("dotted", tr("Dotted")),
-    ("double", tr("Double")),
-    ("arrow", tr("Arrow")),
-    ("bidirect", tr("Bidirectional")),
-]
+
+def _get_shapes() -> list[tuple[str, str]]:
+    return [
+        ("pill", tr("Pill")),
+        ("rectangle", tr("Rectangle")),
+        ("circle", tr("Circle")),
+        ("diamond", tr("Diamond")),
+    ]
+
+
+def _get_edge_types() -> list[tuple[str, str]]:
+    return [
+        ("solid", tr("Solid")),
+        ("dashed", tr("Dashed")),
+        ("dotted", tr("Dotted")),
+        ("double", tr("Double")),
+        ("arrow", tr("Arrow")),
+        ("bidirect", tr("Bidirectional")),
+    ]
 
 
 def _rounded_rect_path(
@@ -390,7 +396,7 @@ class DiagramView(Gtk.Box):
         stylebar.set_margin_bottom(4)
 
         self._color_btns: list[Gtk.ToggleButton] = []
-        for hex_color, name in _COLOR_SWATCHES:
+        for hex_color, name in _get_color_swatches():
             btn = Gtk.ToggleButton()
             btn.set_tooltip_text(name)
             css = Gtk.CssProvider()
@@ -414,7 +420,7 @@ class DiagramView(Gtk.Box):
 
         stylebar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         self._shape_group: list[Gtk.ToggleButton] = []
-        for shape_val, shape_name in _SHAPES:
+        for shape_val, shape_name in _get_shapes():
             btn = Gtk.ToggleButton(label=shape_name)
             btn.set_tooltip_text(shape_name)
             btn.add_css_class("pill")
@@ -924,7 +930,7 @@ class DiagramView(Gtk.Box):
             color_box.set_margin_end(4)
             color_box.set_margin_top(4)
             color_box.set_margin_bottom(4)
-            for hex_color, name in _COLOR_SWATCHES:
+            for hex_color, name in _get_color_swatches():
                 cbtn = Gtk.Button()
                 cbtn.set_tooltip_text(name)
                 cbtn.set_size_request(20, 20)
@@ -958,7 +964,7 @@ class DiagramView(Gtk.Box):
                 return
 
             group: Gtk.CheckButton | None = None
-            for et_val, et_name in _EDGE_TYPES:
+            for et_val, et_name in _get_edge_types():
                 et_btn = Gtk.CheckButton(label=et_name)
                 et_btn.set_active(et_val == edge.edge_type)
                 if group is not None:
@@ -1443,12 +1449,12 @@ class DiagramView(Gtk.Box):
         if nid and self._diagram:
             node = self._diagram.find_node(nid)
             if node:
-                for i, (hc, _) in enumerate(_COLOR_SWATCHES):
+                for i, (hc, _) in enumerate(_get_color_swatches()):
                     active = hc.lower() == node.color.lower()
                     if i < len(self._color_btns):
                         self._color_btns[i].set_active(active)
                         self._color_btns[i].set_sensitive(True)
-                for i, (sv, _) in enumerate(_SHAPES):
+                for i, (sv, _) in enumerate(_get_shapes()):
                     active = sv == node.shape
                     if i < len(self._shape_group):
                         self._shape_group[i].set_active(active)

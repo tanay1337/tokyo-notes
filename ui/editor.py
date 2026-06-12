@@ -357,8 +357,8 @@ class Editor(Gtk.Box):
                         suggestions_section.append_item(item)
 
                     actions_section = Gio.Menu()
-                    actions_section.append("Add to Dictionary", "spell.add-dict")
-                    actions_section.append("Ignore", "spell.ignore")
+                    actions_section.append(tr("Add to Dictionary"), "spell.add-dict")
+                    actions_section.append(tr("Ignore"), "spell.ignore")
 
                     menu.append_section(None, suggestions_section)
                     menu.append_section(None, actions_section)
@@ -1010,21 +1010,21 @@ class Editor(Gtk.Box):
         self._picker_open = True
         self._pending_slash_action = None
 
-        def on_selected(command_label: str, insert_text: str) -> None:
+        def on_selected(command_label: str, insert_text: str, slug: str) -> None:
             self._picker_open = False
             self._remove_last_slash()
-            if command_label == "Deadline":
+            if slug == "deadline":
                 self.text_view._skip_focus_restore = True
                 self._pending_slash_action = "deadline"
                 return
-            if command_label == "Diagram":
+            if slug == "diagram":
                 self.text_view._skip_focus_restore = True
                 if callable(getattr(self, "_on_diagram_slash", None)):
                     GLib.idle_add(self._on_diagram_slash)
                 return
-            if command_label in ("Code Block", "Flashcard", "Divider"):
+            if slug in ("code-block", "flashcard", "divider"):
                 self.buffer.insert_at_cursor(insert_text)
-                if command_label in ("Code Block", "Flashcard"):
+                if slug in ("code-block", "flashcard"):
                     cursor = self.buffer.get_iter_at_mark(self.buffer.get_insert())
                     lines = insert_text.count("\n")
                     if lines > 0:
@@ -1093,7 +1093,7 @@ class Editor(Gtk.Box):
                 shutil.copy2(str(filepath), str(dest))
                 insert_pos = self.buffer.get_iter_at_mark(self.buffer.get_insert())
                 self.buffer.insert(
-                    insert_pos, f"\n![Dropped Image](.images/{filename})\n"
+                    insert_pos, f"\n![{tr('Dropped Image')}](.images/{filename})\n"
                 )
                 inserted = True
             except Exception as exc:

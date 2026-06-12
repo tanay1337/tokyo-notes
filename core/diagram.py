@@ -6,6 +6,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
+from core.translations import tr
+
 _SHAPE_DEFAULTS = {"pill", "rectangle", "circle", "diamond"}
 _EDGE_TYPES = {"solid", "dashed", "dotted", "double", "arrow", "bidirect"}
 
@@ -26,7 +28,9 @@ class DiagramNode:
             self.shape = "pill"
 
     @staticmethod
-    def new(text: str = "New Node", x: float = 0.0, y: float = 0.0) -> DiagramNode:
+    def new(text: str = None, x: float = 0.0, y: float = 0.0) -> DiagramNode:
+        if text is None:
+            text = tr("New Node")
         return DiagramNode(
             id=uuid.uuid4().hex[:12],
             text=text,
@@ -64,11 +68,13 @@ class Diagram:
     edges: list[DiagramEdge] = field(default_factory=list)
 
     @staticmethod
-    def new(title: str = "Untitled Diagram") -> Diagram:
+    def new(title: str = None) -> Diagram:
+        if title is None:
+            title = tr("Untitled Diagram")
         return Diagram(
             id=uuid.uuid4().hex[:12],
             title=title,
-            nodes=[DiagramNode.new("Root", 0.0, 0.0)],
+            nodes=[DiagramNode.new(tr("Root"), 0.0, 0.0)],
             edges=[],
         )
 
@@ -105,7 +111,7 @@ class Diagram:
     def from_dict(data: dict) -> Diagram:
         return Diagram(
             id=data["id"],
-            title=data.get("title", "Untitled Diagram"),
+            title=data.get("title") or tr("Untitled Diagram"),
             nodes=[DiagramNode(**n) for n in data.get("nodes", [])],
             edges=[DiagramEdge(**e) for e in data.get("edges", [])],
         )
