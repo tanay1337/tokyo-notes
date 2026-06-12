@@ -297,6 +297,7 @@ class DiagramView(Gtk.Box):
 
         # Layout cache
         self._text_layout: Pango.Layout | None = None
+        self._size_layout: Pango.Layout | None = None
 
         # Edit entry state
         self._edit_node_id: str | None = None
@@ -649,15 +650,57 @@ class DiagramView(Gtk.Box):
 
             _draw_edge_line(cr, sx, s_bottom, dx, d_top, edge.edge_type, ec, lw)
 
-            # Edge label
-            if edge.label:
-                mid_x = (sx + dx) / 2
-                mid_y = (s_bottom + d_top) / 2
-                layout.set_text(edge.label, -1)
-                lw_t, lh_t = layout.get_pixel_size()
-                cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.8)
-                cr.move_to(mid_x - lw_t / 2, mid_y - lh_t - 4)
-                PangoCairo.show_layout(cr, layout)
+        # Edge labels with anti-collision
+        label_rects: list[tuple[float, float, float, float]] = []
+        for edge in self._diagram.edges:
+            if not edge.label:
+                continue
+            src = self._diagram.find_node(edge.from_id)
+            dst = self._diagram.find_node(edge.to_id)
+            if not src or not dst:
+                continue
+            if src.id not in positions or dst.id not in positions:
+                continue
+            sx, sy = positions[src.id]
+            dx, dy = positions[dst.id]
+            s_bottom = sy + src.h * self._scale / 2
+            d_top = dy - dst.h * self._scale / 2
+            mid_x = (sx + dx) / 2
+            mid_y = (s_bottom + d_top) / 2
+
+            layout.set_text(edge.label, -1)
+            layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+            layout.set_width(int(150 * Pango.SCALE))
+            lw_t, lh_t = layout.get_pixel_size()
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.8)
+
+            # Candidate A: above midpoint (default)
+            ax = mid_x - lw_t / 2
+            ay = mid_y - lh_t - 4
+            a_rect = (ax, ay, lw_t, lh_t)
+
+            # Candidate B: below midpoint
+            bx = mid_x - lw_t / 2
+            by = mid_y + 4
+            b_rect = (bx, by, lw_t, lh_t)
+
+            def _overlaps(r, others):
+                rx, ry, rw, rh = r
+                for ox, oy, ow, oh in others:
+                    if rx < ox + ow and rx + rw > ox and ry < oy + oh and ry + rh > oy:
+                        return True
+                return False
+
+            if not _overlaps(a_rect, label_rects):
+                cr.move_to(ax, ay)
+                label_rects.append(a_rect)
+            elif not _overlaps(b_rect, label_rects):
+                cr.move_to(bx, by)
+                label_rects.append(b_rect)
+            else:
+                cr.move_to(ax, ay)
+                label_rects.append(a_rect)
+            PangoCairo.show_layout(cr, layout)
 
         # ── Nodes ──
         for node in self._diagram.nodes:
@@ -806,8 +849,11 @@ class DiagramView(Gtk.Box):
             self._drag_node_id = nid
             if self._diagram:
                 self._node_pos_start = {}
-                drag_ids = self._selected | {nid} if self._selected else {nid}
-                for did in drag_ids:
+                state = gesture.get_current_event_state()
+                ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+                if not ctrl and nid not in self._selected:
+                    self._selected = {nid}
+                for did in self._selected:
                     n = self._diagram.find_node(did)
                     if n:
                         self._node_pos_start[did] = (n.x, n.y)
@@ -987,9 +1033,7 @@ class DiagramView(Gtk.Box):
                 _item(tr("Add Label"), lambda: self._edit_edge_label(eid))
 
         else:
-            # Canvas context menu
-            if self._clipboard:
-                _item(tr("Paste"), self._paste)
+            return
 
         popover.set_child(vbox)
         popover.set_parent(self.canvas)
@@ -1119,6 +1163,41 @@ class DiagramView(Gtk.Box):
 
     # ── Node operations ──────────────────────────────────────────────
 
+    def _node_rects(self) -> list[tuple[float, float, float, float]]:
+        return [(n.x - n.w / 2, n.y - n.h / 2, n.w, n.h) for n in self._diagram.nodes]
+
+    def _estimate_node_size(self, text: str) -> tuple[float, float]:
+        if self._size_layout is None:
+            fontmap = PangoCairo.font_map_get_default()
+            ctx = fontmap.create_context()
+            self._size_layout = Pango.Layout(ctx)
+            desc = Pango.FontDescription.from_string("Sans 11")
+            self._size_layout.set_font_description(desc)
+        self._size_layout.set_text(text, -1)
+        lw, lh = self._size_layout.get_pixel_size()
+        return max(lw + _NODE_PAD_X * 2, _NODE_MIN_W), max(
+            lh + _NODE_PAD_Y * 2, _NODE_MIN_H
+        )
+
+    def _edge_hits_any_node(
+        self,
+        sx: float,
+        sy: float,
+        ex: float,
+        ey: float,
+        node_rects: list[tuple[float, float, float, float]],
+    ) -> bool:
+        mid_y = (sy + ey) / 2
+        for i in range(21):
+            t = i / 20
+            mt = 1 - t
+            bx = mt**3 * sx + 3 * mt**2 * t * sx + 3 * mt * t**2 * ex + t**3 * ex
+            by = mt**3 * sy + 3 * mt**2 * t * mid_y + 3 * mt * t**2 * mid_y + t**3 * ey
+            for rx, ry, rw, rh in node_rects:
+                if rx <= bx <= rx + rw and ry <= by <= ry + rh:
+                    return True
+        return False
+
     def _add_child(self, parent_id: str) -> None:
         if not self._diagram:
             return
@@ -1126,9 +1205,71 @@ class DiagramView(Gtk.Box):
         parent = self._diagram.find_node(parent_id)
         if not parent:
             return
-        offset_x = parent.x + 120 + len(self._diagram.children_of(parent_id)) * 40
-        offset_y = parent.y + 120
-        child = DiagramNode.new("New Node", offset_x, offset_y)
+        children = self._diagram.children_of(parent_id)
+        n = len(children)
+        if n == 0:
+            offset_x = parent.x
+        elif n % 2 == 1:  # right side
+            offset_x = parent.x + ((n + 1) // 2) * 70
+        else:  # left side
+            offset_x = parent.x - (n // 2) * 70
+        offset_y = parent.y + 150
+
+        nw, nh = self._estimate_node_size("New Node")
+        ox, oy = offset_x, offset_y
+        hw, hh = nw / 2, nh / 2
+
+        sx, sy = parent.x, parent.y + parent.h / 2
+        all_boxes = self._node_rects()
+        parent_box = (
+            parent.x - parent.w / 2,
+            parent.y - parent.h / 2,
+            parent.w,
+            parent.h,
+        )
+        edge_boxes = [b for b in all_boxes if b != parent_box]
+
+        ex, ey = ox, oy - hh
+        mid_y = (sy + ey) / 2
+
+        min_oy = oy
+        for rx, ry, rw, rh in all_boxes:
+            if (
+                ox - hw < rx + rw
+                and ox + hw > rx
+                and oy - hh < ry + rh
+                and oy + hh > ry
+            ):
+                min_oy = max(min_oy, ry + rh + 10)
+        for rx, ry, rw, rh in edge_boxes:
+            for i in range(21):
+                t = i / 20
+                mt = 1 - t
+                bx = mt**3 * sx + 3 * mt**2 * t * sx + 3 * mt * t**2 * ex + t**3 * ex
+                by = (
+                    mt**3 * sy
+                    + 3 * mt**2 * t * mid_y
+                    + 3 * mt * t**2 * mid_y
+                    + t**3 * ey
+                )
+                if rx <= bx <= rx + rw and ry <= by <= ry + rh:
+                    min_oy = max(min_oy, ry + rh + 10)
+                    break
+        oy = min_oy
+
+        for _ in range(5):
+            ex, ey = ox, oy - hh
+            hits = any(
+                ox - hw < rx + rw
+                and ox + hw > rx
+                and oy - hh < ry + rh
+                and oy + hh > ry
+                for rx, ry, rw, rh in all_boxes
+            ) or self._edge_hits_any_node(sx, sy, ex, ey, edge_boxes)
+            if not hits:
+                break
+            oy += 30
+        child = DiagramNode.new("New Node", ox, oy)
         self._diagram.nodes.append(child)
         edge = DiagramEdge.new(parent_id, child.id)
         self._diagram.edges.append(edge)
@@ -1144,11 +1285,65 @@ class DiagramView(Gtk.Box):
         parent = self._diagram.parent_of(node_id)
         if not parent:
             return
-        # Sibling goes next to the current node
         node = self._diagram.find_node(node_id)
         if not node:
             return
-        sibling = DiagramNode.new("New Node", node.x + 140, node.y)
+        nw, nh = self._estimate_node_size("New Node")
+        ox, oy = node.x + 140, node.y
+        hw, hh = nw / 2, nh / 2
+
+        sx, sy = parent.x, parent.y + parent.h / 2
+        all_boxes = self._node_rects()
+        parent_box = (
+            parent.x - parent.w / 2,
+            parent.y - parent.h / 2,
+            parent.w,
+            parent.h,
+        )
+        node_box = (node.x - node.w / 2, node.y - node.h / 2, node.w, node.h)
+        edge_boxes = [b for b in all_boxes if b != parent_box and b != node_box]
+
+        ex, ey = ox, oy - hh
+        mid_y = (sy + ey) / 2
+
+        min_oy = oy
+        for rx, ry, rw, rh in all_boxes:
+            if (
+                ox - hw < rx + rw
+                and ox + hw > rx
+                and oy - hh < ry + rh
+                and oy + hh > ry
+            ):
+                min_oy = max(min_oy, ry + rh + 10)
+        for rx, ry, rw, rh in edge_boxes:
+            for i in range(21):
+                t = i / 20
+                mt = 1 - t
+                bx = mt**3 * sx + 3 * mt**2 * t * sx + 3 * mt * t**2 * ex + t**3 * ex
+                by = (
+                    mt**3 * sy
+                    + 3 * mt**2 * t * mid_y
+                    + 3 * mt * t**2 * mid_y
+                    + t**3 * ey
+                )
+                if rx <= bx <= rx + rw and ry <= by <= ry + rh:
+                    min_oy = max(min_oy, ry + rh + 10)
+                    break
+        oy = min_oy
+
+        for _ in range(5):
+            ex, ey = ox, oy - hh
+            hits = any(
+                ox - hw < rx + rw
+                and ox + hw > rx
+                and oy - hh < ry + rh
+                and oy + hh > ry
+                for rx, ry, rw, rh in all_boxes
+            ) or self._edge_hits_any_node(sx, sy, ex, ey, edge_boxes)
+            if not hits:
+                break
+            oy += 30
+        sibling = DiagramNode.new("New Node", ox, oy)
         self._diagram.nodes.append(sibling)
         edge = DiagramEdge.new(parent.id, sibling.id)
         self._diagram.edges.append(edge)
