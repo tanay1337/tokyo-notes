@@ -42,15 +42,12 @@ Tokyo Notes is a beautiful markdown note-taking app that combines interactive di
 ## Features
 - **Task Management**: Dashboard with Today, Week, and All views, featuring deadline tracking and jump-to-line navigation.
 - **Private Notes**: AES-256-GCM encrypted notes with per-file salt, Argon2id key derivation, and inactivity auto-lock.
-- **Thematic Animations**: "Sakura Celebration" particle effect when completing tasks in Dashboard.
-- **Archive System**: Keep your workspace clean by archiving finished notes.
 - **Knowledge Graph**: Visualize and navigate connections between your notes.
-- **Themes**: Multiple themes including Tokyo Night, Nord, and Cyberpunk 2077.
-- **Full-Text Search**: Find notes by title or keyword content.
 - **Templates**: Create notes from reusable templates with auto-filled variables like `{{today}}`, `{{now}}`, `{{time}}`, and `{{weekday}}`.
 - **Version History**: Automatic save-points, manual snapshots, and one-click restore from any previous version via Git.
 - **Flashcards**: Extract Q/A cards from flashcard codeblocks and flip through them to review. See format below.
 - **Diagrams**: Create, edit, and embed interactive node diagrams directly in your notes.
+- **And Much More**: Themes, Archive System, Full-Text Search, Sakura Animations.
 
 ## Installation
 
