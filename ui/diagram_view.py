@@ -151,7 +151,7 @@ def _draw_edge_line(cr, sx, sy, ex, ey, edge_type: str, color, line_width: float
 
     cr.set_dash([], 0)
 
-    angle = math.atan2(ey - mid_y, ex - sx) if ex != sx else 0
+    angle = math.pi / 2 if ey > mid_y else -math.pi / 2
 
     if edge_type in ("arrow", "bidirect"):
         _draw_arrowhead(cr, ex, ey, angle, size=8.0)
