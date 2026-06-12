@@ -11,10 +11,8 @@ class TestGetSnippet:
         assert get_snippet(content) == "Hello world"
 
     def test_skips_front_matter(self) -> None:
-        # The current implementation skips --- lines but returns the first
-        # non-empty, non-comment line even if it is inside front matter.
         content = "---\ntitle: Foo\n---\n\nBody text"
-        assert get_snippet(content) == "title: Foo"
+        assert get_snippet(content) == "Body text"
 
     def test_strips_markdown_links(self) -> None:
         content = "Visit [GitHub](https://github.com)"

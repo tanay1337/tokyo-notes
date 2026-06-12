@@ -22,7 +22,6 @@ from core.utils import (
     LIST_OL_RE,
     LIST_UL_RE,
     MD_URL_BALANCED,
-    SETEXT_RE,
     TABLE_ROW_RE,
     TABLE_SEP_RE,
     TAG_RE,
@@ -54,6 +53,8 @@ _DEFAULT_SYNTAX_COLORS: dict[str, str] = {
     "table": "#bb9af7",
     "blockquote": "#9ece6a",
     "dim": "#565f89",
+    "front_matter_key": "#bb9af7",
+    "front_matter_value": "#e0af68",
 }
 
 
@@ -72,7 +73,6 @@ class MarkdownHighlighter:
 
         # Standard patterns imported from core.utils to ensure consistency.
         self.re_fenced_code = FENCED_CODE_RE
-        self.re_setext_underline = SETEXT_RE
         self.re_hr = HR_RE
         self.re_blockquote = BLOCKQUOTE_RE
         self.re_unordered = LIST_UL_RE
@@ -101,6 +101,10 @@ class MarkdownHighlighter:
         self._code_block_cache: set[int] = set()
         self._code_block_stamp: int = -1
         self._in_fence: bool = False
+
+        # Cache for _front_matter_range — invalidated when buffer content changes.
+        self._fm_cached: tuple[int, int] | None = None
+        self._fm_stamp: int = -1
 
         self.setup_tags()
 
@@ -194,25 +198,14 @@ class MarkdownHighlighter:
         tag("table_row", foreground=c["table"], weight=Pango.Weight.BOLD)
         tag("table_sep", foreground=c["hr"], weight=Pango.Weight.BOLD)
         tag("blockquote", foreground=c["blockquote"], style=Pango.Style.ITALIC)
-        tag("setext_underline", foreground=c["hr"])
-        tag(
-            "setext_h1",
-            weight=Pango.Weight.BOLD,
-            size=22 * Pango.SCALE,
-            foreground=c["h1"],
-        )
-        tag(
-            "setext_h2",
-            weight=Pango.Weight.BOLD,
-            size=18 * Pango.SCALE,
-            foreground=c["h2"],
-        )
         tag("autolink", foreground=c["external_link"], underline=Pango.Underline.SINGLE)
         tag("inline_html", foreground=c["checkbox_empty"])
         tag("line_break", weight=Pango.Weight.BOLD)
         tag("invisible", invisible=True)
         tag("transparent", foreground_rgba=Gdk.RGBA(0, 0, 0, 0))
         tag("dim", foreground=c["dim"])
+        tag("front_matter_key", foreground=c["front_matter_key"])
+        tag("front_matter_value", foreground=c["front_matter_value"])
         tag("misspelled", underline=Pango.Underline.ERROR)
 
     def update_theme(self, theme_name: str) -> None:
@@ -268,6 +261,24 @@ class MarkdownHighlighter:
 
         self._code_block_cache = result
         self._code_block_stamp = stamp
+        return result
+
+    def _front_matter_range(self) -> tuple[int, int] | None:
+        """Return (start_line, end_line) of front matter block, or None."""
+        stamp = self.buffer.get_char_count()
+        if stamp == self._fm_stamp:
+            return self._fm_cached
+        start, end = self.buffer.get_bounds()
+        raw = self.buffer.get_text(start, end, True)
+        lines = raw.split("\n")
+        result = None
+        if lines and lines[0].strip() == "---":
+            for i in range(1, len(lines)):
+                if lines[i].strip() == "---":
+                    result = (0, i)
+                    break
+        self._fm_cached = result
+        self._fm_stamp = stamp
         return result
 
     # Main highlight pass
@@ -346,29 +357,23 @@ class MarkdownHighlighter:
                 if inside_fence:
                     continue
 
-            # Setext headings — use the already-split previous line to avoid
-            # O(n²) buffer reads.
-            if i > 0 and curr_line_num > 0:
-                prev_line = lines[i - 1]
-                setext = self.re_setext_underline.match(line)
-                if (
-                    setext
-                    and prev_line.strip()
-                    and not prev_line.strip().startswith("#")
-                    and not self.re_unordered.match(prev_line)
-                ):
+            # Front matter block at document start (--- ... ---)
+            fm = self._front_matter_range()
+            if fm is not None and fm[0] <= curr_line_num <= fm[1]:
+                self.apply_tag("dim", line_start_offset, line_end_offset)
+                if curr_line_num == fm[0] or curr_line_num == fm[1]:
+                    continue  # opening or closing ---
+                if ":" in line:
+                    colon_pos = line.index(":")
                     self.apply_tag(
-                        "setext_underline", line_start_offset, line_end_offset
+                        "front_matter_key",
+                        line_start_offset,
+                        line_start_offset + colon_pos,
                     )
-                    prev_offset = line_start_offset - len(prev_line) - 1
-                    level = 1 if setext.group(2)[0] == "=" else 2
-                    self.apply_tag(
-                        "setext_h1" if level == 1 else "setext_h2",
-                        prev_offset,
-                        prev_offset + len(prev_line),
-                    )
-
-                    continue
+                    val_start = line_start_offset + colon_pos + 1
+                    if val_start < line_end_offset:
+                        self.apply_tag("front_matter_value", val_start, line_end_offset)
+                continue
 
             # Horizontal rules
             if self.re_hr.match(line):
@@ -723,6 +728,22 @@ class MarkdownHighlighter:
             # Clear existing tags on this line
             self.buffer.remove_all_tags(it, it_end)
 
+            # Front matter block at document start (--- ... ---)
+            fm = self._front_matter_range()
+            if fm is not None and fm[0] <= line_num <= fm[1]:
+                self.apply_tag("dim", line_start, line_end)
+                if line_num == fm[0] or line_num == fm[1]:
+                    continue
+                if ":" in line:
+                    colon_pos = line.index(":")
+                    self.apply_tag(
+                        "front_matter_key", line_start, line_start + colon_pos
+                    )
+                    val_start = line_start + colon_pos + 1
+                    if val_start < line_end:
+                        self.apply_tag("front_matter_value", val_start, line_end)
+                continue
+
             md, in_block = tokenizer.tokenize(line, in_fence=in_block)
 
             if md.kind == "code_block":
@@ -833,6 +854,12 @@ class MarkdownHighlighter:
 
         # Code fence markers are always dim regardless of cursor
         if line.strip().startswith("```"):
+            self.apply_tag("dim", line_start, line_start + len(line.rstrip()))
+            return
+
+        # Front matter lines — always dim, no cursor-sensitive markers.
+        fm = self._front_matter_range()
+        if fm is not None and fm[0] <= line_num <= fm[1]:
             self.apply_tag("dim", line_start, line_start + len(line.rstrip()))
             return
 

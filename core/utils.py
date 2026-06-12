@@ -148,7 +148,7 @@ LIST_OL_RE: re.Pattern = re.compile(r"^(\s*)(\d+\.)\s+(.+)$")
 TABLE_ROW_RE: re.Pattern = re.compile(r"^\s*\|.*\|\s*$")
 TABLE_SEP_RE: re.Pattern = re.compile(r"^\s*\|?[\s\-:|]+\|?\s*$")
 HEADER_ATX_RE: re.Pattern = re.compile(r"^(#+)( .+)$")
-SETEXT_RE: re.Pattern = re.compile(r"^(\s*)(={3,}|-{3,})\s*$")
+
 FENCED_CODE_RE: re.Pattern = re.compile(r"```([\w-]*)\n?([\s\S]*?)```")
 FLASHCARD_FENCE_RE: re.Pattern = re.compile(
     r"^```flashcard\s*\n(.*?)\n```",
@@ -161,9 +161,18 @@ FLASHCARD_FENCE_RE: re.Pattern = re.compile(
 
 def get_snippet(content: str, length: int = 50) -> str:
     """Return a short plain-text snippet of *content* for sidebar display."""
-    for line in content.split("\n"):
+    lines = content.split("\n")
+    i = 0
+    # Skip front matter block (--- ... ---) at the start of the document.
+    if lines and lines[0].strip() == "---":
+        i = 1
+        while i < len(lines) and lines[i].strip() != "---":
+            i += 1
+        if i < len(lines):
+            i += 1  # skip the closing ---
+    for line in lines[i:]:
         stripped = line.strip()
-        if stripped and not stripped.startswith(("#", "---")):
+        if stripped and not stripped.startswith("#"):
             text = stripped
             break
     else:
