@@ -21,7 +21,7 @@ from markdown.ast import MdLine
 # Structural patterns whose capturing groups differ from core/utils versions
 # (tokenizer needs different groups for prefix extraction).
 _HEADER_ATX = re.compile(r"^(#{1,6})\s+(.*)$")
-_HEADER_SETEXT_UNDER = re.compile(r"^(={2,}|-{2,})\s*$")
+
 _LIST_UL = re.compile(r"^(\s*)([-*+])\s+(.*)$")
 _LIST_OL = re.compile(r"^(\s*)(\d+\.\s+)(.*)$")
 _CODE_FENCE = re.compile(r"^```([\w-]*)$")
@@ -51,15 +51,6 @@ class LineTokenizer:
         m = _CODE_FENCE.match(stripped)
         if m:
             return MdLine(stripped, "code_fence_start", marker=m.group(1)), True
-
-        if (
-            self._prev_line
-            and self._prev_line.kind == "text"
-            and _HEADER_SETEXT_UNDER.match(stripped)
-        ):
-            return MdLine(
-                stripped, "setext_under", marker=stripped[0], text=self._prev_line.raw
-            ), False
 
         if _HR.match(stripped):
             return MdLine(stripped, "hr"), False

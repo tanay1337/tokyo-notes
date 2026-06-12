@@ -57,40 +57,6 @@ class TestATXHeadings:
         assert md.text == "Title #"
 
 
-class TestSetextHeadings:
-    def test_setext_h1_equals(self) -> None:
-        tok = LineTokenizer()
-        tok.tokenize("Title text")
-        md, fence = tok.tokenize("========")
-        assert md.kind == "setext_under"
-        assert md.text == "Title text"
-        assert md.marker == "="
-        assert not fence
-
-    def test_setext_h2_dashes(self) -> None:
-        tok = LineTokenizer()
-        tok.tokenize("Title text")
-        md, fence = tok.tokenize("--------")
-        assert md.kind == "setext_under"
-        assert md.text == "Title text"
-        assert md.marker == "-"
-        assert not fence
-
-    def test_setext_requires_prev_text(self) -> None:
-        tok = LineTokenizer()
-        tok.tokenize("")
-        md, fence = tok.tokenize("========")
-        assert md.kind == "text"
-        assert not fence
-
-    def test_setext_not_after_heading(self) -> None:
-        tok = LineTokenizer()
-        tok.tokenize("# Heading")
-        md, fence = tok.tokenize("========")
-        assert md.kind == "text"
-        assert not fence
-
-
 class TestUnorderedLists:
     def test_ul_dash(self) -> None:
         tok = LineTokenizer()
@@ -293,9 +259,8 @@ class TestPlainText:
         tok = LineTokenizer()
         md1, _ = tok.tokenize("first")
         assert md1.kind == "text"
-        md2, _ = tok.tokenize("===")
-        assert md2.kind == "setext_under"
-        assert md2.text == "first"
+        md2, _ = tok.tokenize("paragraph")
+        assert md2.kind == "text"
 
 
 class TestStateManagement:
@@ -337,12 +302,6 @@ class TestEdgeCases:
         tok = LineTokenizer()
         md, fence = tok.tokenize("  ---")
         assert md.kind == "hr"
-
-    def test_setext_equals_after_different_text(self) -> None:
-        tok = LineTokenizer()
-        tok.tokenize("some text")
-        md, fence = tok.tokenize("========")
-        assert md.kind == "setext_under"
 
     def test_fence_start_ignored_inside_fence(self) -> None:
         tok = LineTokenizer()
