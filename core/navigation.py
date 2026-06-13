@@ -189,6 +189,7 @@ class NavigationController:
                     "language": app.cfg.get("language", "en"),
                     "spell_check_enabled": app.cfg.get("spell_check_enabled", True),
                     "spell_check_language": app.cfg.get("spell_check_language", "en"),
+                    "always_show_markdown": app.cfg.get("always_show_markdown", False),
                     "has_encrypted_notes": has_encrypted,
                     "git_available": app.git_controller.is_git_installed(),
                     "git_enabled": app.cfg.get("git_enabled", False),

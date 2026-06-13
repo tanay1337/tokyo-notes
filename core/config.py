@@ -33,6 +33,7 @@ _DEFAULTS: dict[str, Any] = {
     "language": "en",
     "spell_check_enabled": True,
     "spell_check_language": "en",
+    "always_show_markdown": False,
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).

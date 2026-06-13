@@ -70,6 +70,7 @@ class MarkdownHighlighter:
         self.theme_name = theme_name
         self.spell_checker: SpellChecker | None = None
         self.spell_check_enabled: bool = False
+        self.always_show_markdown: bool = False
 
         # Standard patterns imported from core.utils to ensure consistency.
         self.re_fenced_code = FENCED_CODE_RE
@@ -426,7 +427,7 @@ class MarkdownHighlighter:
                 self.apply_tag(f"h{level}", line_start_offset, line_end_offset)
                 marker_end = line_start_offset + level
                 self.apply_tag(
-                    "dim" if is_cursor else "invisible",
+                    self._marker_tag(is_cursor),
                     line_start_offset,
                     marker_end,
                 )
@@ -442,6 +443,10 @@ class MarkdownHighlighter:
             self._spell_check_pass(start_line, end_line, code_block_lines)
 
     # Helpers
+
+    def _marker_tag(self, is_cursor: bool) -> str:
+        """Return 'dim' or 'invisible' based on cursor state and setting."""
+        return "dim" if (is_cursor or self.always_show_markdown) else "invisible"
 
     def _inline(
         self,
@@ -470,7 +475,7 @@ class MarkdownHighlighter:
                 if excluded:
                     continue
             self.apply_tag(tag, ms, me)
-            marker_tag = "dim" if is_cursor else "invisible"
+            marker_tag = self._marker_tag(is_cursor)
             if single:
                 self.apply_tag(
                     marker_tag, line_offset + m.start(), line_offset + m.start() + 1
@@ -675,37 +680,28 @@ class MarkdownHighlighter:
         for m in self.re_links.finditer(line):
             fs = line_start_offset + m.start()
             fe = line_start_offset + m.end()
+            mt = self._marker_tag(is_cursor)
             if m.group(1):  # [[wiki link]]
                 self.apply_tag("internal-link", fs, fe)
-                if not is_cursor:
-                    self.apply_tag("invisible", fs, fs + 2)
-                    self.apply_tag("invisible", fe - 2, fe)
+                self.apply_tag(mt, fs, fs + 2)
+                self.apply_tag(mt, fe - 2, fe)
             else:
                 if m.group(2):  # ![image](...)
                     alt_s = fs + 2
                     alt_e = alt_s + len(m.group(3))
                     self.apply_tag("image", alt_s, alt_e)
-                    if is_cursor:
-                        self.apply_tag("dim", fs, fs + 1)  # !
-                        self.apply_tag("dim", fs + 1, fs + 2)  # [
-                        self.apply_tag("dim", alt_e, alt_e + 1)  # ]
-                        self.apply_tag("dim", alt_e + 1, alt_e + 2)  # (
-                        self.apply_tag("dim", alt_e + 2, fe - 1)  # url
-                        self.apply_tag("dim", fe - 1, fe)  # )
-                    else:
-                        self.apply_tag("invisible", fs, fs + 1)  # !
-                        self.apply_tag("invisible", fs + 1, fs + 2)  # [
-                        self.apply_tag("invisible", alt_e, alt_e + 1)  # ]
-                        self.apply_tag("invisible", alt_e + 1, alt_e + 2)  # (
-                        self.apply_tag("invisible", alt_e + 2, fe - 1)  # url
-                        self.apply_tag("invisible", fe - 1, fe)  # )
+                    self.apply_tag(mt, fs, fs + 1)  # !
+                    self.apply_tag(mt, fs + 1, fs + 2)  # [
+                    self.apply_tag(mt, alt_e, alt_e + 1)  # ]
+                    self.apply_tag(mt, alt_e + 1, alt_e + 2)  # (
+                    self.apply_tag(mt, alt_e + 2, fe - 1)  # url
+                    self.apply_tag(mt, fe - 1, fe)  # )
                 else:  # [text](url)
                     text_s = fs + 1
                     text_e = text_s + len(m.group(3))
                     self.apply_tag("external-link", text_s, text_e)
-                    brackets = "dim" if is_cursor else "invisible"
-                    self.apply_tag(brackets, fs, text_s)
-                    self.apply_tag(brackets, text_e, fe)
+                    self.apply_tag(mt, fs, text_s)
+                    self.apply_tag(mt, text_e, fe)
 
         # Deadlines and tags
         for m in self.re_deadline.finditer(line):
@@ -722,15 +718,12 @@ class MarkdownHighlighter:
             self.apply_tag(
                 "autolink", line_start_offset + m.start(), line_start_offset + m.end()
             )
+            mt = "dim" if self.always_show_markdown else "invisible"
             self.apply_tag(
-                "invisible",
-                line_start_offset + m.start(),
-                line_start_offset + m.start() + 1,
+                mt, line_start_offset + m.start(), line_start_offset + m.start() + 1
             )
             self.apply_tag(
-                "invisible",
-                line_start_offset + m.end() - 1,
-                line_start_offset + m.end(),
+                mt, line_start_offset + m.end() - 1, line_start_offset + m.end()
             )
 
         # Inline HTML
@@ -886,6 +879,8 @@ class MarkdownHighlighter:
 
     def _set_line_markers(self, line_num: int, is_cursor: bool) -> None:
         """Apply only dim/invisible marker tags for a single line."""
+        if self.always_show_markdown:
+            return
         it = self.get_iter_at_line(line_num)
         it_end = it.copy()
         if not it_end.ends_line():

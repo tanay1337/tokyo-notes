@@ -153,6 +153,14 @@ class SettingsView(Gtk.Box):
         group = Adw.PreferencesGroup(title=tr("Editor"))
         group.add(
             self._make_switch_row(
+                tr("Always Show Markdown"),
+                tr("Makes markdown formatting characters always visible on all lines"),
+                self._initial_values.get("always_show_markdown", False),
+                "always_show_markdown",
+            )
+        )
+        group.add(
+            self._make_switch_row(
                 tr("Formatting Bar"),
                 tr("Show markdown formatting tools above the editor"),
                 self._initial_values.get("show_toolbar", True),

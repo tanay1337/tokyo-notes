@@ -1442,6 +1442,9 @@ class TokyoNotes(Adw.Application):
         self.highlighter = MarkdownHighlighter(
             self.buffer, self.theme_manager, self.cfg.get("theme")
         )
+        self.highlighter.always_show_markdown = self.cfg.get(
+            "always_show_markdown", False
+        )
         self.highlighter.highlight()
 
         # Spell checker
@@ -1558,6 +1561,10 @@ class TokyoNotes(Adw.Application):
                     enabled=self.cfg.get("spell_check_enabled", True),
                 )
             self.editor.invalidate_spell_cache()
+        elif key == "always_show_markdown":
+            if self.highlighter:
+                self.highlighter.always_show_markdown = value
+                self.highlighter.highlight()
 
     def _show_language_restart_dialog(self) -> None:
         dialog = Adw.MessageDialog(
