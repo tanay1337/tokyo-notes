@@ -871,10 +871,31 @@ class DiagramView(Gtk.Box):
             GLib.source_remove(self._fit_anim_id)
         self._fit_anim_id = self.canvas.add_tick_callback(animate)
 
+    def _fit_to_canvas(self) -> None:
+        """Jump directly to the fit scale/offset without animation."""
+        if not self._diagram or not self._diagram.nodes:
+            return
+        w = self.canvas.get_width()
+        h = self.canvas.get_height()
+        if w <= 0 or h <= 0:
+            return
+        min_x = min(n.x for n in self._diagram.nodes)
+        max_x = max(n.x for n in self._diagram.nodes)
+        min_y = min(n.y for n in self._diagram.nodes)
+        max_y = max(n.y for n in self._diagram.nodes)
+        padding = 80.0
+        graph_w = max_x - min_x + padding * 2
+        graph_h = max_y - min_y + padding * 2
+        self._scale = min(w / graph_w, h / graph_h, 3.0)
+        self._offset[0] = -(min_x + max_x) / 2 * self._scale
+        self._offset[1] = -(min_y + max_y) / 2 * self._scale
+        self._update_zoom_label()
+        self.canvas.queue_draw()
+
     def _fit_once_allocated(self) -> bool:
         """Call fit after canvas has been allocated its size (idle callback)."""
         if self.canvas.get_width() > 0 and self.canvas.get_height() > 0:
-            self._on_fit_clicked()
+            self._fit_to_canvas()
             return False
         return True  # re-schedule if not yet allocated
 
