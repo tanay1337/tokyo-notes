@@ -101,6 +101,7 @@ class MarkdownHighlighter:
         self._code_block_cache: set[int] = set()
         self._code_block_stamp: int = -1
         self._in_fence: bool = False
+        self._hanging_tag_cache: dict[int, str] = {}
 
         # Cache for _front_matter_range — invalidated when buffer content changes.
         self._fm_cached: tuple[int, int] | None = None
@@ -431,6 +432,7 @@ class MarkdownHighlighter:
                 )
                 continue
 
+            self._apply_list_hanging(line, line_start_offset, line_end_offset)
             self.apply_tag("body", line_start_offset, line_end_offset)
 
             self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
@@ -491,6 +493,52 @@ class MarkdownHighlighter:
         end_iter = self.get_iter_at_offset(end_offset)
         self.buffer.apply_tag_by_name(tag_name, start_iter, end_iter)
 
+    def _apply_list_hanging(
+        self, line: str, line_start_offset: int, line_end_offset: int
+    ) -> None:
+        """Apply a hanging indent to wrapped lines in list/checkbox items.
+
+        Uses ``indent`` only (no ``left_margin``) so the body tag's
+        ``left_margin=30`` still applies.  A negative ``indent`` leaves the
+        first line at full width and indents subsequent wrapped lines by
+        ``|indent|`` pixels — which is the standard hanging-indent behaviour.
+        """
+        ul_m = self.re_unordered.match(line)
+        ol_m = self.re_ordered.match(line)
+        cb_e = self.re_checkbox_empty.search(line)
+        cb_c = self.re_checkbox_checked.search(line)
+
+        if not (ul_m or ol_m or cb_e or cb_c):
+            return
+
+        # Find where the actual content text starts
+        if cb_e or cb_c:
+            cb_m = cb_e or cb_c
+            pos = cb_m.end()
+            while pos < len(line) and line[pos] == " ":
+                pos += 1
+            content_start = pos
+        elif ul_m:
+            content_start = ul_m.start(3)
+        else:
+            content_start = ol_m.start(3)
+
+        # Estimate pixel width of the leading text.
+        # Spaces are narrower than other characters; applying a flat
+        # per-char multiplier overestimates for deeply-nested items.
+        leading_text = line[:content_start]
+        raw = sum(4 if c == " " else 6 for c in leading_text)
+        indent_px = min(raw, 40)
+
+        cache = self._hanging_tag_cache
+        name = cache.get(indent_px)
+        if name is None:
+            name = f"_h_{indent_px}"
+            self.buffer.create_tag(name, indent=-indent_px)
+            cache[indent_px] = name
+
+        self.apply_tag(name, line_start_offset, line_end_offset)
+
     def _tag_for_line(self, md_line) -> str | None:
         """Return the GTK text tag name for a markdown line kind."""
         return {
@@ -525,6 +573,7 @@ class MarkdownHighlighter:
             )
 
         self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
+        self._apply_list_hanging(line, line_start_offset, line_end_offset)
 
     def _collect_link_ranges(
         self, line: str, line_start_offset: int
