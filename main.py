@@ -2694,8 +2694,9 @@ class TokyoNotes(Adw.Application):
         ):
             self._safe_source_remove(attr)
 
-        if self.split_editor is not None:
-            self.split_editor.flush_saves()
+        se = getattr(self, "split_editor", None)
+        if se is not None:
+            se.flush_saves()
             return
 
         if self.current_note and self.current_note.startswith(".template:"):

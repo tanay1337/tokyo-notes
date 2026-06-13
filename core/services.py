@@ -17,9 +17,12 @@ from core.utils import H1_TITLE_RE, split_note_path
 
 def clean_title(raw: str) -> str:
     """Strip non-filename characters from a title string."""
-    return "".join(
+    cleaned = "".join(
         c for c in raw.strip() if c.isalnum() or c in (" ", "-", "_", ".", "(", ")")
     ).strip()
+    while cleaned and not cleaned[0].isalnum():
+        cleaned = cleaned[1:].lstrip()
+    return cleaned
 
 
 def derive_display_title(content: str, fallback: str) -> str:
