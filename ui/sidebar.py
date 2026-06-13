@@ -84,6 +84,7 @@ class Sidebar(Gtk.Box):
         self.stack.add_named(self.archive_list, "archive")
         self.scrolled = Gtk.ScrolledWindow()
         self.scrolled.set_vexpand(True)
+        self.scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scrolled.set_child(self.stack)
         self.append(self.scrolled)
 
@@ -558,6 +559,7 @@ class Sidebar(Gtk.Box):
         if is_archived:
             label.add_css_class("muted-label")
         label.set_hexpand(True)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
         title_box.append(label)
 
         lock_icon = Gtk.Image.new_from_file(
@@ -584,6 +586,7 @@ class Sidebar(Gtk.Box):
             path_label = Gtk.Label(label=folder_path, xalign=0)
             path_label.add_css_class("sidebar-snippet")
             path_label.set_opacity(0.6)
+            path_label.set_ellipsize(Pango.EllipsizeMode.END)
             box.append(path_label)
 
         snippet = Gtk.Label(label=snippet_text, xalign=0)
@@ -656,6 +659,7 @@ class Sidebar(Gtk.Box):
         label = Gtk.Label(label=display, xalign=0)
         label.add_css_class("sidebar-label")
         label.set_hexpand(True)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
         label.set_tooltip_text(folder_path)
         box.append(label)
 
