@@ -291,14 +291,11 @@ def render_diagram_preview(
         _node_shape_path(cr, rx, ry, nw, nh, node.shape)
         cr.fill()
 
-        # Node text
+        # Node text — hardcoded white matches on-screen _on_draw
         if node.text:
             layout.set_text(node.text, -1)
             lw, lh = layout.get_pixel_size()
-            if text_color is not None:
-                cr.set_source_rgb(text_color.red, text_color.green, text_color.blue)
-            else:
-                cr.set_source_rgb(1, 1, 1)
+            cr.set_source_rgb(1, 1, 1)
             cr.move_to(node.x - lw / 2, node.y - lh / 2)
             PangoCairo.show_layout(cr, layout)
 
