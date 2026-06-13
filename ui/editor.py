@@ -1126,8 +1126,8 @@ class Editor(Gtk.Box):
 
                 pixbuf = render_diagram_preview(
                     diagram,
-                    max_width=max_w,
-                    max_height=max_h,
+                    max_width=max_w * 2,
+                    max_height=max_h * 2,
                     bg_color=bg if ok_bg else None,
                     text_color=fg if ok_fg else None,
                 )
@@ -1135,7 +1135,11 @@ class Editor(Gtk.Box):
         if pixbuf is not None:
             img = Gtk.Picture.new_for_pixbuf(pixbuf)
             img.set_halign(Gtk.Align.START)
-            img.set_size_request(pixbuf.get_width(), pixbuf.get_height())
+            pw = pixbuf.get_width()
+            ph = pixbuf.get_height()
+            display_w = min(pw, max_w)
+            display_h = int(ph * display_w / pw) if pw > 0 else ph
+            img.set_size_request(display_w, display_h)
             img.set_cursor(Gdk.Cursor.new_from_name("pointer"))
             gesture = Gtk.GestureClick.new()
             gesture.connect("pressed", lambda *_: self._open_diagram(diagram_id))
@@ -1314,11 +1318,12 @@ class Editor(Gtk.Box):
                         continue
 
                     pixbuf = None
+                    load_res = max_load * 2
                     if img_path.startswith(("http://", "https://")):
                         cache_path = self._remote_image_cache_path(img_path, notes_dir)
                         if cache_path.exists():
                             pixbuf = self._load_image_pixbuf(
-                                cache_path, max_load, max_load
+                                cache_path, load_res, load_res
                             )
                         else:
                             self._download_remote_image(img_path, cache_path)
@@ -1326,7 +1331,7 @@ class Editor(Gtk.Box):
                         full_path = resolve_image_path(notes_dir, img_path)
                         if full_path is not None and full_path.exists():
                             pixbuf = self._load_image_pixbuf(
-                                full_path, max_load, max_load
+                                full_path, load_res, load_res
                             )
 
                     if pixbuf is None:
@@ -1335,9 +1340,11 @@ class Editor(Gtk.Box):
                     if pixbuf is not None:
                         img_widget = Gtk.Picture.new_for_pixbuf(pixbuf)
                         img_widget.set_halign(Gtk.Align.START)
-                        img_widget.set_size_request(
-                            pixbuf.get_width(), pixbuf.get_height()
-                        )
+                        pw = pixbuf.get_width()
+                        ph = pixbuf.get_height()
+                        display_w = min(pw, max_load)
+                        display_h = int(ph * display_w / pw) if pw > 0 else ph
+                        img_widget.set_size_request(display_w, display_h)
                     else:
                         img_widget = Gtk.Picture()
                         img_widget.set_halign(Gtk.Align.START)

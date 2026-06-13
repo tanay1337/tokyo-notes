@@ -187,7 +187,7 @@ def render_diagram_preview(
     graph_w = max_x - min_x + margin * 2
     graph_h = max_y - min_y + margin * 2
 
-    scale = min(max_width / graph_w, max_height / graph_h, 4.0)
+    scale = min(max_width / graph_w, max_height / graph_h)
     scale = max(scale, 0.1)
 
     surf_w = max(round(graph_w * scale), 100)
@@ -210,6 +210,11 @@ def render_diagram_preview(
     cr.scale(scale, scale)
     cr.translate(-cx, -cy)
 
+    # Pango layout for high-quality text
+    layout = PangoCairo.create_layout(cr)
+    desc = Pango.FontDescription.from_string("Sans 11")
+    layout.set_font_description(desc)
+
     # Edges
     for edge in diagram.edges:
         src = diagram.find_node(edge.from_id)
@@ -223,6 +228,55 @@ def render_diagram_preview(
         _draw_edge_line(
             cr, src.x, s_bottom, dst.x, d_top, edge.edge_type, line_color, 1.5
         )
+
+    # Edge labels with anti-collision
+    label_rects: list[tuple[float, float, float, float]] = []
+    for edge in diagram.edges:
+        if not edge.label:
+            continue
+        src = diagram.find_node(edge.from_id)
+        dst = diagram.find_node(edge.to_id)
+        if not src or not dst:
+            continue
+        s_bottom = src.y + src.h / 2
+        d_top = dst.y - dst.h / 2
+        mid_x = (src.x + dst.x) / 2
+        mid_y = (s_bottom + d_top) / 2
+
+        layout.set_text(edge.label, -1)
+        layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+        layout.set_width(int(150 * Pango.SCALE))
+        lw_t, lh_t = layout.get_pixel_size()
+        if text_color is not None:
+            cr.set_source_rgba(text_color.red, text_color.green, text_color.blue, 0.8)
+        else:
+            cr.set_source_rgba(1, 1, 1, 0.8)
+
+        def _overlaps(r, others):
+            rx, ry, rw, rh = r
+            for ox, oy, ow, oh in others:
+                if rx < ox + ow and rx + rw > ox and ry < oy + oh and ry + rh > oy:
+                    return True
+            return False
+
+        ax = mid_x - lw_t / 2
+        ay = mid_y - lh_t - 4
+        a_rect = (ax, ay, lw_t, lh_t)
+
+        bx = mid_x - lw_t / 2
+        by = mid_y + 4
+        b_rect = (bx, by, lw_t, lh_t)
+
+        if not _overlaps(a_rect, label_rects):
+            cr.move_to(ax, ay)
+            label_rects.append(a_rect)
+        elif not _overlaps(b_rect, label_rects):
+            cr.move_to(bx, by)
+            label_rects.append(b_rect)
+        else:
+            cr.move_to(ax, ay)
+            label_rects.append(a_rect)
+        PangoCairo.show_layout(cr, layout)
 
     # Nodes
     for node in diagram.nodes:
@@ -239,17 +293,14 @@ def render_diagram_preview(
 
         # Node text
         if node.text:
+            layout.set_text(node.text, -1)
+            lw, lh = layout.get_pixel_size()
             if text_color is not None:
                 cr.set_source_rgb(text_color.red, text_color.green, text_color.blue)
             else:
                 cr.set_source_rgb(1, 1, 1)
-            cr.select_font_face(
-                "Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL
-            )
-            cr.set_font_size(11)
-            _, _, tw, th, _, _ = cr.text_extents(node.text)
-            cr.move_to(node.x - tw / 2, node.y + th / 3)
-            cr.show_text(node.text)
+            cr.move_to(node.x - lw / 2, node.y - lh / 2)
+            PangoCairo.show_layout(cr, layout)
 
     return Gdk.pixbuf_get_from_surface(surface, 0, 0, surf_w, surf_h)
 
@@ -1813,17 +1864,19 @@ class DiagramView(Gtk.Box):
         ctx = self.canvas.get_style_context()
         ok_bg, bg_color = ctx.lookup_color("editor_bg")
         if not ok_bg:
+            ok_bg, bg_color = ctx.lookup_color("theme_base_color")
+        if not ok_bg:
             bg_color = Gdk.RGBA()
             bg_color.parse("#ffffff")
-        ok_fg, fg_color = ctx.lookup_color("fg_color")
+        ok_fg, fg_color = ctx.lookup_color("theme_fg_color")
         if not ok_fg:
             fg_color = Gdk.RGBA()
-            fg_color.parse("#333333")
+            fg_color.parse("#ffffff")
 
         pixbuf = render_diagram_preview(
             self._diagram,
-            max_width=2000,
-            max_height=2000,
+            max_width=4000,
+            max_height=4000,
             bg_color=bg_color,
             text_color=fg_color,
         )
