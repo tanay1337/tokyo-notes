@@ -92,6 +92,7 @@ python3 main.py
 | `Ctrl/Cmd + T` | Quick Add Task |
 | `Ctrl/Cmd + Shift + T` | Insert Timestamp |
 | `Ctrl/Cmd + Shift + Z` | Zen Mode |
+| `Ctrl + Space` | Dictation (if enabled) |
 | `Delete` | Delete selected note (with confirmation) |
 | `Escape` | Close Dashboard / Clear Search / Return to Editor |
 | `Ctrl/Cmd + Q` | Quit |

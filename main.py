@@ -2911,6 +2911,7 @@ class TokyoNotes(Adw.Application):
                     ("at", tr("Open deadline picker  ( @ )")),
                     ("braceleft braceleft", tr("Open variable picker  ( {{ )")),
                     ("Return", tr("Continue list or task on new line")),
+                    ("<Control>space", tr("Toggle dictation (if enabled)")),
                 ],
             )
         )
