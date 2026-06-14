@@ -20,8 +20,21 @@ concurrency:
 
 jobs:
   build:
-    name: Build arm64 .app
+    name: Build ${{ matrix.label }}
     runs-on: macos-14
+
+    strategy:
+      matrix:
+        variant: [standard, dictation]
+        include:
+          - variant: standard
+            label: Standard
+            zip_suffix: Standard-macOS
+            pip_extras: ""
+          - variant: dictation
+            label: Dictation
+            zip_suffix: Dictation-macOS
+            pip_extras: faster-whisper sounddevice
 
     steps:
       - name: Check out repository
@@ -32,11 +45,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: "**/requirements.txt"
 
       - name: Install native dependencies
         run: |
           brew update
-          brew install gtk4 libadwaita gobject-introspection cairo pkg-config librsvg git
+          brew install gtk4 libadwaita gobject-introspection cairo pkg-config librsvg git portaudio
 
       - name: Configure Homebrew GTK paths
         run: |
@@ -55,6 +69,9 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install .
           python -m pip install pyinstaller pyinstaller-hooks-contrib
+          if [ -n "${{ matrix.pip_extras }}" ]; then
+            python -m pip install ${{ matrix.pip_extras }}
+          fi
 
       - name: Verify GTK import path
         run: |
@@ -70,26 +87,36 @@ jobs:
         run: bash packaging/macos/make-icon.sh
 
       - name: Build app bundle
-        run: pyinstaller packaging/macos/tokyo-notes.spec --noconfirm --clean
+        run: |
+          TOKYO_NOTES_DICTATION=${{ matrix.variant == 'dictation' && '1' || '0' }} \
+            pyinstaller packaging/macos/tokyo-notes.spec --noconfirm --clean
 
       - name: Validate app bundle
         run: |
           test -d "dist/Tokyo Notes.app"
           test -x "dist/Tokyo Notes.app/Contents/MacOS/Tokyo Notes"
           plutil -lint "dist/Tokyo Notes.app/Contents/Info.plist"
+          # Verify NSMicrophoneUsageDescription is present only in dictation build
+          if [ "${{ matrix.variant }}" = "dictation" ]; then
+            plutil -extract NSMicrophoneUsageDescription raw "dist/Tokyo Notes.app/Contents/Info.plist" > /dev/null
+          else
+            ! plutil -extract NSMicrophoneUsageDescription raw "dist/Tokyo Notes.app/Contents/Info.plist" 2>/dev/null
+          fi
 
       - name: Ad-hoc sign app bundle
         run: codesign --force --deep --sign - "dist/Tokyo Notes.app"
 
       - name: Archive app bundle
         run: |
-          ditto -c -k --sequesterRsrc --keepParent "dist/Tokyo Notes.app" "Tokyo-Notes-macos-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "dist/Tokyo Notes.app" \
+            "Tokyo-Notes-${{ matrix.zip_suffix }}-arm64.zip"
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Tokyo-Notes-macos-arm64
-          path: Tokyo-Notes-macos-arm64.zip
+          name: Tokyo-Notes-${{ matrix.zip_suffix }}-arm64
+          path: Tokyo-Notes-${{ matrix.zip_suffix }}-arm64.zip
 
       - name: Publish latest macOS release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -97,7 +124,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: macos-latest
           RELEASE_TITLE: Latest macOS Build
-          ASSET_PATH: Tokyo-Notes-macos-arm64.zip
+          ASSET_PATH: Tokyo-Notes-${{ matrix.zip_suffix }}-arm64.zip
         run: |
           set -euo pipefail
 
@@ -106,7 +133,13 @@ jobs:
           git tag --force "$RELEASE_TAG" "$GITHUB_SHA"
           git push --force origin "refs/tags/${RELEASE_TAG}"
 
-          notes="Latest successful macOS arm64 build from commit ${GITHUB_SHA}."
+          notes="Latest successful macOS arm64 build from commit ${GITHUB_SHA}.
+
+          Assets:
+          - **Tokyo-Notes-Standard-macOS-arm64.zip**: Standard build without dictation.
+          - **Tokyo-Notes-Dictation-macOS-arm64.zip**: Includes offline speech-to-text dictation (larger download).
+          "
+
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \

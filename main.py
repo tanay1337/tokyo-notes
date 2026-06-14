@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from threading import Thread
 from typing import Any, Callable
 
 import gi
@@ -23,6 +24,7 @@ from core.navigation import NavigationController
 from core.note_lifecycle import NoteLifecycleManager
 from core.search import SearchController
 from core.shortcuts import setup_shortcuts
+from core.speech import model_cached
 from core.spell_checker import SpellChecker
 from core.startup_checks import validate_notes_folder
 from core.storage import NotesManager
@@ -1380,6 +1382,7 @@ class TokyoNotes(Adw.Application):
             on_new_from_template=self._on_new_from_template,
             on_quick_add=self._on_quick_add_shortcut,
             on_flashcard=self.nav.on_flashcard_clicked,
+            on_speech_toggle=self._on_speech_toggle,
         )
         logger.info("Tokyo Notes started — notes folder: %s", self.notes_folder)
 
@@ -1419,6 +1422,12 @@ class TokyoNotes(Adw.Application):
             assets_dir,
             self.apply_format,
             on_history=lambda: self._on_show_history(self.current_note),
+            get_buffer=lambda: self.buffer,
+            speech_language=self.cfg.get("speech_language"),
+            speech_input_device=self.cfg.get("speech_input_device"),
+            on_speech_recording=self._on_speech_recording,
+            on_speech_transcribing=self._on_speech_transcribing,
+            on_speech_quiet_audio=self._on_speech_quiet_audio,
         )
 
         self.editor = Editor(
@@ -1434,6 +1443,13 @@ class TokyoNotes(Adw.Application):
         self.changed_handler_id = self.editor.changed_handler_id
 
         self.history_btn = getattr(self.toolbar, "_history_btn", None)
+        self._speech_btn = getattr(self.toolbar, "_speech_btn", None)
+        if self._speech_btn is not None:
+            self._speech_btn.set_visible(self.cfg.get("speech_enabled", False))
+            if self.cfg.get("speech_enabled", False):
+                GLib.timeout_add_seconds(
+                    1, lambda: self._provision_speech_and_download() or False
+                )
         self._update_toolbar_versioning_buttons()
 
         self.toolbar.set_visible(self.cfg.get("show_toolbar"))
@@ -1565,6 +1581,27 @@ class TokyoNotes(Adw.Application):
             if self.highlighter:
                 self.highlighter.always_show_markdown = value
                 self.highlighter.highlight()
+        elif key == "speech_enabled":
+            self._speech_btn = (
+                getattr(self.toolbar, "_speech_btn", None)
+                if hasattr(self, "toolbar")
+                else None
+            )
+            if self._speech_btn is not None:
+                self._speech_btn.set_visible(value)
+            if value:
+                self._provision_speech_and_download()
+        elif key == "speech_input_device":
+            if self._speech_btn is not None:
+                self._speech_btn.update_input_device(value)
+        elif key == "speech_language":
+            if self._speech_btn is not None:
+                self._speech_btn.update_language(value)
+        elif key == "speech_rebuild":
+            from core.speech_setup import remove as remove_venv
+
+            remove_venv()
+            self._provision_speech_and_download()
 
     def _show_language_restart_dialog(self) -> None:
         dialog = Adw.MessageDialog(
@@ -3158,6 +3195,144 @@ class TokyoNotes(Adw.Application):
             self._set_backlinks_visible(False)
         GLib.idle_add(self.dashboard_view.open_quick_add_popover)
         return True
+
+    def _on_speech_toggle(self) -> bool:
+        """Ctrl+Space — toggle speech-to-text dictation."""
+        if not self.cfg.get("speech_enabled", False):
+            return False
+        btn = getattr(self, "_speech_btn", None)
+        if btn is not None:
+            btn.set_active(not btn.get_active())
+        return True
+
+    def _on_speech_recording(self, active: bool) -> None:
+        """Show/dismiss a 'Recording…' toast."""
+        if not hasattr(self, "toast_overlay"):
+            return
+        if active:
+            toast = Adw.Toast(title=tr("Recording…"), timeout=0)
+            self.toast_overlay.add_toast(toast)
+            self._recording_toast = toast
+        else:
+            toast = getattr(self, "_recording_toast", None)
+            if toast is not None:
+                toast.dismiss()
+                self._recording_toast = None
+
+    def _on_speech_transcribing(self, active: bool) -> None:
+        """Show/dismiss a 'Transcribing…' toast."""
+        if not hasattr(self, "toast_overlay"):
+            return
+        if active:
+            toast = Adw.Toast(title=tr("Transcribing…"), timeout=0)
+            self.toast_overlay.add_toast(toast)
+            self._transcribing_toast = toast
+        else:
+            toast = getattr(self, "_transcribing_toast", None)
+            if toast is not None:
+                toast.dismiss()
+                self._transcribing_toast = None
+
+    def _on_speech_quiet_audio(self) -> None:
+        if not hasattr(self, "toast_overlay"):
+            return
+        toast = Adw.Toast(
+            title=tr(
+                "Audio too quiet. Check microphone or change input device in Settings."
+            ),
+        )
+        self.toast_overlay.add_toast(toast)
+
+    def _provision_speech_and_download(self) -> None:
+        """Provision the speech venv (Linux) or skip (macOS dictation build),
+        then download the model if needed."""
+        import sys
+
+        from core.speech_paths import is_available_for_build
+
+        # macOS dictation build: deps are bundled, no provisioning needed.
+        if sys.platform == "darwin" and is_available_for_build():
+            self._download_speech_model()
+            return
+
+        from core.speech_setup import provision, venv_valid
+
+        venv_ok = venv_valid()
+
+        if not venv_ok:
+            dialog = Adw.MessageDialog(
+                transient_for=self.win,
+                heading=tr("Setting Up Dictation"),
+                body=tr("Creating speech environment (~150 MB download)…"),
+            )
+            dialog.add_response("cancel", tr("Cancel"))
+            dialog.set_close_response("cancel")
+            dialog.present()
+
+            def on_stdout(line: str) -> None:
+                GLib.idle_add(lambda: dialog.set_body(tr("Setting up: %s") % line[:60]))
+
+            def do_provision():
+                try:
+                    provision(on_stdout=on_stdout)
+                    GLib.idle_add(lambda: self._on_venv_provisioned(dialog))
+                except Exception as e:
+                    logger.error("Venv provision failed: %s", e)
+                    GLib.idle_add(lambda: dialog.close())
+
+            dialog.connect(
+                "response", lambda d, r: d.close() if r == "cancel" else None
+            )
+            Thread(target=do_provision, daemon=True).start()
+        else:
+            self._download_speech_model()
+
+    def _on_venv_provisioned(self, dialog: Adw.MessageDialog) -> None:
+        dialog.close()
+        self._show_toast(tr("Dictation venv ready"))
+        self._download_speech_model()
+
+    def _download_speech_model(self) -> None:
+        """Download the speech model with a progress dialog."""
+        from core.speech import download_model_with_progress
+
+        if model_cached():
+            return
+
+        dialog = Adw.MessageDialog(
+            transient_for=self.win,
+            heading=tr("Downloading Speech Model"),
+            body=tr("Downloading speech recognition model (~145 MB)…"),
+        )
+        dialog.add_response("cancel", tr("Cancel"))
+        dialog.set_close_response("cancel")
+        dialog.present()
+
+        def on_progress(current: int, total: int) -> None:
+            GLib.idle_add(
+                lambda: dialog.set_body(
+                    tr("Downloading speech model: %d / %d MB")
+                    % (current // (1024 * 1024), total // (1024 * 1024))
+                )
+            )
+
+        def download():
+            try:
+                download_model_with_progress(on_progress=on_progress)
+                GLib.idle_add(lambda: self._on_speech_model_downloaded(dialog))
+            except Exception as e:
+                logger.error("Speech model download failed: %s", e)
+                GLib.idle_add(lambda: dialog.close())
+
+        dialog.connect(
+            "response",
+            lambda d, r: d.close() if r == "cancel" else None,
+        )
+        Thread(target=download, daemon=True).start()
+
+    def _on_speech_model_downloaded(self, dialog: Adw.MessageDialog) -> None:
+        dialog.close()
+        self._show_toast(tr("Dictation ready"))
 
     # Deadline picker
 

@@ -13,6 +13,7 @@ from gi.repository import GLib, Gtk
 
 from core.graph_manager import GraphManager
 from core.services import get_week_boundaries
+from core.speech import model_cached
 from core.translations import tr
 from core.utils import create_empty_state_widget, is_entry_focused
 from ui.dashboard import Dashboard
@@ -190,6 +191,10 @@ class NavigationController:
                     "spell_check_enabled": app.cfg.get("spell_check_enabled", True),
                     "spell_check_language": app.cfg.get("spell_check_language", "en"),
                     "always_show_markdown": app.cfg.get("always_show_markdown", False),
+                    "speech_enabled": app.cfg.get("speech_enabled", False),
+                    "speech_language": app.cfg.get("speech_language"),
+                    "speech_input_device": app.cfg.get("speech_input_device"),
+                    "speech_model_cached": model_cached(),
                     "has_encrypted_notes": has_encrypted,
                     "git_available": app.git_controller.is_git_installed(),
                     "git_enabled": app.cfg.get("git_enabled", False),

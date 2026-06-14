@@ -47,6 +47,7 @@ Tokyo Notes is a beautiful markdown note-taking app that combines interactive di
 - **Version History**: Automatic save-points, manual snapshots, and one-click restore from any previous version via Git.
 - **Flashcards**: Extract Q/A cards from flashcard codeblocks and flip through them to review. See format below.
 - **Diagrams**: Create, edit, and embed interactive node diagrams directly in your notes.
+- **Offline Dictation**: Optional speech-to-text dictation powered by faster-whisper that runs fully offline.
 - **And Much More**: Themes, Archive System, Full-Text Search, Sakura Animations.
 
 ## Installation
@@ -54,6 +55,10 @@ Tokyo Notes is a beautiful markdown note-taking app that combines interactive di
 ### macOS
 
 Download the latest build from the [releases page](https://github.com/tanay1337/tokyo-notes/releases).
+
+Two builds are available:
+- **Tokyo-Notes-Standard-macOS-arm64.zip**: Standard build without dictation.
+- **Tokyo-Notes-Dictation-macOS-arm64.zip**: Includes offline speech-to-text dictation (larger download).
 
 **Note:** The app is not notarized, so you'll have to [allow it from the System Settings](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) the first time you run it.
 

@@ -32,6 +32,7 @@ def setup_shortcuts(
     on_new_from_template: Callable[[], None] | None = None,
     on_quick_add: Callable[[], None] | None = None,
     on_flashcard: Callable[[], None] | None = None,
+    on_speech_toggle: Callable[[], None] | None = None,
 ) -> None:
     # Ctrl+N  new note          Ctrl+D  dashboard         Ctrl+G  graph
     # Ctrl+F  search (×2=clear) Ctrl+Q  quit              Ctrl+H  help
@@ -69,6 +70,8 @@ def setup_shortcuts(
         bindings.append((get_accel("t"), on_quick_add))
     if on_flashcard:
         bindings.append((get_accel("<Shift>f"), on_flashcard))
+    if on_speech_toggle:
+        bindings.append(("<Control>space", on_speech_toggle))
 
     for trigger_str, callback in bindings:
         controller.add_shortcut(

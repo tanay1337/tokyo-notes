@@ -55,6 +55,12 @@ def build_toolbar(
     assets_dir: Path,
     on_format: Any,
     on_history: Callable[[], Any] | None = None,
+    get_buffer: Callable[[], Any] | None = None,
+    speech_language: str | None = None,
+    speech_input_device: str | int | None = None,
+    on_speech_recording: Callable[[bool], None] | None = None,
+    on_speech_transcribing: Callable[[bool], None] | None = None,
+    on_speech_quiet_audio: Callable[[], None] | None = None,
 ) -> Gtk.ScrolledWindow:
     """Build and return the editor toolbar widget with grouped buttons.
 
@@ -91,9 +97,29 @@ def build_toolbar(
                 btn.connect("clicked", on_format, prefix, suffix)
             inner.append(btn)
 
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.add_css_class("toolbar-scrolled")
+    scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+    scrolled.set_vexpand(False)
+
     spacer = Gtk.Box()
     spacer.set_hexpand(True)
     inner.append(spacer)
+
+    if get_buffer is not None:
+        from ui.speech_button import SpeechButton
+
+        mic_btn = SpeechButton(
+            assets_dir=assets_dir,
+            get_buffer=get_buffer,
+            language=speech_language,
+            input_device=speech_input_device,
+            on_recording=on_speech_recording,
+            on_transcribing=on_speech_transcribing,
+            on_quiet_audio=on_speech_quiet_audio,
+        )
+        inner.append(mic_btn)
+        scrolled._speech_btn = mic_btn
 
     if on_history:
         history_btn = Gtk.Button()
@@ -109,12 +135,8 @@ def build_toolbar(
         history_btn.connect("clicked", lambda _: on_history())
         history_btn.set_visible(False)
         inner.append(history_btn)
-
-    scrolled = Gtk.ScrolledWindow()
-    scrolled.add_css_class("toolbar-scrolled")
-    scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
-    scrolled.set_vexpand(False)
-    scrolled.set_child(inner)
-    if on_history:
         scrolled._history_btn = history_btn
+
+    scrolled.set_child(inner)
+
     return scrolled

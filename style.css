@@ -70,6 +70,17 @@ textview text {
     color: @fg_color;
 }
 
+@keyframes pulse-recording {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.toolbar-btn.recording {
+    color: @error_color;
+    animation: pulse-recording 1.5s ease-in-out infinite;
+}
+
 .dashboard-toolbar button.active {
     background-color: @selection_color;
     color: @fg_color;

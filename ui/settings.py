@@ -10,7 +10,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from spellchecker import SpellChecker as PySpellChecker
 
 from core.theme_manager import THEMES
@@ -89,6 +89,10 @@ class SettingsView(Gtk.Box):
         self._editor_group = self._build_editor_group()
         self._content.append(self._editor_group)
         self._settings_groups.append(self._editor_group)
+
+        self._dictation_group = self._build_dictation_group()
+        self._content.append(self._dictation_group)
+        self._settings_groups.append(self._dictation_group)
 
         self._dashboard_group = self._build_dashboard_group()
         self._content.append(self._dashboard_group)
@@ -201,6 +205,141 @@ class SettingsView(Gtk.Box):
         )
         group.add(self._make_spell_language_row())
         return group
+
+    def _build_dictation_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title=tr("Dictation"))
+        from core.speech_paths import is_available_for_build
+
+        # macOS standard build: no dictation available, show link to dictation variant.
+        if not is_available_for_build():
+            row = Adw.ActionRow(
+                title=tr("Dictation"),
+                subtitle=tr("Not included in this build."),
+            )
+            link_btn = Gtk.Button(label=tr("Get the Dictation build"))
+            link_btn.add_css_class("flat")
+            link_btn.connect(
+                "clicked",
+                lambda _b: Gtk.show_uri(
+                    self.get_root(),
+                    "https://github.com/anomalyco/tokyo-notes/releases",
+                    Gdk.CURRENT_TIME,
+                ),
+            )
+            row.add_suffix(link_btn)
+            row.set_activatable_widget(link_btn)
+            group.add(row)
+            return group
+
+        from core.speech_setup import venv_valid
+
+        venv_ok = venv_valid()
+        switch_sub = (
+            tr("Venv ready ✓")
+            if venv_ok
+            else tr("Will set up on first enable (~145 MB download)")
+        )
+        group.add(
+            self._make_switch_row(
+                tr("Enable Dictation"),
+                switch_sub,
+                self._initial_values.get("speech_enabled", False),
+                "speech_enabled",
+            )
+        )
+        self._speech_language_row = self._make_speech_language_row()
+        group.add(self._speech_language_row)
+        self._speech_mic_row = self._make_speech_mic_row()
+        group.add(self._speech_mic_row)
+
+        rebuild_btn = Gtk.Button(label=tr("Rebuild Venv"))
+        rebuild_btn.set_tooltip_text(
+            tr("Recreate the speech venv (fixes Python ABI mismatches)")
+        )
+        rebuild_btn.add_css_class("flat")
+        rebuild_btn.connect(
+            "clicked", lambda _: self.on_config_changed("speech_rebuild", True)
+        )
+        group.add(rebuild_btn)
+
+        return group
+
+    def _make_speech_language_row(self) -> Adw.ComboRow:
+        speech_langs = [
+            (tr("Auto-detect"), None),
+            ("English", "en"),
+            ("Mandarin Chinese", "zh"),
+            ("Spanish", "es"),
+            ("French", "fr"),
+            ("German", "de"),
+            ("Japanese", "ja"),
+            ("Korean", "ko"),
+            ("Portuguese", "pt"),
+            ("Russian", "ru"),
+            ("Italian", "it"),
+            ("Dutch", "nl"),
+            ("Polish", "pl"),
+            ("Turkish", "tr"),
+            ("Arabic", "ar"),
+            ("Hindi", "hi"),
+            ("Vietnamese", "vi"),
+            ("Thai", "th"),
+            ("Swedish", "sv"),
+            ("Danish", "da"),
+        ]
+        self._speech_lang_display = [d for d, _ in speech_langs]
+        self._speech_lang_codes = [c for _, c in speech_langs]
+        model = Gtk.StringList()
+        for display, _ in speech_langs:
+            model.append(display)
+        current = self._initial_values.get("speech_language")
+        try:
+            idx = self._speech_lang_codes.index(current)
+        except ValueError:
+            idx = 0
+        row = Adw.ComboRow(
+            title=tr("Language"),
+            subtitle=tr("Spoken language for dictation (auto-detect if unsure)"),
+            model=model,
+        )
+        row.set_selected(idx)
+        row.connect(
+            "notify::selected",
+            lambda r, _pspec: self.on_config_changed(
+                "speech_language", self._speech_lang_codes[r.get_selected()]
+            ),
+        )
+        return row
+
+    def _make_speech_mic_row(self) -> Adw.ComboRow:
+        from core.speech import list_input_devices
+
+        devices = list_input_devices()
+        mic_options = [(tr("Auto-detect"), None)]
+        for d in devices:
+            label = f"{d['name']} ({d['channels']} ch)"
+            mic_options.append((label, d["index"]))
+        model = Gtk.StringList()
+        for label, _ in mic_options:
+            model.append(label)
+        current = self._initial_values.get("speech_input_device")
+        try:
+            idx = [c for _, c in mic_options].index(current)
+        except ValueError:
+            idx = 0
+        row = Adw.ComboRow(
+            title=tr("Microphone"),
+            subtitle=tr("Input device for dictation"),
+            model=model,
+        )
+        row.set_selected(idx)
+        row.connect(
+            "notify::selected",
+            lambda r, _pspec: self.on_config_changed(
+                "speech_input_device", [c for _, c in mic_options][r.get_selected()]
+            ),
+        )
+        return row
 
     def _build_dashboard_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=tr("Dashboard"))

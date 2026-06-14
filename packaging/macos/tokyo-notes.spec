@@ -1,12 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
 
 
+DICTATION = os.environ.get("TOKYO_NOTES_DICTATION") == "1"
 ROOT = Path(SPECPATH).parents[1]
 ICON = ROOT / "packaging" / "macos" / "TokyoNotes.icns"
+
 
 datas = [
     (str(ROOT / "assets"), "assets"),
@@ -28,11 +31,26 @@ hiddenimports += collect_submodules("core")
 hiddenimports += collect_submodules("markdown")
 hiddenimports += collect_submodules("ui")
 
+# ── speech deps, only collected for the dictation variant ─────────────
+
+if DICTATION:
+    hiddenimports += [
+        "faster_whisper",
+        "ctranslate2",
+        "tokenizers",
+        "huggingface_hub",
+        "numpy",
+        "tqdm",
+    ]
+    speech_binaries = collect_dynamic_libs("sounddevice")
+else:
+    speech_binaries = []
+
 
 a = Analysis(
     [str(ROOT / "main.py")],
     pathex=[str(ROOT)],
-    binaries=[],
+    binaries=[] + speech_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[str(ROOT / "packaging" / "macos" / "hooks")],
@@ -83,18 +101,26 @@ coll = COLLECT(
     name="Tokyo Notes",
 )
 
+info_plist = {
+    "CFBundleName": "Tokyo Notes",
+    "CFBundleDisplayName": "Tokyo Notes",
+    "CFBundleShortVersionString": "0.1.0",
+    "CFBundleVersion": "0.1.0",
+    "LSMinimumSystemVersion": "13.0",
+    "NSHighResolutionCapable": True,
+    "NSRequiresAquaSystemAppearance": False,
+}
+
+if DICTATION:
+    info_plist["NSMicrophoneUsageDescription"] = (
+        "Tokyo Notes uses the microphone for local speech-to-text dictation. "
+        "Audio is processed on your device and never sent anywhere."
+    )
+
 app = BUNDLE(
     coll,
     name="Tokyo Notes.app",
     icon=str(ICON) if ICON.exists() else None,
     bundle_identifier="app.tokyo-notes.TokyoNotes",
-    info_plist={
-        "CFBundleName": "Tokyo Notes",
-        "CFBundleDisplayName": "Tokyo Notes",
-        "CFBundleShortVersionString": "0.1.0",
-        "CFBundleVersion": "0.1.0",
-        "LSMinimumSystemVersion": "13.0",
-        "NSHighResolutionCapable": True,
-        "NSRequiresAquaSystemAppearance": False,
-    },
+    info_plist=info_plist,
 )
