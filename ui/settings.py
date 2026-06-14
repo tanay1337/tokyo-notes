@@ -249,8 +249,9 @@ class SettingsView(Gtk.Box):
         )
         self._speech_language_row = self._make_speech_language_row()
         group.add(self._speech_language_row)
-        self._speech_mic_row = self._make_speech_mic_row()
-        group.add(self._speech_mic_row)
+        self._speech_mic_row = None
+        self._mic_row_loaded = False
+        group.connect("map", self._on_populate_mic_row)
 
         rebuild_btn = Gtk.Button(label=tr("Rebuild Venv"))
         rebuild_btn.set_tooltip_text(
@@ -340,6 +341,28 @@ class SettingsView(Gtk.Box):
             ),
         )
         return row
+
+    def _on_populate_mic_row(self, group: Adw.PreferencesGroup) -> None:
+        if self._mic_row_loaded:
+            return
+        self._mic_row_loaded = True
+        try:
+            row = self._make_speech_mic_row()
+        except ModuleNotFoundError:
+            row = Adw.ComboRow(
+                title=tr("Microphone"),
+                subtitle=tr("Dictation backend not available"),
+                model=Gtk.StringList.new([tr("(none)")]),
+            )
+            row.set_sensitive(False)
+        self._speech_mic_row = row
+        last = group.get_last_child()
+        if last is not None:
+            group.remove(last)
+            group.add(row)
+            group.add(last)
+        else:
+            group.add(row)
 
     def _build_dashboard_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=tr("Dashboard"))
