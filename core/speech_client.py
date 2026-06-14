@@ -19,11 +19,10 @@ from io import BytesIO
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
+    import numpy as np
     import sounddevice as sd
 
-import numpy as np
-
-from core.speech_paths import SPEECH_PYTHON, import_sounddevice
+from core.speech_paths import SPEECH_PYTHON, import_numpy, import_sounddevice
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +166,7 @@ class SpeechWorkerClient:
                 self._audio_q.put(indata.copy().flatten())
 
     def _transcribe_worker(self) -> None:
+        np = import_numpy()
         self._transcribing = True
         try:
             chunks: list = []

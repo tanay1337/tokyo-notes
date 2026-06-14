@@ -50,6 +50,23 @@ def import_sounddevice():
     return sd
 
 
+def import_numpy():
+    """Import numpy, falling back to the speech venv site-packages."""
+    try:
+        import numpy as np
+    except ModuleNotFoundError:
+        site_packages = (
+            SPEECH_VENV
+            / "lib"
+            / f"python{sys.version_info.major}.{sys.version_info.minor}"
+            / "site-packages"
+        )
+        if site_packages.is_dir():
+            sys.path.insert(0, str(site_packages))
+        import numpy as np
+    return np
+
+
 def is_available_for_build() -> bool:
     """True if this build/OS can support dictation at all.
 

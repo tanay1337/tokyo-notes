@@ -356,13 +356,7 @@ class SettingsView(Gtk.Box):
             )
             row.set_sensitive(False)
         self._speech_mic_row = row
-        last = group.get_last_child()
-        if last is not None:
-            group.remove(last)
-            group.add(row)
-            group.add(last)
-        else:
-            group.add(row)
+        group.add(row)
 
     def _build_dashboard_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=tr("Dashboard"))
