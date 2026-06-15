@@ -1376,13 +1376,14 @@ class TokyoNotes(Adw.Application):
             self.quit,
             on_help=self.show_shortcuts_dialog,
             on_pin=self.on_pin_shortcut,
+            on_find_replace=self.on_find_replace_shortcut,
             on_archive=self.on_archive_shortcut,
             on_settings=self.nav.on_settings_clicked,
             on_lock=self.lock_session,
             on_new_from_template=self._on_new_from_template,
             on_quick_add=self._on_quick_add_shortcut,
-            on_flashcard=self.nav.on_flashcard_clicked,
             on_speech_toggle=self._on_speech_toggle,
+            on_sidebar_search=self.on_sidebar_search_shortcut,
         )
         logger.info("Tokyo Notes started — notes folder: %s", self.notes_folder)
 
@@ -2832,13 +2833,27 @@ class TokyoNotes(Adw.Application):
         return True
 
     def on_search_shortcut(self) -> bool:
+        editor_views = ("editor", "split_editor")
+        if self.content_stack.get_visible_child_name() in editor_views:
+            self.editor.show_find()
+            return True
         entry = self.sidebar.search_entry
         if entry.has_focus() and entry.get_text():
-            # Ctrl+F when search already focused and has text: clear it.
             entry.set_text("")
             self.refresh_list()
         else:
             entry.grab_focus()
+        return True
+
+    def on_find_replace_shortcut(self) -> bool:
+        editor_views = ("editor", "split_editor")
+        if self.content_stack.get_visible_child_name() in editor_views:
+            self.editor.show_replace()
+        return True
+
+    def on_sidebar_search_shortcut(self) -> bool:
+        self.sidebar_toggle.set_active(True)
+        self.sidebar.search_entry.grab_focus()
         return True
 
     def show_shortcuts_dialog(self) -> bool:
@@ -2880,9 +2895,10 @@ class TokyoNotes(Adw.Application):
                     ("<Primary><Shift>n", tr("New from template")),
                     ("<Primary>d", tr("Dashboard")),
                     ("<Primary>g", tr("Knowledge graph")),
-                    ("<Primary><Shift>f", tr("Flashcards")),
-                    ("<Primary>f", tr("Search  (press again to clear)")),
-                    ("<Primary>h", tr("This shortcuts window")),
+                    ("<Primary><Shift>f", tr("Search notes")),
+                    ("<Primary>f", tr("Find in editor")),
+                    ("<Primary>h", tr("Find and replace in editor")),
+                    ("F1", tr("This shortcuts window")),
                     ("<Primary><Shift>s", tr("Settings")),
                     ("Escape", tr("Back to editor / clear search")),
                 ],
@@ -2907,6 +2923,8 @@ class TokyoNotes(Adw.Application):
             _group(
                 tr("Editor"),
                 [
+                    ("F3", tr("Find next")),
+                    ("<Shift>F3", tr("Find previous")),
                     ("bracketleft bracketleft", tr("Open note link picker  ( [[ )")),
                     ("at", tr("Open deadline picker  ( @ )")),
                     ("braceleft braceleft", tr("Open variable picker  ( {{ )")),

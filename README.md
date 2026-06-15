@@ -85,16 +85,20 @@ python3 main.py
 | `Ctrl/Cmd + N` | New Note |
 | `Ctrl/Cmd + Shift + N` | New Note from Template |
 | `Ctrl/Cmd + D` | Toggle Dashboard |
-| `Ctrl/Cmd + Shift + F` | Flashcards |
-| `Ctrl/Cmd + F` | Focus Search |
+| `Ctrl/Cmd + Shift + F` | Search Notes (sidebar) |
+| `Ctrl/Cmd + F` | Find in Editor |
+| `Ctrl/Cmd + H` | Find and Replace in Editor |
+| `F3` | Find Next |
+| `Shift + F3` | Find Previous |
 | `Ctrl/Cmd + G` | Knowledge Graph |
 | `Ctrl/Cmd + L` | Lock Private Notes |
 | `Ctrl/Cmd + T` | Quick Add Task |
 | `Ctrl/Cmd + Shift + T` | Insert Timestamp |
 | `Ctrl/Cmd + Shift + Z` | Zen Mode |
 | `Ctrl + Space` | Dictation (if enabled) |
+| `F1` | Keyboard Shortcuts |
 | `Delete` | Delete selected note (with confirmation) |
-| `Escape` | Close Dashboard / Clear Search / Return to Editor |
+| `Escape` | Close Dashboard / Clear Search / Close Find Bar / Return to Editor |
 | `Ctrl/Cmd + Q` | Quit |
 
 ## Smart Syntax

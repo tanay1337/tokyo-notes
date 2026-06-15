@@ -204,6 +204,11 @@ class SplitEditor(Gtk.Box):
     def _on_focus(self, side: str) -> None:
         app = self._app
         app._save_current_cursor()
+
+        other = self.right if side == "left" else self.left
+        if other.editor and other.editor.find_bar.is_visible():
+            other.editor.find_bar.close()
+
         info = self.left if side == "left" else self.right
         self._active_side = side
 

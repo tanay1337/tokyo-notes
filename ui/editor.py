@@ -23,6 +23,7 @@ from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 from core.translations import tr
 from core.utils import MD_URL_BALANCED
 from ui.deadline_picker import DeadlinePicker
+from ui.find_bar import FindBar
 from ui.link_picker import LinkPicker
 from ui.slash_picker import SlashPicker
 
@@ -239,6 +240,9 @@ class Editor(Gtk.Box):
         self.editor_overlay.add_overlay(self._lock_overlay)
 
         self.append(self.editor_overlay)
+
+        self.find_bar = FindBar(self.buffer, on_close=self._on_find_bar_closed)
+        self.append(self.find_bar)
 
         self.status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         self.status_bar.add_css_class("status-bar")
@@ -486,6 +490,24 @@ class Editor(Gtk.Box):
             self.toolbar.set_sensitive(editable)
         if hasattr(self, "_lock_overlay"):
             self._lock_overlay.set_visible(not editable)
+        if not editable:
+            self.find_bar.close()
+
+    def show_find(self) -> None:
+        """Open the find bar."""
+        self.find_bar.open()
+
+    def show_replace(self) -> None:
+        """Open the find bar with replace row expanded."""
+        self.find_bar.open_replace()
+
+    def close_find(self) -> None:
+        """Close the find bar."""
+        self.find_bar.close()
+
+    def _on_find_bar_closed(self) -> None:
+        """Restore focus to the text view when find bar closes."""
+        self.text_view.grab_focus()
 
     def _do_insert_continuation(self, prefix: str) -> bool:
         """Idle callback for inserting a list continuation prefix safely.
@@ -684,6 +706,26 @@ class Editor(Gtk.Box):
         # lets the event propagate normally to whichever widget has focus.
         if self._picker_open:
             return False
+
+        ctrl = state & Gdk.ModifierType.CONTROL_MASK
+
+        if ctrl and not (state & Gdk.ModifierType.SHIFT_MASK) and keyval == Gdk.KEY_f:
+            self.show_find()
+            return True
+        if ctrl and keyval == Gdk.KEY_h:
+            self.show_replace()
+            return True
+
+        if self.find_bar.is_visible():
+            if keyval == Gdk.KEY_Escape:
+                self.close_find()
+                return True
+            if keyval == Gdk.KEY_F3:
+                if state & Gdk.ModifierType.SHIFT_MASK:
+                    self.find_bar._navigate(-1)
+                else:
+                    self.find_bar._navigate(1)
+                return True
 
         buffer = self.text_view.get_buffer()
 

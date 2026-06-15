@@ -31,15 +31,17 @@ def setup_shortcuts(
     on_lock: Callable[[], None] | None = None,
     on_new_from_template: Callable[[], None] | None = None,
     on_quick_add: Callable[[], None] | None = None,
-    on_flashcard: Callable[[], None] | None = None,
     on_speech_toggle: Callable[[], None] | None = None,
+    on_find_replace: Callable[[], None] | None = None,
+    on_sidebar_search: Callable[[], None] | None = None,
 ) -> None:
-    # Ctrl+N  new note          Ctrl+D  dashboard         Ctrl+G  graph
-    # Ctrl+F  search (×2=clear) Ctrl+Q  quit              Ctrl+H  help
-    # Ctrl+L  lock notes        Ctrl+Shift+T  timestamp   Ctrl+Shift+Z  zen mode
-    # Ctrl+T  quick add task    Ctrl+Shift+P  pin note    Ctrl+Shift+A  archive note
-    # Ctrl+Shift+S  settings
-    # Escape  back / clear      Delete  delete note
+    # F1     help               Ctrl+N  new note          Ctrl+D  dashboard
+    # Ctrl+G graph              Ctrl+F  find in editor    Ctrl+H  find & replace
+    # Ctrl+Shift+F  search notes
+    # Ctrl+L lock notes         Ctrl+Shift+T  timestamp   Ctrl+Shift+Z  zen mode
+    # Ctrl+T quick add task     Ctrl+Shift+P  pin note    Ctrl+Shift+A  archive note
+    # Ctrl+Shift+S  settings    Ctrl+Q  quit
+    # Escape back / clear       Delete  delete note
     controller = Gtk.ShortcutController()
     controller.set_scope(Gtk.ShortcutScope.GLOBAL)
 
@@ -50,12 +52,15 @@ def setup_shortcuts(
         (get_accel("d"), on_dashboard),
         (get_accel("g"), on_graph),
         (get_accel("f"), on_search),
+        (get_accel("<Shift>f"), on_sidebar_search or on_search),
         (get_accel("<Shift>t"), on_timestamp),
         (get_accel("<Shift>z"), on_zen_mode),
         ("Escape", on_escape),
     ]
     if on_help:
-        bindings.append((get_accel("h"), on_help))
+        bindings.append(("F1", on_help))
+    if on_find_replace:
+        bindings.append((get_accel("h"), on_find_replace))
     if on_pin:
         bindings.append((get_accel("<Shift>p"), on_pin))
     if on_archive:
@@ -68,8 +73,6 @@ def setup_shortcuts(
         bindings.append((get_accel("<Shift>n"), on_new_from_template))
     if on_quick_add:
         bindings.append((get_accel("t"), on_quick_add))
-    if on_flashcard:
-        bindings.append((get_accel("<Shift>f"), on_flashcard))
     if on_speech_toggle:
         bindings.append(("<Control>space", on_speech_toggle))
 
