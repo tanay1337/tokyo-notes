@@ -145,6 +145,8 @@ class Sidebar(Gtk.Box):
 
         # Track folder expand/collapse state across refresh_list calls
         self._folder_expanded: dict[str, bool] = {}
+        self._saved_expanded_state: dict[str, bool] = {}
+        self._filter_was_active: bool = False
 
         self._empty_click = Gtk.GestureClick(button=3)
         self._empty_click.connect("pressed", self._on_empty_space_right_click)
@@ -254,7 +256,7 @@ class Sidebar(Gtk.Box):
 
         # Compute encrypted set once instead of per-row syscalls
         encrypted_set = self.app.notes_manager.get_encrypted_notes()
-        show_empty = True
+        show_empty = not filter_text
 
         pinned_notes = [n for n in main_notes if n in pinned]
         other_notes = [n for n in main_notes if n not in pinned]
@@ -280,6 +282,22 @@ class Sidebar(Gtk.Box):
         for note in other_notes:
             folder, _stem = split_note_path(note)
             folder_groups.setdefault(folder, []).append(note)
+
+        # Save expanded state when search starts
+        if filter_text and not self._filter_was_active:
+            self._saved_expanded_state = self._folder_expanded.copy()
+        # Restore expanded state when search ends
+        if not filter_text and self._filter_was_active:
+            self._folder_expanded = self._saved_expanded_state.copy()
+        self._filter_was_active = bool(filter_text)
+
+        # During search, auto-expand all folders containing matches
+        if filter_text:
+            for fp in folder_groups:
+                if fp is not None:
+                    parts = fp.split("/")
+                    for i in range(1, len(parts) + 1):
+                        self._folder_expanded["/".join(parts[:i])] = True
 
         # ── Build folder tree from all known folders ──
         configured_order = self.app.cfg.folder_order
