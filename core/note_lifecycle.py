@@ -172,7 +172,8 @@ class NoteLifecycleManager:
             app._set_buffer_text(content)
             app.content_stack.set_visible_child_name("editor")
 
-            app._restore_cursor_for_note(app.current_note)
+            if not app._sidebar_search_text:
+                app._restore_cursor_for_note(app.current_note)
             GLib.idle_add(
                 lambda: (
                     app.text_view.grab_focus()
@@ -226,6 +227,8 @@ class NoteLifecycleManager:
         else:
             app._full_pass_complete = True
             app._pending_highlight_id = 0
+            if app._sidebar_search_text:
+                app._apply_search_highlights()
         return False
 
     # Navigate

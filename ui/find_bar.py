@@ -146,9 +146,10 @@ class FindBar(Gtk.Box):
     def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
         if self._search_timer:
             GLib.source_remove(self._search_timer)
+        self._clear_highlights()
         self._search_timer = GLib.timeout_add(_SEARCH_TIMEOUT_MS, self._do_search)
 
-    def _do_search(self) -> bool:
+    def _do_search(self, re_select: bool = True) -> bool:
         self._search_timer = 0
         term = self._find_entry.get_text()
         if not term:
@@ -160,8 +161,12 @@ class FindBar(Gtk.Box):
         self._find_results = self._find_all(term)
         self._apply_highlights()
         if self._find_results:
-            self._current_index = 0
-            self._select_current()
+            if re_select:
+                self._current_index = 0
+                self._select_current()
+            else:
+                n = len(self._find_results) - 1
+                self._current_index = min(self._current_index, n)
         else:
             self._current_index = -1
         self._update_label()
@@ -192,7 +197,9 @@ class FindBar(Gtk.Box):
         if self._visible:
             if self._search_timer:
                 GLib.source_remove(self._search_timer)
-            self._search_timer = GLib.timeout_add(_SEARCH_TIMEOUT_MS, self._do_search)
+                self._search_timer = GLib.timeout_add(
+                    _SEARCH_TIMEOUT_MS, lambda: self._do_search(re_select=False)
+                )
 
     def _find_all(self, term: str) -> list[tuple[int, int]]:
         flags = Gtk.TextSearchFlags.CASE_INSENSITIVE

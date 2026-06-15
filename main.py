@@ -681,6 +681,7 @@ class TokyoNotes(Adw.Application):
             obj.handler_block(hid)
 
         try:
+            self._has_selection = False
             # Remove all tags to avoid Pango/btree sync issues during replacement.
             start, end = self.buffer.get_bounds()
             self.buffer.remove_all_tags(start, end)
@@ -1464,6 +1465,12 @@ class TokyoNotes(Adw.Application):
         )
         self.highlighter.highlight()
 
+        # Search-highlight tag for sidebar search matches in the editor
+        self._search_highlight_tag = Gtk.TextTag.new("search-highlight")
+        self._search_highlight_tag.set_property("background", "#BBDEFB")
+        self.buffer.get_tag_table().add(self._search_highlight_tag)
+        self._sidebar_search_text: str = ""
+
         # Spell checker
         self.spell_checker = SpellChecker(
             language=self.cfg.get("spell_check_language", "en"),
@@ -1943,6 +1950,7 @@ class TokyoNotes(Adw.Application):
     # Note list / sidebar
 
     def refresh_list(self, filter_text: str = "") -> None:
+        self._sidebar_search_text = filter_text
         all_notes = self.notes_manager.get_notes(filter_text)
         main_notes = [n for n in all_notes if not self.cfg.is_archived(n)]
         self.sidebar.populate(
@@ -1954,6 +1962,38 @@ class TokyoNotes(Adw.Application):
             base_dir=self.base_dir,
             filter_text=filter_text,
         )
+        self._apply_search_highlights()
+
+    def _apply_search_highlights(self, *, full_reset: bool = True) -> None:
+        tag = self.buffer.get_tag_table().lookup("search-highlight")
+        if not tag:
+            return
+        # Full re-highlight to reset Pango layout — prevents "byte index
+        # off the end of the line" crashes from invisible-tag overlap
+        # (see _on_mark_set comment at the selection handler).
+        # Skipped during incremental editing (full_reset=False) since
+        # highlight_line_range already left a clean Pango state.
+        if full_reset and self.highlighter:
+            cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+            cursor_line = cursor_iter.get_line()
+            self.highlighter.highlight(cursor_line=cursor_line)
+        start, end = self.buffer.get_bounds()
+        self.buffer.remove_tag(tag, start, end)
+        if not self._sidebar_search_text:
+            return
+        code_block_lines = (
+            self.highlighter._code_block_line_set() if self.highlighter else set()
+        )
+        flags = Gtk.TextSearchFlags.CASE_INSENSITIVE
+        search_start = self.buffer.get_start_iter()
+        while True:
+            result = search_start.forward_search(self._sidebar_search_text, flags, None)
+            if result is None:
+                break
+            m_start, m_end = result
+            if m_start.get_line() not in code_block_lines:
+                self.buffer.apply_tag(tag, m_start, m_end)
+            search_start = m_end.copy()
 
     def _get_snippet(self, note_name: str) -> str:
         return self.notes_manager.get_metadata(note_name).get("snippet", "")
@@ -3060,6 +3100,7 @@ class TokyoNotes(Adw.Application):
         cursor_line = cursor_iter.get_line()
         self.highlighter.highlight(cursor_line=cursor_line)
         self.last_cursor_line = cursor_line
+        self._apply_search_highlights()
         return False
 
     def do_delayed_highlight(self) -> bool:
@@ -3088,6 +3129,10 @@ class TokyoNotes(Adw.Application):
         finally:
             self.buffer.handler_unblock(self.changed_handler_id)
         self.last_cursor_line = cursor_line
+        self._apply_search_highlights(full_reset=False)
+        fb = self.editor.find_bar
+        if fb._visible and fb._find_results:
+            fb._apply_highlights()
         return False
 
     def do_delayed_images(self) -> bool:
