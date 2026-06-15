@@ -13,6 +13,7 @@ gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo
 
 from core.translations import tr
+from core.utils import split_note_path
 
 _REPULSION = 8_000.0  # node-node repulsion constant
 _ATTRACTION = 0.06  # edge spring constant
@@ -21,6 +22,18 @@ _STEPS = 120  # simulation steps before display
 
 _BASE_RADIUS = 6.0
 _MAX_RADIUS = 20.0
+
+# Deterministic folder color palette (root folder uses theme accent_color)
+_FOLDER_PALETTE = [
+    "#e95b45",  # red
+    "#6DA861",  # green
+    "#EAB308",  # yellow
+    "#886ce4",  # purple
+    "#e67e22",  # orange
+    "#1abc9c",  # teal
+    "#e84393",  # pink
+    "#00b894",  # mint
+]
 
 
 class GraphView(Gtk.Box):
@@ -56,6 +69,8 @@ class GraphView(Gtk.Box):
         self._pending_navigate: int = 0  # GLib source id
         self._sim_id: int = 0  # GLib source id for force simulation
         self._cached_colors: dict[str, Gdk.RGBA] = {}
+        self._folder_colors: dict[str | None, Gdk.RGBA] = {}
+        self._build_folder_colors()
 
         # Toolbar
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -134,8 +149,25 @@ class GraphView(Gtk.Box):
         self._adjacency = new_data.get("adjacency", new_data)
         self._degrees = new_data.get("degrees", {})
         self.nodes = list(self._adjacency.keys())
+        self._build_folder_colors()
         self._layout_nodes()
         self.canvas.queue_draw()
+
+    def _build_folder_colors(self) -> None:
+        seen: dict[str | None, int] = {}
+        palette = _FOLDER_PALETTE
+        self._folder_colors.clear()
+        for node in self.nodes:
+            folder, _ = split_note_path(node)
+            if folder is None:
+                continue
+            if folder not in seen:
+                seen[folder] = len(seen)
+            idx = seen[folder]
+            hex_color = palette[idx % len(palette)]
+            c = Gdk.RGBA()
+            c.parse(hex_color)
+            self._folder_colors[folder] = c
 
     # Node helpers
 
@@ -356,7 +388,20 @@ class GraphView(Gtk.Box):
             x, y = positions[node]
             r = self._node_radius(node)
             node_radii[node] = r
-            layout.set_text(node, -1)
+            stem = node
+            folder_path = ""
+            if "/" in node:
+                folder_path, stem = node.rsplit("/", 1)
+            if folder_path:
+                escaped_stem = GLib.markup_escape_text(stem)
+                escaped_folder = GLib.markup_escape_text(folder_path)
+                markup = (
+                    f'{escaped_stem}\n<span size="8000" alpha="40000">'
+                    f"{escaped_folder}</span>"
+                )
+                layout.set_markup(markup)
+            else:
+                layout.set_markup(GLib.markup_escape_text(stem))
             lw, lh = layout.get_pixel_size()
             lx = x + r + 4
             ly = y - lh / 2
@@ -469,6 +514,8 @@ class GraphView(Gtk.Box):
         for node, (x, y) in positions.items():
             is_hovered = node == self._hovered
             r = self._node_radius(node)
+            folder, _ = split_note_path(node)
+            nc = self._folder_colors.get(folder, accent)
 
             if has_hover:
                 if is_hovered:
@@ -478,13 +525,13 @@ class GraphView(Gtk.Box):
                 else:
                     cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.2)
             else:
-                cr.set_source_rgb(accent.red, accent.green, accent.blue)
+                cr.set_source_rgb(nc.red, nc.green, nc.blue)
 
             if is_hovered:
                 cr.set_source_rgba(sel.red, sel.green, sel.blue, 0.4)
                 cr.arc(x, y, r + 4, 0, 2 * math.pi)
                 cr.fill()
-                cr.set_source_rgb(accent.red, accent.green, accent.blue)
+                cr.set_source_rgb(nc.red, nc.green, nc.blue)
 
             cr.arc(x, y, r * (1.3 if is_hovered else 1.0), 0, 2 * math.pi)
             cr.fill()
@@ -498,7 +545,20 @@ class GraphView(Gtk.Box):
             if label_alpha > 0:
                 ox, oy = label_offsets.get(node, (0.0, 0.0))
                 cr.set_source_rgba(fg.red, fg.green, fg.blue, label_alpha)
-                layout.set_text(node, -1)
+                stem = node
+                folder_path = ""
+                if "/" in node:
+                    folder_path, stem = node.rsplit("/", 1)
+                if folder_path:
+                    escaped_stem = GLib.markup_escape_text(stem)
+                    escaped_folder = GLib.markup_escape_text(folder_path)
+                    markup = (
+                        f'{escaped_stem}\n<span size="8000" alpha="40000">'
+                        f"{escaped_folder}</span>"
+                    )
+                    layout.set_markup(markup)
+                else:
+                    layout.set_markup(GLib.markup_escape_text(stem))
                 cr.move_to(x + r + 4 + ox, y - 6 + oy)
                 PangoCairo.show_layout(cr, layout)
 
