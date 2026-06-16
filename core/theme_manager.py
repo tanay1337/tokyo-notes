@@ -42,6 +42,12 @@ THEMES: list[dict[str, str]] = [
         "type": "dark",
     },
     {
+        "id": "noir",
+        "name": "Noir",
+        "preview": "Deep blacks, soft contrast, monochrome elegance",
+        "type": "dark",
+    },
+    {
         "id": "gruvbox",
         "name": "Gruvbox",
         "preview": "Retro warm tones, easy on the eyes",
