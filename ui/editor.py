@@ -6,13 +6,19 @@ import concurrent.futures
 import hashlib
 import logging
 import os
+import platform
 import re
 import shutil
+import ssl
+import subprocess
+import sys
+import tempfile
 import threading
 import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
+from time import monotonic
 from typing import Any, Callable
 
 import gi
@@ -123,19 +129,43 @@ _ROMAN_VALUES: list[tuple[int, str]] = [
 
 
 def resolve_image_path(notes_dir: Path, image_path: str) -> Path | None:
-    """Resolve an image path only if it stays inside *notes_dir*."""
-    notes_dir_resolved = notes_dir.resolve()
-    full_path = (notes_dir / image_path).resolve()
-    logger.debug(
-        "resolve_image_path: notes_dir=%s image_path=%r -> full=%s relative=%s",
-        notes_dir_resolved,
-        image_path,
-        full_path,
-        full_path.is_relative_to(notes_dir_resolved),
-    )
-    if not full_path.is_relative_to(notes_dir_resolved):
-        return None
+    """Resolve an image/PDF path. Allows absolute and ~/ paths too."""
+    if image_path.startswith("~/"):
+        full_path = Path(image_path).expanduser().resolve()
+    elif image_path.startswith("/"):
+        full_path = Path(image_path).resolve()
+    else:
+        notes_dir_resolved = notes_dir.resolve()
+        full_path = (notes_dir / image_path).resolve()
+        logger.debug(
+            "resolve_image_path: notes_dir=%s image_path=%r -> full=%s relative=%s",
+            notes_dir_resolved,
+            image_path,
+            full_path,
+            full_path.is_relative_to(notes_dir_resolved),
+        )
+        if not full_path.is_relative_to(notes_dir_resolved):
+            return None
     return full_path
+
+
+def _find_pdf_tool(name: str) -> str | None:
+    """Find a PDF tool binary, checking PyInstaller bundle and Homebrew paths."""
+    path = shutil.which(name)
+    if path:
+        return path
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        for sub in ("", "_internal"):
+            candidate = Path(meipass) / sub / name
+            if candidate.exists():
+                return str(candidate)
+    if platform.system() == "Darwin":
+        for prefix in ("/opt/homebrew/bin", "/usr/local/bin"):
+            candidate = Path(prefix) / name
+            if candidate.exists():
+                return str(candidate)
+    return None
 
 
 def _get_list_info(
@@ -1208,6 +1238,438 @@ class Editor(Gtk.Box):
         if callable(callback):
             callback(diagram_id)
 
+    # PDF embed
+
+    @staticmethod
+    def _guess_document_ext(url: str) -> str:
+        path = urllib.parse.urlparse(url).path
+        ext = os.path.splitext(path)[1].lower()
+        return ext if ext == ".pdf" else ".pdf"
+
+    def _remote_document_cache_path(self, url: str, notes_dir: Path) -> Path:
+        url_hash = hashlib.md5(url.encode()).hexdigest()
+        return notes_dir / ".documents" / f"remote_{url_hash}.pdf"
+
+    @staticmethod
+    def _urlopen_with_fallback(req: urllib.request.Request, timeout: int = 10) -> Any:
+        """Open *req* with default SSL; fall back to unverified on frozen macOS."""
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except urllib.error.URLError as e:
+            if (
+                isinstance(e.reason, ssl.SSLCertVerificationError)
+                and getattr(sys, "frozen", False)
+                and sys.platform == "darwin"
+            ):
+                ctx = ssl._create_unverified_context()
+                return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+            raise
+
+    def _download_remote_document(self, url: str, cache_path: Path) -> None:
+        def _download() -> None:
+            try:
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "TokyoNotes/1.0"}
+                )
+                with self._urlopen_with_fallback(req) as resp:
+                    data = resp.read()
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_bytes(data)
+                GLib.idle_add(self._on_remote_image_downloaded)
+            except Exception:
+                logger.exception("Failed to download remote document: %s", url)
+
+        thread = threading.Thread(target=_download, daemon=True)
+        thread.start()
+
+    def _download_remote_image(self, url: str, cache_path: Path) -> None:
+        def _download() -> None:
+            try:
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "TokyoNotes/1.0"}
+                )
+                with self._urlopen_with_fallback(req) as resp:
+                    data = resp.read()
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_bytes(data)
+                GLib.idle_add(self._on_remote_image_downloaded)
+            except Exception:
+                logger.exception("Failed to download remote image: %s", url)
+
+        thread = threading.Thread(target=_download, daemon=True)
+        thread.start()
+
+    def _render_pdf_via_poppler(
+        self, pdf_path: Path, max_w: int, max_h: int, page: int = 0
+    ) -> GdkPixbuf.Pixbuf | None:
+        try:
+            gi.require_version("Poppler", "0.18")
+            from gi.repository import Poppler
+        except (ImportError, ValueError):
+            return None
+        try:
+            document = Poppler.Document.new_from_file(
+                f"file://{pdf_path.resolve()}", None
+            )
+            p = document.get_page(page)
+            if p is None:
+                return None
+
+            pw, ph = p.get_size()
+            scale = min(max_w / pw, max_h / ph, 2.0)
+            iw = int(pw * scale)
+            ih = int(ph * scale)
+
+            import cairo
+
+            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, iw, ih)
+            cr = cairo.Context(surface)
+            cr.set_source_rgb(1, 1, 1)
+            cr.paint()
+            cr.scale(scale, scale)
+            try:
+                p.render_for_printing(cr)
+            except AttributeError:
+                p.render(cr)
+
+            from io import BytesIO
+
+            buf = BytesIO()
+            surface.write_to_png(buf)
+            loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+            loader.write(buf.getvalue())
+            loader.close()
+            return loader.get_pixbuf()
+        except Exception as exc:
+            logger.debug("Poppler render failed for %s: %s", pdf_path, exc)
+            return None
+
+    def _render_pdf_via_pdftoppm(
+        self, pdf_path: Path, max_w: int, max_h: int, page: int = 0
+    ) -> GdkPixbuf.Pixbuf | None:
+        pdftoppm_path = _find_pdf_tool("pdftoppm")
+        if pdftoppm_path is None:
+            return None
+
+        pgn = page + 1
+        tmpdir = Path.home() / ".local" / "share" / "tokyo-notes" / "tmp"
+
+        strategies: list[dict] = [
+            # A: file with scaling — omits -scale-to-y so pdftoppm
+            # preserves aspect ratio automatically.
+            {
+                "label": "A:file",
+                "extra_args": ["-scale-to-x", str(max_w)],
+                "output_fn": lambda workdir: _pick_output(workdir, "page"),
+            },
+            # B: same but with -singlefile so no page-number suffix.
+            {
+                "label": "B:single",
+                "extra_args": [
+                    "-singlefile",
+                    "-scale-to-x",
+                    str(max_w),
+                ],
+                "output_fn": lambda workdir: workdir / "page.png",
+            },
+            # C: PNG to stdout (no scaling).
+            {"label": "C:stdout", "extra_args": [], "output_fn": None},
+        ]
+
+        def _run(cmd: list[str]) -> subprocess.CompletedProcess:
+            return subprocess.run(cmd, capture_output=True, timeout=30, check=False)
+
+        def _log_fail(
+            label: str, cmd: list[str], cp: subprocess.CompletedProcess
+        ) -> None:
+            stderr = cp.stderr.decode("utf-8", errors="replace")[:300]
+            logger.warning(
+                "pdftoppm [%s] exit=%d stdout=%d for %s page %d:\n%s",
+                label,
+                cp.returncode,
+                len(cp.stdout),
+                pdf_path,
+                page,
+                stderr,
+            )
+
+        def _pick_output(outdir: Path, stem: str) -> Path | None:
+            for f in sorted(outdir.iterdir()):
+                if f.name.startswith(stem) and f.suffix == ".png":
+                    return f
+            return None
+
+        for strat in strategies:
+            try:
+                if strat["output_fn"] is not None:
+                    # Strategy A / B — write to temp dir, then pick up the file.
+                    tmpdir.mkdir(parents=True, exist_ok=True)
+                    workdir = Path(tempfile.mkdtemp(dir=str(tmpdir)))
+                    prefix = workdir / "page"
+                    cmd = [
+                        pdftoppm_path,
+                        "-png",
+                        *strat["extra_args"],
+                        "-f",
+                        str(pgn),
+                        "-l",
+                        str(pgn),
+                        str(pdf_path),
+                        str(prefix),
+                    ]
+                    cp = _run(cmd)
+                    if cp.returncode == 0:
+                        out = strat["output_fn"](workdir)
+                        if out is not None and out.exists():
+                            try:
+                                return GdkPixbuf.Pixbuf.new_from_file(str(out))
+                            except Exception as exc:
+                                logger.warning(
+                                    "pdftoppm [%s] invalid PNG for %s: %s",
+                                    strat["label"],
+                                    pdf_path,
+                                    exc,
+                                )
+                    _log_fail(strat["label"], cmd, cp)
+                    shutil.rmtree(workdir, ignore_errors=True)
+                else:
+                    # Strategy C — stdout.
+                    cmd = [
+                        pdftoppm_path,
+                        "-png",
+                        "-f",
+                        str(pgn),
+                        "-l",
+                        str(pgn),
+                        str(pdf_path),
+                        "-",
+                    ]
+                    cp = _run(cmd)
+                    if cp.returncode == 0 and cp.stdout:
+                        loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+                        try:
+                            loader.write(cp.stdout)
+                            loader.close()
+                            return loader.get_pixbuf()
+                        except GLib.Error:
+                            logger.warning(
+                                "pdftoppm [C:stdout] invalid PNG for %s",
+                                pdf_path,
+                            )
+                    else:
+                        _log_fail("C:stdout", cmd, cp)
+            except Exception as exc:
+                logger.debug(
+                    "pdftoppm [%s] exception for %s: %s",
+                    strat["label"],
+                    pdf_path,
+                    exc,
+                )
+
+        return None
+
+    def _render_pdf_pixbuf(
+        self, pdf_path: Path, max_w: int, max_h: int, page: int = 0
+    ) -> GdkPixbuf.Pixbuf | None:
+        try:
+            mtime = pdf_path.stat().st_mtime
+        except OSError:
+            return None
+        key = f"pdf:{pdf_path.resolve()}:{max_w}x{max_h}:p{page}"
+        cached = self._image_pixbuf_cache.get(key)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+
+        pixbuf = self._render_pdf_via_poppler(pdf_path, max_w, max_h, page)
+        if pixbuf is None:
+            pixbuf = self._render_pdf_via_pdftoppm(pdf_path, max_w, max_h, page)
+        if pixbuf is not None:
+            self._image_pixbuf_cache[key] = (mtime, pixbuf)
+        return pixbuf
+
+    def _get_pdf_page_count(self, pdf_path: Path) -> int:
+        try:
+            gi.require_version("Poppler", "0.18")
+            from gi.repository import Poppler
+
+            doc = Poppler.Document.new_from_file(f"file://{pdf_path.resolve()}", None)
+            return doc.get_n_pages()
+        except (ImportError, ValueError, Exception):
+            pass
+        pdfinfo_path = _find_pdf_tool("pdfinfo")
+        if pdfinfo_path is not None:
+            try:
+                result = subprocess.run(
+                    [pdfinfo_path, str(pdf_path)],
+                    capture_output=True,
+                    timeout=10,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    logger.warning(
+                        "pdfinfo exited %d for %s:\n%s",
+                        result.returncode,
+                        pdf_path,
+                        result.stderr[:500],
+                    )
+                else:
+                    for line in result.stdout.splitlines():
+                        if line.startswith("Pages:"):
+                            return int(line.split(":")[1].strip())
+            except Exception:
+                pass
+        return 1
+
+    def _set_pdf_page(
+        self,
+        picture: Gtk.Picture,
+        pdf_path: Path,
+        load_res: int,
+        page: int,
+    ) -> None:
+        pixbuf = self._render_pdf_pixbuf(pdf_path, load_res, load_res, page)
+        if pixbuf is not None:
+            picture.set_pixbuf(pixbuf)
+            pw = pixbuf.get_width()
+            ph = pixbuf.get_height()
+            display_w = min(pw, load_res // 2)
+            display_h = int(ph * display_w / pw) if pw > 0 else ph
+            picture.set_size_request(display_w, display_h)
+
+    def _build_pdf_placeholder(self, path_or_url: str) -> Gtk.Widget:
+        if path_or_url.startswith(("http://", "https://")):
+            display = os.path.basename(urllib.parse.urlparse(path_or_url).path)
+        else:
+            display = os.path.basename(path_or_url)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box.add_css_class("diagram-embed")
+        box.set_halign(Gtk.Align.START)
+        label = Gtk.Label(label=tr("PDF: {name}").format(name=display))
+        label.set_hexpand(True)
+        box.append(label)
+        open_btn = Gtk.Button(label=tr("Open"))
+        open_btn.add_css_class("pill")
+        open_btn.add_css_class("suggested-action")
+        open_btn.connect("clicked", lambda *_: self._open_pdf_external(path_or_url))
+        box.append(open_btn)
+        return box
+
+    def _build_pdf_embed(
+        self, img_path: str, notes_dir: Path, max_load: int
+    ) -> Gtk.Widget | None:
+        clean = img_path.split("#")[0].split("?")[0]
+        pdf_path: Path | None = None
+
+        if img_path.startswith(("http://", "https://")):
+            cache_path = self._remote_document_cache_path(img_path, notes_dir)
+            if cache_path.exists():
+                pdf_path = cache_path
+            else:
+                self._download_remote_document(img_path, cache_path)
+                return self._build_pdf_placeholder(img_path)
+        elif clean:
+            resolved = resolve_image_path(notes_dir, clean)
+            if resolved is not None and resolved.exists():
+                pdf_path = resolved
+
+        if pdf_path is None:
+            return self._build_pdf_placeholder(img_path)
+
+        load_res = max_load * 2
+        n_pages = self._get_pdf_page_count(pdf_path)
+        if n_pages == 0:
+            return self._build_pdf_placeholder(str(pdf_path))
+
+        # Try to render first page; fall back to placeholder on failure
+        pixbuf = self._render_pdf_pixbuf(pdf_path, load_res, load_res, 0)
+        if pixbuf is None:
+            return self._build_pdf_placeholder(str(pdf_path))
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        outer.set_halign(Gtk.Align.START)
+
+        picture = Gtk.Picture.new_for_pixbuf(pixbuf)
+        picture.set_halign(Gtk.Align.START)
+        pw = pixbuf.get_width()
+        ph = pixbuf.get_height()
+        display_w = min(pw, load_res // 2)
+        display_h = int(ph * display_w / pw) if pw > 0 else ph
+        picture.set_size_request(display_w, display_h)
+        outer.append(picture)
+
+        state = {"page": 0}
+
+        if n_pages > 1:
+            bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            bottom.set_halign(Gtk.Align.CENTER)
+
+            page_label = Gtk.Label(
+                label=tr("Page {n} / {total}").format(n=1, total=n_pages)
+            )
+            page_label.add_css_class("dim-label")
+            bottom.append(page_label)
+            outer.append(bottom)
+
+            accum = [0.0]
+            last_turn = [0.0]
+
+            def _on_scroll(
+                ctrl: Gtk.EventControllerScroll, _dx: float, dy: float
+            ) -> bool:
+                accum[0] += dy
+                now = monotonic()
+                if abs(accum[0]) >= 3.0 and now - last_turn[0] >= 0.25:
+                    step = 1 if accum[0] > 0 else -1
+                    new_page = max(0, min(n_pages - 1, state["page"] + step))
+                    if new_page != state["page"]:
+                        state["page"] = new_page
+                        self._set_pdf_page(picture, pdf_path, load_res, new_page)
+                        page_label.set_text(
+                            tr("Page {n} / {total}").format(
+                                n=new_page + 1, total=n_pages
+                            )
+                        )
+                        last_turn[0] = now
+                    accum[0] = 0.0
+                return True
+
+            scroll = Gtk.EventControllerScroll.new(
+                Gtk.EventControllerScrollFlags.VERTICAL
+            )
+            scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            scroll.connect("scroll", _on_scroll)
+            outer.add_controller(scroll)
+
+        gesture = Gtk.GestureClick.new()
+        gesture.connect(
+            "pressed",
+            lambda g, np, _x, _y: (
+                self._open_pdf_external(str(pdf_path)) if np >= 2 else None
+            ),
+        )
+        outer.add_controller(gesture)
+        tooltip = (
+            tr("Scroll to change page, double-click to open PDF")
+            if n_pages > 1
+            else tr("Double-click to open PDF")
+        )
+        outer.set_tooltip_text(tooltip)
+
+        return outer
+
+    def _open_pdf_external(self, path_or_url: str) -> None:
+        try:
+            if path_or_url.startswith(("http://", "https://")):
+                uri = path_or_url
+            else:
+                uri = Path(path_or_url).as_uri()
+            root = self.text_view.get_root()
+            if root:
+                Gtk.show_uri(root, uri, Gdk.CURRENT_TIME)
+        except Exception as exc:
+            logger.warning("Failed to open PDF: %s", exc)
+
     # Image rendering
 
     def _load_image_pixbuf(
@@ -1266,23 +1728,6 @@ class Editor(Gtk.Box):
         url_hash = hashlib.md5(url.encode()).hexdigest()
         ext = self._guess_image_ext(url)
         return notes_dir / ".images" / f"remote_{url_hash}{ext}"
-
-    def _download_remote_image(self, url: str, cache_path: Path) -> None:
-        def _download() -> None:
-            try:
-                req = urllib.request.Request(
-                    url, headers={"User-Agent": "TokyoNotes/1.0"}
-                )
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    data = resp.read()
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                cache_path.write_bytes(data)
-                GLib.idle_add(self._on_remote_image_downloaded)
-            except Exception:
-                logger.exception("Failed to download remote image: %s", url)
-
-        thread = threading.Thread(target=_download, daemon=True)
-        thread.start()
 
     def _on_remote_image_downloaded(self) -> bool:
         self._image_update_pending = True
@@ -1354,6 +1799,15 @@ class Editor(Gtk.Box):
                         diagram = dm.load(img_path)
                     if diagram is not None:
                         embed = self._build_diagram_embed(diagram.id)
+                        if embed:
+                            self.text_view.add_child_at_anchor(embed, anchor)
+                            self.image_widgets.append(embed)
+                        continue
+
+                    # PDF embed
+                    clean_path = img_path.split("#")[0].split("?")[0]
+                    if clean_path.lower().endswith(".pdf"):
+                        embed = self._build_pdf_embed(img_path, notes_dir, max_load)
                         if embed:
                             self.text_view.add_child_at_anchor(embed, anchor)
                             self.image_widgets.append(embed)

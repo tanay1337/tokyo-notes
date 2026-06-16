@@ -50,7 +50,7 @@ jobs:
       - name: Install native dependencies
         run: |
           brew update
-          brew install gtk4 libadwaita gobject-introspection cairo pkg-config librsvg git portaudio
+          brew install gtk4 libadwaita gobject-introspection cairo pkg-config librsvg poppler git portaudio
 
       - name: Configure Homebrew GTK paths
         run: |

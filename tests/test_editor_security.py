@@ -16,8 +16,14 @@ class TestResolveImagePath:
 
         assert image is None
 
-    def test_rejects_sibling_prefix_escape(self, tmp_path) -> None:
-        sibling = tmp_path.parent / f"{tmp_path.name}_evil" / "secret.png"
-        image = resolve_image_path(tmp_path, str(sibling))
+    def test_allows_tilde_path(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        image = resolve_image_path(tmp_path, "~/photo.jpg")
 
-        assert image is None
+        assert image == (tmp_path / "photo.jpg").resolve()
+
+    def test_allows_absolute_path(self, tmp_path) -> None:
+        target = tmp_path / "stuff" / "doc.pdf"
+        image = resolve_image_path(tmp_path, str(target))
+
+        assert image == target.resolve()

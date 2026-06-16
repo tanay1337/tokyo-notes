@@ -20,6 +20,7 @@ from core.diagram import Diagram
 from core.diagram_manager import DiagramManager
 from core.highlighter import MarkdownHighlighter
 from core.instance_lock import InstanceLock
+from core.logging_setup import set_note_names
 from core.navigation import NavigationController
 from core.note_lifecycle import NoteLifecycleManager
 from core.search import SearchController
@@ -61,6 +62,7 @@ class TokyoNotes(Adw.Application):
         self.cfg = ConfigManager()
         self.notes_folder: str = self.cfg.get("notes_folder")
         self.notes_manager = NotesManager(notes_dir=self.notes_folder)
+        set_note_names(self.notes_manager.get_notes())
 
         # Git versioning
         from core.versioning import GitVersionController
@@ -1952,6 +1954,7 @@ class TokyoNotes(Adw.Application):
     def refresh_list(self, filter_text: str = "") -> None:
         self._sidebar_search_text = filter_text
         all_notes = self.notes_manager.get_notes(filter_text)
+        set_note_names(all_notes)
         main_notes = [n for n in all_notes if not self.cfg.is_archived(n)]
         self.sidebar.populate(
             main_notes=main_notes,

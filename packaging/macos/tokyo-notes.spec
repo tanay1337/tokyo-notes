@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import shutil
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
@@ -26,6 +27,7 @@ hiddenimports = [
     "gi.repository.GLib",
     "gi.repository.GObject",
     "gi.repository.Gtk",
+    "gi.repository.Poppler",
 ]
 hiddenimports += collect_submodules("core")
 hiddenimports += collect_submodules("markdown")
@@ -46,11 +48,19 @@ if DICTATION:
 else:
     speech_binaries = []
 
+# ── PDF tools (pdftoppm, pdfinfo) — bundled into .app for PDF rendering ─
+
+extra_binaries = []
+for tool in ("pdftoppm", "pdfinfo"):
+    path = shutil.which(tool)
+    if path:
+        extra_binaries.append((path, "."))
+
 
 a = Analysis(
     [str(ROOT / "main.py")],
     pathex=[str(ROOT)],
-    binaries=[] + speech_binaries,
+    binaries=[] + speech_binaries + extra_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[str(ROOT / "packaging" / "macos" / "hooks")],
@@ -62,6 +72,7 @@ a = Analysis(
             "module-versions": {
                 "Gtk": "4.0",
                 "Gdk": "4.0",
+                "Poppler": "0.18",
             },
         },
     },

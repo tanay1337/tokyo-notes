@@ -70,7 +70,7 @@ yay -S tokyo-notes-git
 
 ### Others
 
-Requires Python 3.12+, PyGObject, GTK4, Libadwaita, and Git.
+Requires Python 3.12+, PyGObject, GTK4, Libadwaita, poppler, and Git.
 
 ```bash
 # After installing dependencies mentioned above and from pip

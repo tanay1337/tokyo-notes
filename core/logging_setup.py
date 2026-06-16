@@ -5,6 +5,10 @@ any other objects. After that, every module uses the standard pattern:
 
     import logging
     logger = logging.getLogger(__name__)
+
+To enable note-name redaction in the file log, call ``set_note_names()``
+with the current set of note names. Only strings that exactly match a
+known note name are replaced with ``<name>``.
 """
 
 from __future__ import annotations
@@ -14,23 +18,36 @@ import logging.handlers
 import os
 import re
 from pathlib import Path
+from typing import Iterable
 
-# Pattern to detect note names in log messages (heuristic, not exhaustive).
-# Minimum 2 chars to avoid matching format specifiers like %s.
-_NOTE_NAME_RE = re.compile(r"[A-Za-z0-9][\w .\-()]{1,100}")
+_note_names: set[str] = set()
+_names_pattern: re.Pattern | None = None
+
+
+def set_note_names(names: Iterable[str]) -> None:
+    """Set the set of known note names for log sanitization.
+
+    Pass an empty iterable to disable sanitization.
+    """
+    global _names_pattern
+    _note_names.clear()
+    _note_names.update(names)
+    if _note_names:
+        escaped = sorted((re.escape(n) for n in _note_names), key=len, reverse=True)
+        _names_pattern = re.compile("|".join(escaped))
+    else:
+        _names_pattern = None
 
 
 def _sanitize(msg: str) -> str:
-    """Remove likely note-name content from a formatted log message.
-
-    Operates on the final formatted string, not the format template,
-    so ``%s`` placeholders have already been substituted.
-    """
-    return _NOTE_NAME_RE.sub("<name>", msg)
+    """Replace known note names in *msg* with ``<name>``."""
+    if _names_pattern:
+        return _names_pattern.sub("<name>", msg)
+    return msg
 
 
 class SanitizingFormatter(logging.Formatter):
-    """Formatter that strips note-name-like tokens from the final output."""
+    """Formatter that strips known note names from the final output."""
 
     def format(self, record: logging.LogRecord) -> str:
         msg = super().format(record)
