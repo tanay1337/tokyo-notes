@@ -25,6 +25,8 @@ class TestAppIntegration:
                 return True
             if key == "language":
                 return "en"
+            if key == "sort_order":
+                return "last_modified"
             return original_get(self, key, default)
 
         with pytest.MonkeyPatch().context() as mp:

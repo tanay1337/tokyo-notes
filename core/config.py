@@ -34,6 +34,7 @@ _DEFAULTS: dict[str, Any] = {
     "spell_check_enabled": True,
     "spell_check_language": "en",
     "always_show_markdown": False,
+    "sort_order": "last_modified",
     "speech_enabled": False,
     "speech_language": None,
     "speech_input_device": None,

@@ -62,6 +62,7 @@ class TokyoNotes(Adw.Application):
         self.cfg = ConfigManager()
         self.notes_folder: str = self.cfg.get("notes_folder")
         self.notes_manager = NotesManager(notes_dir=self.notes_folder)
+        self.notes_manager.sort_order = self.cfg.get("sort_order", "last_modified")
         set_note_names(self.notes_manager.get_notes())
 
         # Git versioning
@@ -1226,6 +1227,7 @@ class TokyoNotes(Adw.Application):
         self.notes_folder = new_folder
         self.cfg.set("notes_folder", new_folder)
         self.notes_manager = NotesManager(notes_dir=new_folder)
+        self.notes_manager.sort_order = self.cfg.get("sort_order", "last_modified")
         from core.versioning import GitVersionController
 
         self.git_controller = GitVersionController(
@@ -1607,6 +1609,9 @@ class TokyoNotes(Adw.Application):
         elif key == "speech_language":
             if self._speech_btn is not None:
                 self._speech_btn.update_language(value)
+        elif key == "sort_order":
+            self.notes_manager.sort_order = value
+            self.refresh_list()
         elif key == "speech_rebuild":
             from core.speech_setup import remove as remove_venv
 

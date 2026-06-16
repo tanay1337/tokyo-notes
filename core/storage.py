@@ -71,6 +71,7 @@ class NotesManager:
         self._backlink_index: dict[str, set[str]] = {}
         self._last_full_scan: float = 0.0
         self._io_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self.sort_order: str = "last_modified"
         self._cleanup_stale_temps()
 
     def _cleanup_stale_temps(self) -> None:
@@ -163,11 +164,15 @@ class NotesManager:
         for name, (p, st) in enc_entries.items():
             merged[name] = (p, st, True)
 
-        entries = sorted(
-            [(name, p, st, enc) for name, (p, st, enc) in merged.items()],
-            key=lambda x: x[2].st_mtime,
-            reverse=True,
-        )
+        entries = [(name, p, st, enc) for name, (p, st, enc) in merged.items()]
+        if self.sort_order == "a_to_z":
+            entries.sort(key=lambda x: x[0].lower())
+        elif self.sort_order == "z_to_a":
+            entries.sort(key=lambda x: x[0].lower(), reverse=True)
+        elif self.sort_order == "first_modified":
+            entries.sort(key=lambda x: x[2].st_mtime)
+        else:  # "last_modified" (default)
+            entries.sort(key=lambda x: x[2].st_mtime, reverse=True)
 
         with self._lock:
             for name, _p, st, _is_enc in entries:

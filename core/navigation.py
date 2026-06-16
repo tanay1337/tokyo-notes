@@ -199,6 +199,7 @@ class NavigationController:
                     "git_available": app.git_controller.is_git_installed(),
                     "git_enabled": app.cfg.get("git_enabled", False),
                     "git_auto_commit": app.cfg.get("git_auto_commit", True),
+                    "sort_order": app.cfg.get("sort_order", "last_modified"),
                 },
                 on_change_password=app._show_password_change_dialog,
                 on_set_password=app._show_setup_dialog,

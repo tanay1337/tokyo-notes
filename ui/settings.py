@@ -151,6 +151,7 @@ class SettingsView(Gtk.Box):
         group.add(self._make_font_row())
         group.add(self._make_font_size_row())
         group.add(self._make_language_row())
+        group.add(self._make_sort_order_row())
         return group
 
     def _build_editor_group(self) -> Adw.PreferencesGroup:
@@ -711,6 +712,43 @@ class SettingsView(Gtk.Box):
         )
         return row
 
+    def _make_sort_order_row(self) -> Adw.ComboRow:
+        display_values = [
+            tr("A - Z"),
+            tr("Z - A"),
+            tr("Last modified time"),
+            tr("First modified time"),
+        ]
+        self._sort_order_values = [
+            "a_to_z",
+            "z_to_a",
+            "last_modified",
+            "first_modified",
+        ]
+        model = Gtk.StringList()
+        for v in display_values:
+            model.append(v)
+
+        self._sort_order_row = Adw.ComboRow(
+            title=tr("Sort order"),
+            subtitle=tr("Order of notes and folders in the sidebar"),
+            model=model,
+        )
+        current = self._initial_values.get("sort_order", "last_modified")
+        try:
+            self._sort_order_row.set_selected(self._sort_order_values.index(current))
+        except ValueError:
+            self._sort_order_row.set_selected(
+                self._sort_order_values.index("last_modified")
+            )
+        self._sort_order_row.connect(
+            "notify::selected",
+            lambda r, _pspec: self.on_config_changed(
+                "sort_order", self._sort_order_values[r.get_selected()]
+            ),
+        )
+        return self._sort_order_row
+
     def _make_font_row(self) -> Adw.ComboRow:
         """Create a dropdown listing all installed system fonts."""
         families: list[str] = []
@@ -1001,6 +1039,7 @@ class SettingsView(Gtk.Box):
             "language": "en",
             "spell_check_enabled": True,
             "spell_check_language": "en",
+            "sort_order": "last_modified",
         }
         for key, value in defaults.items():
             self.on_config_changed(key, value)
@@ -1024,6 +1063,12 @@ class SettingsView(Gtk.Box):
             sp_idx = self._spell_lang_codes.index("en")
             self._spell_language_row.set_selected(sp_idx)
         except ValueError:
+            pass
+
+        try:
+            sort_idx = self._sort_order_values.index("last_modified")
+            self._sort_order_row.set_selected(sort_idx)
+        except (ValueError, AttributeError):
             pass
 
         button.set_label("Reset ✓")
