@@ -251,9 +251,19 @@ class NavigationController:
         """Return to the editor from any secondary view, or clear search."""
         app = self.app
         current_page = app.content_stack.get_visible_child_name()
-        if current_page in ("dashboard", "graph", "settings", "flashcard", "diagram"):
+        if current_page in (
+            "dashboard",
+            "graph",
+            "settings",
+            "flashcard",
+            "diagram",
+            "table",
+        ):
             if current_page == "diagram":
                 app._on_diagram_close()
+                return True
+            if current_page == "table":
+                app._on_table_close()
                 return True
             target = "split_editor" if app.split_editor is not None else "editor"
             app.content_stack.set_visible_child_name(target)

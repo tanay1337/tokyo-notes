@@ -29,6 +29,7 @@ from core.speech import model_cached
 from core.spell_checker import SpellChecker
 from core.startup_checks import validate_notes_folder
 from core.storage import NotesManager
+from core.table import Table, find_tables, table_to_markdown
 from core.template_manager import TemplateManager
 from core.theme_manager import ThemeManager
 from core.translations import load as load_i18n
@@ -781,7 +782,6 @@ class TokyoNotes(Adw.Application):
             content = self.template_manager.get_template_content(slug)
             if content is None:
                 return
-            from core.template_manager import TemplateManager
 
             substituted = TemplateManager.substitute_variables(content)
             self.lifecycle.on_new_note(None)
@@ -1256,6 +1256,10 @@ class TokyoNotes(Adw.Application):
             self.content_stack.remove(self.diagram_view)
         self.diagram_view = None
         self.current_open_diagram = None
+
+        if self.table_view:
+            self.content_stack.remove(self.table_view)
+        self.table_view = None
         self.diagram_manager = DiagramManager(notes_dir=new_folder)
 
         self.current_note = None
@@ -1344,6 +1348,9 @@ class TokyoNotes(Adw.Application):
         self.split_editor = None
         self._single_editor_ref = None
         self.diagram_view = None
+        self.table_view = None
+        self._table_edit_start_offset: int = -1
+        self._table_edit_end_offset: int = -1
 
         overlay = self._build_content_stack()
 
@@ -1506,6 +1513,8 @@ class TokyoNotes(Adw.Application):
         self.editor._diagram_manager = self.diagram_manager
         self.editor._on_diagram_slash = self._on_insert_diagram_action
         self.editor._on_open_diagram = self._on_open_diagram_action
+        self.editor._on_open_table = self._on_open_table_at_offset
+        self.editor._on_insert_table = self._open_table_editor
 
     def _build_content_stack(self) -> Gtk.Overlay:
         self.content_stack = Gtk.Stack()
@@ -1752,13 +1761,16 @@ class TokyoNotes(Adw.Application):
     # Formatting
 
     def apply_format(self, btn, prefix: str, suffix: str) -> None:
-        from ui.toolbar import _DIAGRAM, _FLASHCARD
+        from ui.toolbar import _DIAGRAM, _FLASHCARD, _TABLE
 
         if prefix is _DIAGRAM:
             self._show_diagram_insert_popover(btn)
             return
         if prefix is _FLASHCARD:
             self.insert_flashcard()
+            return
+        if prefix is _TABLE:
+            self._open_table_editor()
             return
         if self.buffer.get_has_selection():
             start, end = self.buffer.get_selection_bounds()
@@ -1789,6 +1801,99 @@ class TokyoNotes(Adw.Application):
         else:
             self.buffer.insert_at_cursor(template)
         self._focus_text_view()
+
+    def _insert_table_template(self) -> None:
+        template = "| Header 1 | Header 2 |\n| --- | --- |\n| Cell 1 | Cell 2 |\n"
+        self.buffer.insert_at_cursor(template)
+        self._focus_text_view()
+
+    def _open_table_editor(
+        self, table_id: str | None = None, table: Table | None = None
+    ) -> None:
+        """Switch to the full-page table editor."""
+        self._save_current_cursor()
+        if self.table_view is None:
+            from ui.table_view import TableView
+
+            self.table_view = TableView(
+                on_save_and_insert=self._on_table_save_and_insert,
+                on_close=self._on_table_close,
+            )
+            self.content_stack.add_named(self.table_view, "table")
+        if table is None:
+            table = Table(headers=["Header 1", "Header 2"], rows=[["Cell 1", "Cell 2"]])
+        if table_id is None:
+            table_id = "new"
+        self.table_view.set_table(table_id, table)
+        self.content_stack.set_visible_child_name("table")
+        self.nav.update_header_ui(tr("Table Editor"), is_editor=False)
+        self._set_backlinks_visible(False)
+
+    def _on_open_table_at_offset(self, offset: int) -> None:
+        """Find table at *offset* in the buffer and open the table editor."""
+        start, end = self.buffer.get_bounds()
+        text = self.buffer.get_text(start, end, True)
+        tables = find_tables(text)
+        for tbl in tables:
+            raw = "\n".join(tbl.raw_lines)
+            table_start = text.find(raw)
+            if table_start < 0:
+                continue
+            table_end = table_start + len(raw)
+            if table_start <= offset <= table_end:
+                self._table_edit_start_offset = table_start
+                self._table_edit_end_offset = table_end
+                self._open_table_editor("edit", tbl)
+                return
+
+    def _on_table_save_and_insert(self, table_id: str, table: Table) -> None:
+        """Save table changes and insert markdown into the buffer."""
+        markdown = table_to_markdown(table)
+        so = self._table_edit_start_offset
+        eo = self._table_edit_end_offset
+        self._table_edit_start_offset = -1
+        self._table_edit_end_offset = -1
+        if so >= 0 and eo > so:
+            it1 = self.buffer.get_iter_at_offset(so)
+            it2 = self.buffer.get_iter_at_offset(eo)
+            self.buffer.delete(it1, it2)
+            self.buffer.insert(it1, markdown)
+        else:
+            self.buffer.insert_at_cursor(markdown)
+        self._schedule_full_highlight()
+        self._focus_text_view()
+        # Switch back to note editor
+        target = "split_editor" if self.split_editor is not None else "editor"
+        self.content_stack.set_visible_child_name(target)
+        title = self.current_note if self.current_note else tr("Tokyo Notes")
+        self.nav.update_header_ui(title, is_editor=True)
+        self._set_backlinks_visible(True)
+
+    def _on_table_close(self) -> None:
+        """Close the table editor, auto-saving changes first."""
+        # Auto-save: collect current table state and update the buffer
+        if self.table_view is not None and self.table_view._table is not None:
+            tbl = self.table_view._collect_table()
+            if tbl.headers:
+                markdown = table_to_markdown(tbl)
+                so = self._table_edit_start_offset
+                eo = self._table_edit_end_offset
+                if so >= 0 and eo > so:
+                    it1 = self.buffer.get_iter_at_offset(so)
+                    it2 = self.buffer.get_iter_at_offset(eo)
+                    self.buffer.delete(it1, it2)
+                    self.buffer.insert(it1, markdown)
+                else:
+                    self.buffer.insert_at_cursor(markdown)
+                self._schedule_full_highlight()
+        self._table_edit_start_offset = -1
+        self._table_edit_end_offset = -1
+        # Switch back to the note editor
+        target = "split_editor" if self.split_editor is not None else "editor"
+        self.content_stack.set_visible_child_name(target)
+        title = self.current_note if self.current_note else tr("Tokyo Notes")
+        self.nav.update_header_ui(title, is_editor=True)
+        self._set_backlinks_visible(True)
 
     # Diagram actions
 

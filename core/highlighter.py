@@ -96,7 +96,6 @@ class MarkdownHighlighter:
         self.re_italic2 = re.compile(r"(?<!_)_([^_]+)_(?!_)")
         self.re_code = re.compile(r"(`)([^`]+)(`)")
         self.re_strikethrough = re.compile(r"(~~)([^~]+)(~~)")
-        self.re_pipe = re.compile(r"\|")
 
         # Cache for _code_block_line_set — invalidated when buffer content changes.
         self._code_block_cache: set[int] = set()
@@ -197,8 +196,19 @@ class MarkdownHighlighter:
         tag("hr", foreground=c["hr"], weight=Pango.Weight.BOLD)
         tag("list_bullet", foreground=c["bullet"], weight=Pango.Weight.BOLD)
         tag("list_number", foreground=c["number"], weight=Pango.Weight.BOLD)
-        tag("table_row", foreground=c["table"], weight=Pango.Weight.BOLD)
-        tag("table_sep", foreground=c["hr"], weight=Pango.Weight.BOLD)
+        tag(
+            "table_row",
+            foreground=c["table"],
+            weight=Pango.Weight.BOLD,
+            family="Monospace",
+        )
+        tag(
+            "table_sep",
+            foreground=c["hr"],
+            weight=Pango.Weight.BOLD,
+            family="Monospace",
+        )
+        tag("table_data_row", family="Monospace")
         tag("blockquote", foreground=c["blockquote"], style=Pango.Style.ITALIC)
         tag("autolink", foreground=c["external_link"], underline=Pango.Underline.SINGLE)
         tag("inline_html", foreground=c["checkbox_empty"])
@@ -333,6 +343,7 @@ class MarkdownHighlighter:
                     self.buffer.apply_tag_by_name("code_block", line_iter, line_end)
 
         lines = text_range.split("\n")
+        passed_table_sep = False
         for i, line in enumerate(lines):
             curr_line_num = start_line + i
             is_cursor = cursor_line == curr_line_num
@@ -410,15 +421,23 @@ class MarkdownHighlighter:
                     line_start_offset + indent + len(ol.group(2)) + 1,
                 )
 
-            # Tables — one pass over the line, branch on separator type.
-            if "|" in line and not ul and not ol and self.re_table_row.match(line):
-                pipe_tag = "table_sep" if self.re_table_sep.match(line) else "table_row"
-                for m in self.re_pipe.finditer(line):
-                    self.apply_tag(
-                        pipe_tag,
-                        line_start_offset + m.start(),
-                        line_start_offset + m.start() + 1,
-                    )
+            # Tables — header row gets bold accent, body rows get normal weight.
+            is_table = (
+                "|" in line and not ul and not ol and self.re_table_row.match(line)
+            )
+            if is_table:
+                is_sep = bool(self.re_table_sep.match(line))
+                if is_sep:
+                    pipe_tag = "table_sep"
+                    passed_table_sep = True
+                elif passed_table_sep:
+                    pipe_tag = "table_data_row"
+                else:
+                    pipe_tag = "table_row"
+                self.apply_tag(pipe_tag, line_start_offset, line_end_offset)
+                self._dim_table_pipes(line, line_start_offset, line_end_offset)
+            else:
+                passed_table_sep = False
 
             # ATX headings
             h = self.re_header.match(line)
@@ -447,6 +466,30 @@ class MarkdownHighlighter:
     def _marker_tag(self, is_cursor: bool) -> str:
         """Return 'dim' or 'invisible' based on cursor state and setting."""
         return "dim" if (is_cursor or self.always_show_markdown) else "invisible"
+
+    def _dim_table_pipes(
+        self, line: str, line_start_offset: int, line_end_offset: int
+    ) -> None:
+        """Apply dim tag to pipe characters in a table line."""
+        for ci, ch in enumerate(line):
+            if ch == "|":
+                self.apply_tag(
+                    "dim", line_start_offset + ci, line_start_offset + ci + 1
+                )
+
+    def _is_data_row(self, line_num: int) -> bool:
+        """Return True if *line_num* is a table data row (after a separator row)."""
+        for scan in range(line_num - 1, -1, -1):
+            scan_it = self.get_iter_at_line(scan)
+            scan_it_end = scan_it.copy()
+            if not scan_it_end.ends_line():
+                scan_it_end.forward_to_line_end()
+            scan_text = self.buffer.get_text(scan_it, scan_it_end, True)
+            if self.re_table_sep.match(scan_text):
+                return True
+            if not (scan_text.strip().startswith("|") and "|" in scan_text[1:]):
+                return False
+        return False
 
     def _inline(
         self,
@@ -544,8 +587,12 @@ class MarkdownHighlighter:
 
         self.apply_tag(name, line_start_offset, line_end_offset)
 
-    def _tag_for_line(self, md_line) -> str | None:
+    def _tag_for_line(self, md_line, line_num=None) -> str | None:
         """Return the GTK text tag name for a markdown line kind."""
+        if md_line.kind == "table_row":
+            if line_num is not None and self._is_data_row(line_num):
+                return "table_data_row"
+            return "table_row"
         return {
             "h1": "h1",
             "h2": "h2",
@@ -561,13 +608,23 @@ class MarkdownHighlighter:
         }.get(md_line.kind)
 
     def _apply_line_tags(
-        self, line_start_offset, line_end_offset, line, md_line, is_cursor=False
+        self,
+        line_start_offset,
+        line_end_offset,
+        line,
+        md_line,
+        is_cursor=False,
+        line_num=None,
     ):
         """Apply tags for a single parsed markdown line."""
         # Structural tag
-        tag_name = self._tag_for_line(md_line)
+        tag_name = self._tag_for_line(md_line, line_num=line_num)
         if tag_name:
             self.apply_tag(tag_name, line_start_offset, line_end_offset)
+
+        # Pipe dimming for table lines
+        if md_line.kind in ("table_row", "table_sep"):
+            self._dim_table_pipes(line, line_start_offset, line_end_offset)
 
         # Lists: also tag the bullet/number separately
         if md_line.kind in ("ul", "ol") and md_line.marker:
@@ -798,7 +855,12 @@ class MarkdownHighlighter:
 
             # Apply tags using the same logic as highlight() but line-local
             self._apply_line_tags(
-                line_start, line_end, line, md, is_cursor=(line_num == cursor_line)
+                line_start,
+                line_end,
+                line,
+                md,
+                is_cursor=(line_num == cursor_line),
+                line_num=line_num,
             )
 
     def set_spell_checker(

@@ -294,6 +294,11 @@ class Editor(Gtk.Box):
         self._image_update_done_callback: Callable | None = None
 
         self._picker_open = False
+        self._on_open_table: Callable[[int], None] | None = None
+        self._on_insert_table: Callable[[], None] | None = None
+        self._table_double_click_offset: int = -1
+        self._setup_table_double_click()
+
         self._last_list_type: str | None = None
         self._last_list_prefix: str | None = None
         self._last_marker_at_level: dict[int, tuple[int, str, bool]] = {}
@@ -1094,6 +1099,10 @@ class Editor(Gtk.Box):
                 if callable(getattr(self, "_on_diagram_slash", None)):
                     GLib.idle_add(self._on_diagram_slash)
                 return
+            if slug == "table":
+                if callable(self._on_insert_table):
+                    self._on_insert_table()
+                return
             if slug in ("code-block", "flashcard", "divider"):
                 self.buffer.insert_at_cursor(insert_text)
                 if slug in ("code-block", "flashcard"):
@@ -1870,3 +1879,31 @@ class Editor(Gtk.Box):
             self._pending_notes_dir = Path()
             self.update_images(nd)
         return False
+
+    # Table double-click
+
+    def _setup_table_double_click(self) -> None:
+        gesture = Gtk.GestureClick.new()
+        gesture.set_button(0)
+        gesture.set_touch_only(False)
+        gesture.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        gesture.connect("pressed", self._on_table_double_click)
+        self.text_view.add_controller(gesture)
+
+    def _on_table_double_click(
+        self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float
+    ) -> None:
+        if n_press < 2:
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        bx, by = self.text_view.window_to_buffer_coords(
+            Gtk.TextWindowType.WIDGET, int(x), int(y)
+        )
+        result = self.text_view.get_iter_at_position(bx, by)
+        if not result or not result[0]:
+            return
+        pos_iter = result[1]
+        offset = pos_iter.get_offset()
+        if callable(self._on_open_table):
+            self._table_double_click_offset = offset
+            self._on_open_table(offset)

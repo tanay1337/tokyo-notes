@@ -12,6 +12,7 @@ from core.translations import tr
 # Sentinel values for special handler buttons in _GROUPS.
 _FLASHCARD = object()
 _DIAGRAM = object()
+_TABLE = object()
 
 # Groups: (prefix, suffix, tooltip, icon_file)
 # A None entry inserts a visual separator between groups.
@@ -40,6 +41,7 @@ _GROUPS: list[list[tuple[Any, str, str, str]] | None] = [
         ("- ", "", "Bullet List", "list.svg"),
         ("- [ ] ", "", "Task / Checkbox", "checkbox.svg"),
         (_FLASHCARD, "", "Insert flashcard", "flashcard.svg"),
+        (_TABLE, "", "Insert table", "table.svg"),
     ],
     None,
     # Links & media

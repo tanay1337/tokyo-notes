@@ -52,6 +52,13 @@ def get_commands() -> list[tuple[str, str, str, str | None, str]]:
             tr("inserts interactive diagram"),
             "diagram",
         ),
+        (
+            tr("Table"),
+            "| Header 1 | Header 2 |\n| --- | --- |\n| Cell 1 | Cell 2 |",
+            blocks,
+            tr("inserts a pipe table"),
+            "table",
+        ),
     ]
 
 
