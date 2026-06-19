@@ -63,6 +63,8 @@ class SearchablePicker(Gtk.Popover):
 
         self.set_child(box)
         self.set_autohide(True)
+        self._populate_idle_id = 0
+        self._populate_batch_size = 5
         self._populate(items)
 
         self.connect("map", lambda _: GLib.idle_add(self.search_entry.grab_focus))
@@ -77,10 +79,28 @@ class SearchablePicker(Gtk.Popover):
         self.unparent()
 
     def _populate(self, items: list[Any]) -> None:
+        if self._populate_idle_id:
+            GLib.source_remove(self._populate_idle_id)
+            self._populate_idle_id = 0
         clear_listbox(self.list_box)
-        for item in items:
-            row = self._make_row(item)
-            self.list_box.append(row)
+        self._populate_iter = iter(items)
+        for _ in range(self._populate_batch_size):
+            try:
+                row = self._make_row(next(self._populate_iter))
+                self.list_box.append(row)
+            except StopIteration:
+                return
+        self._populate_idle_id = GLib.idle_add(self._populate_chunk)
+
+    def _populate_chunk(self) -> bool:
+        for _ in range(self._populate_batch_size):
+            try:
+                row = self._make_row(next(self._populate_iter))
+                self.list_box.append(row)
+            except StopIteration:
+                self._populate_idle_id = 0
+                return False
+        return True
 
     def _make_row(self, item: Any) -> Gtk.ListBoxRow:
         """Build a single row for *item*. Override in subclasses."""
