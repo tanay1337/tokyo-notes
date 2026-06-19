@@ -198,6 +198,14 @@ class SettingsView(Gtk.Box):
         )
         group.add(
             self._make_switch_row(
+                tr("Table of Contents"),
+                tr("Show heading outline panel on the right side of the editor"),
+                self._initial_values.get("show_toc", True),
+                "show_toc",
+            )
+        )
+        group.add(
+            self._make_switch_row(
                 tr("Spell Check"),
                 tr("Highlight misspelled words with a red squiggly underline"),
                 self._initial_values.get("spell_check_enabled", True),
@@ -1031,6 +1039,7 @@ class SettingsView(Gtk.Box):
             "show_completed": True,
             "show_progress_rings": True,
             "show_backlinks": True,
+            "show_toc": False,
             "git_enabled": False,
             "git_auto_commit": True,
             "theme": "tokyo-night",

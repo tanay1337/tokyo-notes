@@ -49,6 +49,7 @@ from ui.diagram_view import DiagramView
 from ui.editor import Editor
 from ui.sakura_overlay import SakuraOverlay
 from ui.sidebar import Sidebar
+from ui.toc import TocSidebar
 from ui.toolbar import build_toolbar
 
 logger = logging.getLogger(__name__)
@@ -1333,6 +1334,18 @@ class TokyoNotes(Adw.Application):
         )
         self.split_view.set_sidebar(self.sidebar)
 
+        # TOC toggle button — built before header so _build_content_header can pack it.
+        toc_toggle_img = Gtk.Image.new_from_file(
+            str(self.base_dir / "assets" / "header" / "list.svg")
+        )
+        toc_toggle_img.set_pixel_size(16)
+        self.toc_toggle = Gtk.ToggleButton()
+        self.toc_toggle.set_child(toc_toggle_img)
+        self.toc_toggle.add_css_class("header-btn")
+        self.toc_toggle.add_css_class("flat")
+        self.toc_toggle.set_tooltip_text(tr("Table of Contents"))
+        self.toc_toggle.set_active(self.cfg.get("show_toc"))
+
         self.content_header = self._build_content_header()
         self.split_view.set_show_sidebar(self.sidebar_toggle.get_active())
 
@@ -1353,6 +1366,24 @@ class TokyoNotes(Adw.Application):
         self._table_edit_end_offset: int = -1
 
         overlay = self._build_content_stack()
+
+        # Wire up the TOC sidebar — must happen after editor and layout exist.
+        self.toc_sidebar.set_app(self)
+        self.toc_toggle.connect("toggled", self._on_toc_toggled)
+        self.content_stack.connect(
+            "notify::visible-child", lambda *_: self._update_toc_visibility()
+        )
+        self.split_view.connect(
+            "notify::collapsed", lambda *_: self._update_toc_visibility()
+        )
+        GLib.idle_add(self._update_toc_visibility)
+
+        # Dismiss TOC overlay when clicking content in collapsed mode.
+        dismiss_gesture = Gtk.GestureClick.new()
+        dismiss_gesture.set_button(1)
+        dismiss_gesture.connect("pressed", self._on_content_clicked)
+        dismiss_gesture.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
+        self.content_stack.add_controller(dismiss_gesture)
 
         main_layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         main_layout.append(self.content_header)
@@ -1414,6 +1445,7 @@ class TokyoNotes(Adw.Application):
         self.help_btn.add_css_class("header-btn")
         self.help_btn.connect("clicked", lambda _: self.show_shortcuts_dialog())
         header.pack_end(self.help_btn)
+        header.pack_end(self.toc_toggle)
 
         # Back to Notes button — shown only when a secondary view is active.
         self.back_btn = Gtk.Button(tooltip_text=tr("Back to Notes"))
@@ -1521,11 +1553,36 @@ class TokyoNotes(Adw.Application):
         self.content_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.content_stack.set_transition_duration(200)
         self.content_stack.set_vexpand(True)
+        self.content_stack.set_hexpand(True)
         self.content_stack.add_named(self.editor, "editor")
+
+        self.toc_sidebar = TocSidebar()
+        self.toc_sidebar.set_size_request(220, -1)
+
+        # Wrap TOC in a Revealer for smooth slide-in/out animation
+        self.toc_revealer = Gtk.Revealer()
+        self.toc_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_LEFT)
+        self.toc_revealer.set_reveal_child(False)
+        self.toc_revealer.set_halign(Gtk.Align.END)
+        self.toc_revealer.set_valign(Gtk.Align.FILL)
+        self.toc_revealer.set_child(self.toc_sidebar)
+
+        # Content box: content_stack + transparent spacer
+        self.content_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.content_box.set_hexpand(True)
+        self.content_box.set_vexpand(True)
+        self.content_box.append(self.content_stack)
+
+        # Spacer creates physical room for the TOC in non-collapsed mode
+        self.toc_spacer = Gtk.Box()
+        self.toc_spacer.set_size_request(220, -1)
+        self.toc_spacer.set_visible(False)
+        self.content_box.append(self.toc_spacer)
 
         self.overlay = Gtk.Overlay()
         self.sakura_overlay = SakuraOverlay()
-        self.overlay.set_child(self.content_stack)
+        self.overlay.set_child(self.content_box)
+        self.overlay.add_overlay(self.toc_revealer)
         self.overlay.add_overlay(self.sakura_overlay)
 
         self.backlinks_container = Gtk.Box()
@@ -1559,6 +1616,44 @@ class TokyoNotes(Adw.Application):
 
         return self.overlay
 
+    # TOC sidebar
+
+    def _update_toc_visibility(self) -> None:
+        """Show TOC sidebar when the editor is active and toggle is on.
+
+        In non-collapsed mode the transparent spacer pushes content aside so the
+        TOC sits side-by-side.  In collapsed mode no spacer is added so the TOC
+        floats as an overlay (same as the left sidebar behaviour).
+        """
+        if not hasattr(self, "toc_revealer") or not hasattr(self, "toc_toggle"):
+            return
+        in_editor = self.content_stack.get_visible_child_name() in (
+            "editor",
+            "split_editor",
+        )
+        on = self.toc_toggle.get_active()
+        collapsed = self.split_view.get_collapsed()
+
+        self.toc_spacer.set_visible(not collapsed and in_editor and on)
+        self.toc_revealer.set_reveal_child(in_editor and on)
+
+        # Keep backlinks button to the left of the TOC area
+        backlinks_margin = 16
+        if not collapsed and in_editor and on:
+            backlinks_margin += 220
+        self.backlinks_container.set_margin_end(backlinks_margin)
+
+    def _on_toc_toggled(self, _btn: Gtk.ToggleButton) -> None:
+        """Session-wide toggle — does not persist to config."""
+        self._update_toc_visibility()
+
+    def _on_content_clicked(
+        self, _gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float
+    ) -> None:
+        """Dismiss the TOC overlay in collapsed mode by deactivating the toggle."""
+        if self.split_view.get_collapsed() and self.toc_toggle.get_active():
+            self.toc_toggle.set_active(False)
+
     # Settings / theme
 
     def on_settings_config_changed(self, key: str, value: Any) -> None:
@@ -1577,6 +1672,9 @@ class TokyoNotes(Adw.Application):
             self.nav.refresh_dashboard(self.dashboard_view.active_filter)
         elif key == "show_backlinks":
             self._update_backlinks()
+        elif key == "show_toc":
+            self.toc_toggle.set_active(value)
+            self._update_toc_visibility()
         elif key == "font_family":
             self._apply_font(value, self.cfg.get("font_size"))
         elif key == "font_size":

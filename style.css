@@ -797,3 +797,83 @@ shortcuts-shortcut {
 .context-menu-item:hover {
     background-color: alpha(@accent_color, 0.15);
 }
+
+/* Table of Contents Sidebar */
+.toc-sidebar {
+    background-color: @sidebar_bg;
+    border-left: 1px solid @border_color;
+    box-shadow: -1px 0 6px rgba(0, 0, 0, 0.04);
+    min-width: 200px;
+    max-width: 280px;
+}
+
+.toc-header {
+    font-size: 8pt;
+    font-weight: 700;
+    color: @secondary_fg;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+
+.toc-empty {
+    font-size: 9pt;
+    color: @secondary_fg;
+    opacity: 0.6;
+}
+
+.toc-heading-row {
+    padding: 3px 8px;
+    margin: 1px 6px;
+    border-radius: 6px;
+    border: none;
+    background: none;
+}
+
+.toc-heading-row:hover {
+    background-color: @hover_bg;
+}
+
+.toc-heading-row.active {
+    background-color: @selection_color;
+}
+
+
+.toc-h1 {
+    font-size: 10pt;
+    font-weight: 700;
+    color: @syntax_h1;
+}
+
+.toc-h2 {
+    font-size: 10pt;
+    font-weight: 600;
+    color: @syntax_h2;
+}
+
+.toc-h3 {
+    font-size: 9pt;
+    font-weight: 600;
+    color: @syntax_h3;
+    opacity: 0.95;
+}
+
+.toc-h4 {
+    font-size: 9pt;
+    font-weight: 500;
+    color: @syntax_h4;
+    opacity: 0.9;
+}
+
+.toc-h5 {
+    font-size: 8pt;
+    font-weight: 500;
+    color: @syntax_h5;
+    opacity: 0.85;
+}
+
+.toc-h6 {
+    font-size: 8pt;
+    font-weight: 400;
+    color: @syntax_h6;
+    opacity: 0.8;
+}

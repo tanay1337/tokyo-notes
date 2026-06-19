@@ -57,4 +57,5 @@ class WindowManager:
         bp = Adw.Breakpoint.new(condition)
         bp.add_setter(self.app.split_view, "collapsed", True)
         bp.add_setter(self.app.sidebar_toggle, "active", False)
+        bp.add_setter(self.app.toc_toggle, "active", False)
         self.app.win.add_breakpoint(bp)

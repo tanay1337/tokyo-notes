@@ -22,6 +22,7 @@ _DEFAULTS: dict[str, Any] = {
     "show_completed": True,
     "show_progress_rings": True,
     "show_backlinks": True,
+    "show_toc": False,
     "lock_timeout_minutes": 5,
     "start_week_on_sunday": True,
     "create_on_link_click": True,

@@ -184,6 +184,7 @@ class NavigationController:
                     "show_completed": app.cfg.get("show_completed", True),
                     "show_progress_rings": app.cfg.get("show_progress_rings", True),
                     "show_backlinks": app.cfg.get("show_backlinks", True),
+                    "show_toc": app.cfg.get("show_toc", True),
                     "lock_timeout_minutes": app.cfg.get("lock_timeout_minutes", 5),
                     "font_family": app.cfg.get("font_family"),
                     "font_size": app.cfg.get("font_size"),

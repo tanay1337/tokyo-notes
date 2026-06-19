@@ -185,6 +185,7 @@
   "No changes to snapshot": "No changes to snapshot",
   "No encrypted notes in this folder": "No encrypted notes in this folder",
   "No flashcards found.\n\nWrite ```flashcard blocks in your notes\nto create flashcards.": "No flashcards found.\n\nWrite ```flashcard blocks in your notes\nto create flashcards.",
+  "No headings found": "No headings found",
   "No note to encrypt — make a note private first": "No note to encrypt — make a note private first",
   "No notes match.": "No notes match.",
   "No notes yet.": "No notes yet.",
@@ -277,6 +278,7 @@
   "Show Overdue": "Show Overdue",
   "Show Sun - Sat instead of Mon - Sun in the Week filter": "Show Sun - Sat instead of Mon - Sun in the Week filter",
   "Show cherry blossoms when completing tasks": "Show cherry blossoms when completing tasks",
+  "Show heading outline panel on the right side of the editor": "Show heading outline panel on the right side of the editor",
   "Show completion rings on date headers": "Show completion rings on date headers",
   "Show floating backlinks button in the editor": "Show floating backlinks button in the editor",
   "Show markdown formatting tools above the editor": "Show markdown formatting tools above the editor",
@@ -422,6 +424,7 @@
   "Insert table": "Insert table",
   "inserts a pipe table": "inserts a pipe table",
   "Table Editor": "Table Editor",
+  "Table of Contents": "Table of Contents",
   "_meta": {
     "name": "English",
     "code": "en"

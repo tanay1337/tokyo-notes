@@ -188,6 +188,7 @@
   "No changes to snapshot": "Keine Änderungen am Schnappschuss",
   "No encrypted notes in this folder": "Keine verschlüsselten Notizen in diesem Ordner",
   "No flashcards found.\n\nWrite ```flashcard blocks in your notes\nto create flashcards.": "Keine Karteikarten gefunden.\n\nSchreiben Sie ```flashcard-Blöcke in Ihre Notizen,\num Karteikarten zu erstellen.",
+  "No headings found": "Keine Überschriften gefunden",
   "No note to encrypt — make a note private first": "Keine Notiz zum Verschlüsseln — machen Sie zuerst eine Notiz privat",
   "No notes match.": "Keine passenden Notizen.",
   "No notes yet.": "Noch keine Notizen.",
@@ -280,6 +281,7 @@
   "Show Overdue": "Überfällige anzeigen",
   "Show Sun - Sat instead of Mon - Sun in the Week filter": "So-Sa anstelle von Mo-So im Wochenfilter anzeigen",
   "Show cherry blossoms when completing tasks": "Kirschblüten beim Erledigen von Aufgaben anzeigen",
+  "Show heading outline panel on the right side of the editor": "Gliederungsleiste auf der rechten Seite des Editors anzeigen",
   "Show completion rings on date headers": "Abschlussringe auf Datumsüberschriften anzeigen",
   "Show floating backlinks button in the editor": "Schwebenden Rückverweise-Button im Editor anzeigen",
   "Show markdown formatting tools above the editor": "Markdown-Formatierungswerkzeuge über dem Editor anzeigen",
@@ -426,6 +428,7 @@
   "Insert table": "Tabelle einfügen",
   "inserts a pipe table": "fügt eine Tabelle ein",
   "Table Editor": "Tabelleneditor",
+  "Table of Contents": "Inhaltsverzeichnis",
   "_meta": {
     "name": "Deutsch",
     "code": "de"
