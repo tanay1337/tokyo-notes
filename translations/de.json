@@ -429,6 +429,9 @@
   "inserts a pipe table": "fügt eine Tabelle ein",
   "Table Editor": "Tabelleneditor",
   "Table of Contents": "Inhaltsverzeichnis",
+  "Actions": "Aktionen",
+  "Format": "Formatieren",
+  "formats the whole document": "formatiert das gesamte Dokument",
   "_meta": {
     "name": "Deutsch",
     "code": "de"

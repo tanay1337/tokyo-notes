@@ -1104,6 +1104,10 @@ class Editor(Gtk.Box):
                 if callable(self._on_insert_table):
                     self._on_insert_table()
                 return
+            if slug == "format":
+                self.text_view._skip_focus_restore = True
+                GLib.idle_add(self._run_cleanup)
+                return
             if slug in ("code-block", "flashcard", "divider"):
                 self.buffer.insert_at_cursor(insert_text)
                 if slug in ("code-block", "flashcard"):
@@ -1136,6 +1140,22 @@ class Editor(Gtk.Box):
         picker.connect("closed", self._on_slash_closed)
         picker.connect("closed", lambda *_: setattr(self, "_picker_open", False))
         self._popup_at_cursor(picker)
+
+    def _run_cleanup(self) -> None:
+        from core.md_clean import cleanup_document
+
+        start, end = self.buffer.get_bounds()
+        text = self.buffer.get_text(start, end, True)
+        cleaned = cleanup_document(text)
+        if cleaned != text:
+            self.buffer.begin_user_action()
+            start, end = self.buffer.get_bounds()
+            self.buffer.delete(start, end)
+            self.buffer.insert_at_cursor(cleaned)
+            self.buffer.end_user_action()
+            if self.highlighter:
+                self.highlighter.highlight()
+        self.text_view._skip_focus_restore = False
 
     def _on_slash_closed(self, picker: Gtk.Popover) -> None:
         GLib.idle_add(lambda: setattr(self.text_view, "_skip_focus_restore", False))

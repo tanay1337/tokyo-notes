@@ -20,6 +20,7 @@ def get_commands() -> list[tuple[str, str, str, str | None, str]]:
     blocks = tr("Blocks")
     links = tr("Links & Media")
     tasks = tr("Tasks")
+    actions = tr("Actions")
 
     return [
         (tr("Heading 1"), "# ", headings, None, "h1"),
@@ -58,6 +59,13 @@ def get_commands() -> list[tuple[str, str, str, str | None, str]]:
             blocks,
             tr("inserts a pipe table"),
             "table",
+        ),
+        (
+            tr("Format"),
+            "",
+            actions,
+            tr("formats the whole document"),
+            "format",
         ),
     ]
 
