@@ -1080,7 +1080,7 @@ class SettingsView(Gtk.Box):
         except (ValueError, AttributeError):
             pass
 
-        button.set_label("Reset ✓")
+        button.set_label(tr("Reset ✓"))
         button.set_sensitive(False)
 
         def _reset_btn() -> bool:
@@ -1096,11 +1096,11 @@ class SettingsView(Gtk.Box):
     def refresh_privacy_state(self, has_encrypted: bool) -> None:
         self._has_encrypted_notes = has_encrypted
         self._change_password_btn.set_label(
-            "Set password" if not has_encrypted else "Change password"
+            tr("Set password") if not has_encrypted else tr("Change password")
         )
         self._change_password_btn.set_sensitive(has_encrypted)
         self._change_password_row.set_subtitle(
-            "Make a note private first to enable private notes."
+            tr("Make a note private first to enable private notes.")
             if not has_encrypted
             else ""
         )
