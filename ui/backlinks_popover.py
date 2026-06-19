@@ -7,7 +7,7 @@ from typing import Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import Gtk, Pango
 
 from core.translations import tr
 
@@ -66,7 +66,8 @@ class BacklinksPopover(Gtk.Popover):
 
     def _on_closed(self, popover: BacklinksPopover) -> None:
         if self._text_view is not None:
-            GLib.idle_add(self._text_view.grab_focus)
+            self._text_view.grab_focus()
+        self.unparent()
 
     def on_row_activated(self, listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         if row:

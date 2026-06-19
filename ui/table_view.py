@@ -207,6 +207,15 @@ class TableView(Gtk.Box):
         self._undo_stack.clear()
         self._redo_stack.clear()
 
+    def focus_first_cell(self) -> None:
+        """Grab keyboard focus on the first editable cell."""
+        if not self._column_entries:
+            return
+        if len(self._column_entries) > 1:
+            self._column_entries[1][0].grab_focus()
+        else:
+            self._column_entries[0][0].grab_focus()
+
     def _rebuild_grid(self) -> None:
         """Clear and rebuild the editable grid from self._table."""
         self._dismiss_context_menu()

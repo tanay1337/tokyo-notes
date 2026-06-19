@@ -54,6 +54,7 @@ class Dashboard(Gtk.Box):
         self.get_notes_fn = get_notes_fn or (lambda: [])
         self._assets_dir = assets_dir
         self._quick_add_deadline: str | None = None
+        self._quick_add_dl_picker: Gtk.Popover | None = None
         self._prev_stats: dict[str, tuple[int, int]] = {}
         self._collapsed: set[str] = set()
         self._date_rows: dict[str, list[Gtk.ListBoxRow]] = {}
@@ -314,15 +315,21 @@ class Dashboard(Gtk.Box):
         self.open_quick_add_popover()
 
     def _on_quick_add_deadline_clicked(self, btn: Gtk.Button) -> None:
+        if self._quick_add_dl_picker is not None:
+            self._quick_add_dl_picker.popdown()
+            self._quick_add_dl_picker.unparent()
+            self._quick_add_dl_picker = None
+
         picker = DeadlinePicker(
             self._on_quick_add_deadline_selected, has_deadline=False
         )
-        picker.connect(
-            "closed",
-            lambda *_: GLib.idle_add(
-                lambda: (self._quick_add_entry.grab_focus(), False)[-1]
-            ),
-        )
+        self._quick_add_dl_picker = picker
+
+        def _on_picker_closed(*_):
+            GLib.idle_add(lambda: (self._quick_add_entry.grab_focus(), False)[-1])
+            self._quick_add_dl_picker = None
+
+        picker.connect("closed", _on_picker_closed)
         rect = Gdk.Rectangle()
         rect.x, rect.y, rect.width, rect.height = 0, 0, 1, 1
         picker.set_parent(btn)
@@ -902,6 +909,7 @@ class Dashboard(Gtk.Box):
 
         popover = Gtk.PopoverMenu.new_from_model(menu)
         popover.set_parent(gesture.get_widget())
+        popover.connect("closed", lambda p, *_: GLib.idle_add(p.unparent))
         popover.popup()
 
     def _apply_snooze(self, cb: dict[str, Any], new_dl: str | None) -> None:

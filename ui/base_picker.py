@@ -73,7 +73,8 @@ class SearchablePicker(Gtk.Popover):
         if self._text_view is not None:
             skip = getattr(self._text_view, "_skip_focus_restore", False)
             if not skip:
-                GLib.idle_add(self._text_view.grab_focus)
+                self._text_view.grab_focus()
+        self.unparent()
 
     def _populate(self, items: list[Any]) -> None:
         clear_listbox(self.list_box)

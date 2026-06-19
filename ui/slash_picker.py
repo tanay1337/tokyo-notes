@@ -7,7 +7,7 @@ from typing import Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import Gtk, Pango
 
 from core.translations import tr
 from ui.base_picker import SearchablePicker
@@ -122,4 +122,3 @@ class SlashPicker(SearchablePicker):
         if row:
             self._on_selected_raw(row._cmd_data[0], row._cmd_data[1], row._cmd_data[4])
             self.popdown()
-            GLib.idle_add(self.unparent)

@@ -1826,6 +1826,7 @@ class TokyoNotes(Adw.Application):
             table_id = "new"
         self.table_view.set_table(table_id, table)
         self.content_stack.set_visible_child_name("table")
+        GLib.idle_add(self.table_view.focus_first_cell)
         self.nav.update_header_ui(tr("Table Editor"), is_editor=False)
         self._set_backlinks_visible(False)
 
@@ -1894,6 +1895,7 @@ class TokyoNotes(Adw.Application):
         title = self.current_note if self.current_note else tr("Tokyo Notes")
         self.nav.update_header_ui(title, is_editor=True)
         self._set_backlinks_visible(True)
+        self._focus_text_view()
 
     # Diagram actions
 
@@ -1986,6 +1988,7 @@ class TokyoNotes(Adw.Application):
 
         popover.set_child(vbox)
         popover.set_parent(btn)
+        popover.connect("closed", lambda p, *_: GLib.idle_add(p.unparent))
         popover.popup()
 
     def _on_open_diagram_action(self, diagram_id: str) -> None:
@@ -2184,6 +2187,7 @@ class TokyoNotes(Adw.Application):
 
         popover = Gtk.PopoverMenu.new_from_model(menu)
         popover.set_parent(row)
+        popover.connect("closed", lambda p, *_: GLib.idle_add(p.unparent))
         row_rect = Gdk.Rectangle()
         row_rect.x = 0
         row_rect.y = row.get_height()
@@ -2263,6 +2267,7 @@ class TokyoNotes(Adw.Application):
 
         popover = Gtk.PopoverMenu.new_from_model(menu)
         popover.set_parent(row)
+        popover.connect("closed", lambda p, *_: GLib.idle_add(p.unparent))
         row_rect = Gdk.Rectangle()
         row_rect.x = 0
         row_rect.y = row.get_height()

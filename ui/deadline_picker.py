@@ -9,7 +9,7 @@ from typing import Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk
+from gi.repository import Gtk
 
 from core.translations import tr
 
@@ -25,7 +25,7 @@ class DeadlinePicker(Gtk.Popover):
         super().__init__()
         self.add_css_class("deadline-picker-popover")
         self.callback = callback
-        self.connect("closed", lambda *_: GLib.idle_add(self.unparent))
+        self.connect("closed", lambda *_: self.unparent())
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_margin_start(10)

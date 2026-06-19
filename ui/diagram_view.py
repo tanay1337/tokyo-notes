@@ -1011,6 +1011,7 @@ class DiagramView(Gtk.Box):
 
         popover = Gtk.Popover()
         popover.set_autohide(True)
+        popover.connect("closed", lambda p, *_: GLib.idle_add(p.unparent))
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         vbox.set_margin_top(4)
         vbox.set_margin_bottom(4)
@@ -1797,6 +1798,7 @@ class DiagramView(Gtk.Box):
 
         popover.set_child(vbox)
         popover.set_parent(self.diagrams_btn)
+        popover.connect("closed", lambda p, *_: GLib.idle_add(p.unparent))
         popover.popup()
 
     def _open_diagram(self, diagram_id: str) -> None:

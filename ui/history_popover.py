@@ -316,7 +316,8 @@ class HistoryPopover(Gtk.Popover):
 
     def _on_closed(self, popover: HistoryPopover) -> None:
         if self._text_view is not None:
-            GLib.idle_add(self._text_view.grab_focus)
+            self._text_view.grab_focus()
+        self.unparent()
 
 
 def _parse_rgba(hex_color: str) -> Gdk.RGBA:

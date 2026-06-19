@@ -1100,6 +1100,7 @@ class Editor(Gtk.Box):
                     GLib.idle_add(self._on_diagram_slash)
                 return
             if slug == "table":
+                self.text_view._skip_focus_restore = True
                 if callable(self._on_insert_table):
                     self._on_insert_table()
                 return
