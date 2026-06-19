@@ -44,7 +44,7 @@ class NoteLifecycleManager:
 
     def initial_load(self) -> bool:
         app = self.app
-        notes = app.notes_manager.get_notes()
+        notes = app.notes_manager.get_notes(sort_by_mtime=True)
         if notes:
             most_recent = notes[0]
             # Expand the folder tree containing the most recent note so
@@ -56,7 +56,7 @@ class NoteLifecycleManager:
                     ancestor = "/".join(parts[: i + 1])
                     app.sidebar._folder_expanded[ancestor] = True
         app.refresh_list()
-        notes = app.notes_manager.get_notes()
+        notes = app.notes_manager.get_notes(sort_by_mtime=True)
         if notes:
             most_recent = notes[0]
             if app._select_sidebar_row(most_recent):

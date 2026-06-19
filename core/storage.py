@@ -124,8 +124,14 @@ class NotesManager:
 
     # Querying
 
-    def get_notes(self, search_text: str = "") -> list[str]:
-        """Return all note stems sorted by mtime (newest first).
+    def get_notes(
+        self, search_text: str = "", sort_by_mtime: bool = False
+    ) -> list[str]:
+        """Return all note stems.
+
+        By default sorted per the user's configured sort_order.
+        Pass *sort_by_mtime=True* to force mtime order (newest first)
+        regardless of the configured sort_order.
 
         Scans both .md and .md.enc files. Encrypted notes are included
         in the list so they appear in the sidebar (with a lock icon).
@@ -165,7 +171,9 @@ class NotesManager:
             merged[name] = (p, st, True)
 
         entries = [(name, p, st, enc) for name, (p, st, enc) in merged.items()]
-        if self.sort_order == "a_to_z":
+        if sort_by_mtime:
+            entries.sort(key=lambda x: x[2].st_mtime, reverse=True)
+        elif self.sort_order == "a_to_z":
             entries.sort(key=lambda x: x[0].lower())
         elif self.sort_order == "z_to_a":
             entries.sort(key=lambda x: x[0].lower(), reverse=True)
