@@ -71,6 +71,18 @@ def build_toolbar(
     """
     inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
     inner.add_css_class("toolbar")
+    inner._tag_buttons: dict[str, Gtk.Button] = {}
+
+    # Tooltip → tag-name mapping for formatting-state buttons
+    _tag_btn_map = {
+        "Bold": "bold",
+        "Italic": "italic",
+        "Strikethrough": "strikethrough",
+        "Inline Code": "code",
+        "Heading 1 (H1)": "h1",
+        "Heading 2 (H2)": "h2",
+        "Heading 3 (H3)": "h3",
+    }
 
     for group in _GROUPS:
         if group is None:
@@ -86,6 +98,10 @@ def build_toolbar(
             btn = Gtk.Button()
             btn.set_tooltip_text(tr(tooltip))
             btn.add_css_class("toolbar-btn")
+            tag_name = _tag_btn_map.get(tooltip)
+            if tag_name:
+                btn._tag_name = tag_name
+                inner._tag_buttons[tag_name] = btn
             icon_path = assets_dir / icon_file
             if icon_path.exists():
                 img = Gtk.Image.new_from_file(str(icon_path))

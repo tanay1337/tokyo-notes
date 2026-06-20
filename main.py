@@ -1427,6 +1427,8 @@ class TokyoNotes(Adw.Application):
             on_quick_add=self._on_quick_add_shortcut,
             on_speech_toggle=self._on_speech_toggle,
             on_sidebar_search=self.on_sidebar_search_shortcut,
+            on_bold=self.on_bold_shortcut,
+            on_italic=self.on_italic_shortcut,
         )
         logger.info("Tokyo Notes started — notes folder: %s", self.notes_folder)
 
@@ -1870,9 +1872,49 @@ class TokyoNotes(Adw.Application):
         if prefix is _TABLE:
             self._open_table_editor()
             return
+
+        tag_name = getattr(btn, "_tag_name", None)
+        is_inline_toggleable = bool(suffix) and tag_name is not None
+        is_heading_toggleable = not suffix and tag_name is not None
+
+        if is_inline_toggleable and not self.buffer.get_has_selection():
+            cursor = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+            tag = self.buffer.get_tag_table().lookup(tag_name)
+
+            if tag is not None and self._cursor_has_format_tag(cursor, tag):
+                self._unwrap_format(cursor, tag, prefix, suffix)
+                self._focus_text_view()
+                return
+
+            word = self._get_word_at_cursor(cursor)
+            if word is not None:
+                word_start, word_end = word
+                text = self.buffer.get_text(word_start, word_end, True)
+                self.buffer.delete(word_start, word_end)
+                self.buffer.insert(word_start, f"{prefix}{text}{suffix}")
+                self._focus_text_view()
+                return
+
+        if is_heading_toggleable and not self.buffer.get_has_selection():
+            self._toggle_heading(prefix)
+            self._focus_text_view()
+            return
+
         if self.buffer.get_has_selection():
             start, end = self.buffer.get_selection_bounds()
             text = self.buffer.get_text(start, end, True)
+            if (
+                is_inline_toggleable
+                and text.startswith(prefix)
+                and text.endswith(suffix)
+            ):
+                self.buffer.delete(start, end)
+                unwrapped = (
+                    text[len(prefix) : -len(suffix)] if suffix else text[len(prefix) :]
+                )
+                self.buffer.insert(start, unwrapped)
+                self._focus_text_view()
+                return
             self.buffer.delete(start, end)
             is_block = not suffix and prefix.rstrip() != prefix
             if is_block and "\n" in text:
@@ -1887,6 +1929,138 @@ class TokyoNotes(Adw.Application):
                 cursor_iter.backward_chars(len(suffix))
                 self.buffer.place_cursor(cursor_iter)
         self._focus_text_view()
+
+    def _unwrap_format(
+        self,
+        cursor: Gtk.TextIter,
+        tag: Gtk.TextTag,
+        prefix: str,
+        suffix: str,
+    ) -> None:
+        start = cursor.copy()
+        end = cursor.copy()
+
+        if not start.starts_tag(tag) and not start.backward_to_tag_toggle(tag):
+            return
+        if not end.ends_tag(tag) and not end.forward_to_tag_toggle(tag):
+            return
+
+        prefix_len = len(prefix)
+        suffix_len = len(suffix)
+        start_off = start.get_offset()
+        end_off = end.get_offset()
+        content_start_off = start_off + prefix_len
+        content_end_off = end_off - suffix_len
+
+        if (
+            self.buffer.get_text(
+                self.buffer.get_iter_at_offset(start_off),
+                self.buffer.get_iter_at_offset(content_start_off),
+                False,
+            )
+            != prefix
+        ):
+            return
+        if (
+            self.buffer.get_text(
+                self.buffer.get_iter_at_offset(content_end_off),
+                self.buffer.get_iter_at_offset(end_off),
+                False,
+            )
+            != suffix
+        ):
+            return
+
+        # Remove dim/invisible marker tags before deletion to avoid GTK crash
+        tag_table = self.buffer.get_tag_table()
+        for marker_name in ("dim", "invisible"):
+            mt = tag_table.lookup(marker_name)
+            if mt is not None:
+                self.buffer.remove_tag(
+                    mt,
+                    self.buffer.get_iter_at_offset(start_off),
+                    self.buffer.get_iter_at_offset(content_start_off),
+                )
+                self.buffer.remove_tag(
+                    mt,
+                    self.buffer.get_iter_at_offset(content_end_off),
+                    self.buffer.get_iter_at_offset(end_off),
+                )
+
+        cursor_off = cursor.get_offset()
+        self.buffer.delete(
+            self.buffer.get_iter_at_offset(content_end_off),
+            self.buffer.get_iter_at_offset(end_off),
+        )
+        self.buffer.delete(
+            self.buffer.get_iter_at_offset(start_off),
+            self.buffer.get_iter_at_offset(content_start_off),
+        )
+        self.buffer.place_cursor(
+            self.buffer.get_iter_at_offset(cursor_off - prefix_len)
+        )
+
+    def _toggle_heading(self, prefix: str) -> None:
+        import re
+
+        cursor = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+        line_start = cursor.copy()
+        line_start.set_line_offset(0)
+        line_end = line_start.copy()
+        line_end.forward_to_line_end()
+        line_text = self.buffer.get_slice(line_start, line_end, False)
+
+        m = re.match(r"^(#{1,6}) ", line_text)
+        if m and m.group() == prefix:
+            end = line_start.copy()
+            end.forward_chars(len(prefix))
+            self.buffer.delete(line_start, end)
+        elif m:
+            end = line_start.copy()
+            end.forward_chars(m.end())
+            self.buffer.delete(line_start, end)
+            self.buffer.insert(line_start, prefix)
+        else:
+            self.buffer.insert(line_start, prefix)
+
+    @staticmethod
+    def _cursor_has_format_tag(cursor: Gtk.TextIter, tag: Gtk.TextTag) -> bool:
+        if not cursor.has_tag(tag):
+            return False
+        char_at = cursor.get_char()
+        prev = cursor.copy()
+        prev.backward_char()
+        prev_char = prev.get_char()
+        return bool(
+            char_at
+            and (char_at.isalnum() or char_at in ("_", "-"))
+            or prev_char
+            and (prev_char.isalnum() or prev_char in ("_", "-"))
+        )
+
+    @staticmethod
+    def _get_word_at_cursor(
+        cursor: Gtk.TextIter,
+    ) -> tuple[Gtk.TextIter, Gtk.TextIter] | None:
+        import re
+
+        cursor_off = cursor.get_offset()
+        line_start = cursor.copy()
+        line_start.set_line_offset(0)
+        line_off = line_start.get_offset()
+        line_end = line_start.copy()
+        line_end.forward_to_line_end()
+        line_text = cursor.get_buffer().get_text(line_start, line_end, False)
+
+        for m in re.finditer(r"\w+", line_text):
+            word_start = line_off + m.start()
+            word_end = line_off + m.end()
+            if word_start <= cursor_off <= word_end:
+                return (
+                    cursor.get_buffer().get_iter_at_offset(word_start),
+                    cursor.get_buffer().get_iter_at_offset(word_end),
+                )
+        return None
 
     def insert_flashcard(self) -> None:
         template = "```flashcard\nQuestion\n---\nAnswer\n```"
@@ -3112,6 +3286,14 @@ class TokyoNotes(Adw.Application):
         self.sidebar.search_entry.grab_focus()
         return True
 
+    def on_bold_shortcut(self) -> bool:
+        self.apply_format(type("_", (), {"_tag_name": "bold"})(), "**", "**")
+        return True
+
+    def on_italic_shortcut(self) -> bool:
+        self.apply_format(type("_", (), {"_tag_name": "italic"})(), "_", "_")
+        return True
+
     def show_shortcuts_dialog(self) -> bool:
         """Show the keyboard shortcuts window (Ctrl+H)."""
         win = Gtk.Window(
@@ -3191,6 +3373,8 @@ class TokyoNotes(Adw.Application):
                     ("braceleft braceleft", tr("Open variable picker  ( {{ )")),
                     ("Return", tr("Continue list or task on new line")),
                     ("<Control>space", tr("Toggle dictation (if enabled)")),
+                    ("<Primary>b", tr("Bold")),
+                    ("<Primary>i", tr("Italic")),
                 ],
             )
         )
@@ -3217,6 +3401,27 @@ class TokyoNotes(Adw.Application):
 
     # Cursor / click
 
+    def _update_toolbar_active_state(self, buffer: Gtk.TextBuffer) -> None:
+        inner = self.toolbar.get_child()
+        if isinstance(inner, Gtk.Viewport):
+            inner = inner.get_child()
+        tag_buttons = getattr(inner, "_tag_buttons", None)
+        if tag_buttons is None:
+            return
+
+        cursor = buffer.get_iter_at_mark(buffer.get_insert())
+        active = {
+            t.get_property("name")
+            for t in cursor.get_tags()
+            if t.get_property("name") in tag_buttons
+        }
+
+        for tag_name, btn in tag_buttons.items():
+            if tag_name in active:
+                btn.add_css_class("active")
+            else:
+                btn.remove_css_class("active")
+
     def on_cursor_moved(self, buffer: Gtk.TextBuffer, _pspec: object) -> None:
         if (
             not self.highlighter
@@ -3225,6 +3430,7 @@ class TokyoNotes(Adw.Application):
             not in ("editor", "split_editor")
         ):
             return
+        self._update_toolbar_active_state(buffer)
         if (
             self.current_note
             and not self.current_note.startswith(".template:")

@@ -34,6 +34,8 @@ def setup_shortcuts(
     on_speech_toggle: Callable[[], None] | None = None,
     on_find_replace: Callable[[], None] | None = None,
     on_sidebar_search: Callable[[], None] | None = None,
+    on_bold: Callable[[], None] | None = None,
+    on_italic: Callable[[], None] | None = None,
 ) -> None:
     # F1     help               Ctrl+N  new note          Ctrl+D  dashboard
     # Ctrl+G graph              Ctrl+F  find in editor    Ctrl+H  find & replace
@@ -75,6 +77,10 @@ def setup_shortcuts(
         bindings.append((get_accel("t"), on_quick_add))
     if on_speech_toggle:
         bindings.append(("<Control>space", on_speech_toggle))
+    if on_bold:
+        bindings.append((get_accel("b"), on_bold))
+    if on_italic:
+        bindings.append((get_accel("i"), on_italic))
 
     for trigger_str, callback in bindings:
         controller.add_shortcut(

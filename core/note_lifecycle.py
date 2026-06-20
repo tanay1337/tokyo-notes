@@ -203,6 +203,7 @@ class NoteLifecycleManager:
                 app.sidebar.main_list.unselect_all()
         finally:
             app.is_loading = False
+        app._update_toolbar_active_state(app.buffer)
 
         # Schedule initial image render if the loaded note contains images.
         if app._has_images:
