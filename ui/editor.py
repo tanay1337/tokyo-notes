@@ -692,6 +692,49 @@ class Editor(Gtk.Box):
         self._last_list_prefix = new_prefix
         return True
 
+    def _indent_selection(self, buffer: Gtk.TextBuffer) -> bool:
+        """Add two-space indent to each line in the selection (or current line)."""
+        if buffer.get_has_selection():
+            start, end = buffer.get_selection_bounds()
+            start_line = start.get_line()
+            end_line = end.get_line()
+        else:
+            cursor_line = buffer.get_iter_at_mark(buffer.get_insert()).get_line()
+            start_line = end_line = cursor_line
+
+        buffer.begin_user_action()
+        for line_num in range(start_line, end_line + 1):
+            line_it = buffer.get_iter_at_line(line_num)
+            if isinstance(line_it, tuple):
+                line_it = line_it[1]
+            buffer.insert(line_it, "  ")
+        buffer.end_user_action()
+        return True
+
+    def _outdent_selection(self, buffer: Gtk.TextBuffer) -> bool:
+        """Remove up to two leading spaces from selected lines (or current line)."""
+        if buffer.get_has_selection():
+            start, end = buffer.get_selection_bounds()
+            start_line = start.get_line()
+            end_line = end.get_line()
+        else:
+            cursor_line = buffer.get_iter_at_mark(buffer.get_insert()).get_line()
+            start_line = end_line = cursor_line
+        buffer.begin_user_action()
+        for line_num in range(start_line, end_line + 1):
+            line_it = buffer.get_iter_at_line(line_num)
+            if isinstance(line_it, tuple):
+                line_it = line_it[1]
+            for _ in range(2):
+                after = line_it.copy()
+                after.forward_char()
+                if buffer.get_text(line_it, after, False) == " ":
+                    buffer.delete(line_it, after)
+                else:
+                    break
+        buffer.end_user_action()
+        return True
+
     # Key handling -- list continuation + auto-pair
 
     def _auto_pair_delimiter(self, buffer: Gtk.TextBuffer, keyval: int) -> bool:
@@ -763,6 +806,13 @@ class Editor(Gtk.Box):
                 return True
 
         buffer = self.text_view.get_buffer()
+
+        # Ctrl+] / Ctrl+[ — indent/outdent selected lines
+        # (before auto-pair to avoid bracketleft conflict)
+        if ctrl and keyval == Gdk.KEY_bracketright:
+            return self._indent_selection(buffer)
+        if ctrl and keyval == Gdk.KEY_bracketleft:
+            return self._outdent_selection(buffer)
 
         if keyval in (
             Gdk.KEY_asterisk,

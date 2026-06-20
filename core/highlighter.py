@@ -453,6 +453,7 @@ class MarkdownHighlighter:
                 continue
 
             self._apply_list_hanging(line, line_start_offset, line_end_offset)
+            self._apply_indent_hanging(line, line_start_offset, line_end_offset)
             self.apply_tag("body", line_start_offset, line_end_offset)
 
             self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
@@ -587,6 +588,41 @@ class MarkdownHighlighter:
 
         self.apply_tag(name, line_start_offset, line_end_offset)
 
+    def _apply_indent_hanging(
+        self, line: str, line_start_offset: int, line_end_offset: int
+    ) -> None:
+        """Apply hanging indent to continuation wraps of indented paragraphs.
+
+        Lines starting with 2+ spaces get a negative ``indent`` so wrapped
+        continuation lines start at the same horizontal position as the
+        leading whitespace rather than at column 0.
+        """
+        # Skip lines already handled by _apply_list_hanging
+        if (
+            self.re_unordered.match(line)
+            or self.re_ordered.match(line)
+            or self.re_checkbox_empty.search(line)
+            or self.re_checkbox_checked.search(line)
+        ):
+            return
+
+        stripped = line.lstrip()
+        if stripped == line:
+            return
+        leading_spaces = len(line) - len(stripped)
+        if leading_spaces < 2:
+            return
+
+        indent_px = leading_spaces * 4
+        cache = self._hanging_tag_cache
+        name = cache.get(indent_px)
+        if name is None:
+            name = f"_h_{indent_px}"
+            self.buffer.create_tag(name, indent=-indent_px)
+            cache[indent_px] = name
+
+        self.apply_tag(name, line_start_offset, line_end_offset)
+
     def _tag_for_line(self, md_line, line_num=None) -> str | None:
         """Return the GTK text tag name for a markdown line kind."""
         if md_line.kind == "table_row":
@@ -636,6 +672,7 @@ class MarkdownHighlighter:
 
         self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
         self._apply_list_hanging(line, line_start_offset, line_end_offset)
+        self._apply_indent_hanging(line, line_start_offset, line_end_offset)
 
     def _collect_link_ranges(
         self, line: str, line_start_offset: int

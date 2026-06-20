@@ -3375,6 +3375,8 @@ class TokyoNotes(Adw.Application):
                     ("<Control>space", tr("Toggle dictation (if enabled)")),
                     ("<Primary>b", tr("Bold")),
                     ("<Primary>i", tr("Italic")),
+                    ("<Primary>bracketright", tr("Indent")),
+                    ("<Primary>bracketleft", tr("Outdent")),
                 ],
             )
         )
