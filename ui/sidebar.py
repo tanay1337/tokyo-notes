@@ -326,6 +326,13 @@ class Sidebar(Gtk.Box):
             parent = self._get_parent(fp)
             folder_children.setdefault(parent, []).append(fp)
 
+        # Pre-compute recursive note counts (deepest first)
+        total_counts: dict[str, int] = {}
+        for fp in sorted(all_folder_paths, key=lambda p: p.count("/"), reverse=True):
+            total_counts[fp] = len(folder_groups.get(fp, [])) + sum(
+                total_counts.get(c, 0) for c in folder_children.get(fp, [])
+            )
+
         def _child_sort_key(fp: str) -> tuple:
             if configured_order and fp in configured_order:
                 return (0, configured_order.index(fp))
@@ -342,7 +349,7 @@ class Sidebar(Gtk.Box):
             fp: str, indent: int, add_to_listbox: bool = True
         ) -> Gtk.ListBoxRow:
             direct_notes = folder_groups.get(fp, [])
-            note_count = len(direct_notes)
+            note_count = total_counts.get(fp, 0)
             has_enc = any(n in encrypted_set for n in direct_notes)
             is_pin = self.app.cfg.is_folder_pinned(fp)
 
