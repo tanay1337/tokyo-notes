@@ -315,14 +315,18 @@ class Sidebar(Gtk.Box):
         # Backward-compat chords: Alt+Up/Down/Enter/1-9 enter nav mode
         if alt:
             if keyval in (Gdk.KEY_Up, Gdk.KEY_KP_Up):
-                self._enter_nav_mode()
+                if not self._nav_mode:
+                    self._enter_nav_mode()
                 return True
             if keyval in (Gdk.KEY_Down, Gdk.KEY_KP_Down):
-                self._enter_nav_mode()
-                self._navigate_sidebar(1)
+                if not self._nav_mode:
+                    self._enter_nav_mode()
+                if self._nav_mode:
+                    self._navigate_sidebar(1)
                 return True
             if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
-                self._enter_nav_mode()
+                if not self._nav_mode:
+                    self._enter_nav_mode()
                 if self._focused_row and getattr(
                     self._focused_row, "_is_folder", False
                 ):
@@ -331,8 +335,10 @@ class Sidebar(Gtk.Box):
                     self._open_focused_note()
                 return True
             if Gdk.KEY_1 <= keyval <= Gdk.KEY_9:
-                self._enter_nav_mode()
-                self._open_nth_note(keyval - Gdk.KEY_1)
+                if not self._nav_mode:
+                    self._enter_nav_mode()
+                if self._nav_mode:
+                    self._open_nth_note(keyval - Gdk.KEY_1)
                 return True
             return True  # consume other Alt combos
 
@@ -361,6 +367,10 @@ class Sidebar(Gtk.Box):
         note_rows = self._get_visible_note_rows(lb)
 
         for i, row in enumerate(note_rows):
+            existing = self._number_labels.get(row)
+            if existing:
+                existing.set_label(f" {i + 1}")
+                continue
             label = Gtk.Label(label=f" {i + 1}")
             label.add_css_class("sidebar-num-badge")
             row.title_box.append(label)
@@ -382,11 +392,13 @@ class Sidebar(Gtk.Box):
     def _exit_nav_mode(self) -> None:
         self._buffer_cancel_timer()
         self._nav_buffer = ""
-        for row, label in self._number_labels.items():
-            try:
-                row.title_box.remove(label)
-            except Exception:
-                pass
+        # Belt-and-suspenders: remove all sidebar-num-badge labels from title boxes
+        for row in list(self._number_labels.keys()):
+            for child in list(row.title_box):
+                if isinstance(child, Gtk.Label) and child.has_css_class(
+                    "sidebar-num-badge"
+                ):
+                    row.title_box.remove(child)
         self._number_labels.clear()
         if self._focused_row:
             try:
