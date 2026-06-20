@@ -3157,6 +3157,11 @@ class TokyoNotes(Adw.Application):
                     ("F1", tr("This shortcuts window")),
                     ("<Primary><Shift>s", tr("Settings")),
                     ("Escape", tr("Back to editor / clear search")),
+                    ("<Alt>", tr("Toggle sidebar navigation mode")),
+                    ("<Alt>Up", tr("Navigate up in sidebar")),
+                    ("<Alt>Down", tr("Navigate down in sidebar")),
+                    ("<Alt>Return", tr("Open note / toggle folder in sidebar")),
+                    ("<Alt>1", tr("Open note by number in sidebar")),
                 ],
             )
         )

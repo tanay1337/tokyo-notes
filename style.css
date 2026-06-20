@@ -221,6 +221,19 @@ text {
     opacity: 0.6;
 }
 
+.keyboard-focus {
+    background-color: alpha(@selection_color, 0.35);
+}
+
+.sidebar-num-badge {
+    font-size: 9pt;
+    font-weight: 600;
+    font-family: monospace;
+    color: @fg_color;
+    opacity: 0.5;
+    margin-right: 4px;
+}
+
 .archived-nav-btn {
     border: 1px solid @border_color;
     background-color: @bg_color;

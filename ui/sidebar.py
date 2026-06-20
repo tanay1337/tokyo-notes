@@ -11,7 +11,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, Gtk, Pango
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from core.services import patch_sidebar_row
 from core.translations import tr
@@ -152,6 +152,20 @@ class Sidebar(Gtk.Box):
         self._empty_click.connect("pressed", self._on_empty_space_right_click)
         self.main_list.add_controller(self._empty_click)
 
+        # ── Keyboard navigation state ──
+        self._nav_mode = False
+        self._focused_row: Gtk.ListBoxRow | None = None
+        self._focused_idx = -1
+        self._number_labels: dict[Gtk.ListBoxRow, Gtk.Label] = {}
+        self._nav_buffer = ""
+        self._nav_buffer_timer: int | None = None
+
+        kc = Gtk.EventControllerKey()
+        kc.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        kc.connect("key-pressed", self._on_sidebar_key_pressed)
+        kc.connect("key-released", self._on_sidebar_key_released)
+        self.app.win.add_controller(kc)
+
     # Search
 
     def on_search_changed(self, entry: Gtk.SearchEntry) -> None:
@@ -220,6 +234,320 @@ class Sidebar(Gtk.Box):
         popover.connect("closed", lambda *_: setattr(self, "_active_popover", None))
         self._active_popover = popover
         popover.popup()
+
+    # ── Keyboard-driven navigation (Alt+arrows, Alt+numbers) ──
+
+    def _get_active_listbox(self) -> Gtk.ListBox | None:
+        name = self.stack.get_visible_child_name()
+        if name == "main":
+            return self.main_list
+        if name == "archive":
+            return self.archive_list
+        return None
+
+    def _get_visible_rows(self, lb: Gtk.ListBox) -> list[Gtk.ListBoxRow]:
+        rows: list[Gtk.ListBoxRow] = []
+        child = lb.get_first_child()
+        while child:
+            if isinstance(child, Gtk.ListBoxRow):
+                rows.append(child)
+            child = child.get_next_sibling()
+        return rows
+
+    def _get_visible_note_rows(self, lb: Gtk.ListBox) -> list[Gtk.ListBoxRow]:
+        return [
+            r for r in self._get_visible_rows(lb) if not getattr(r, "_is_folder", False)
+        ]
+
+    def _on_sidebar_key_pressed(
+        self,
+        _ctrl: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        state: Gdk.ModifierType,
+    ) -> bool:
+        alt = state & Gdk.ModifierType.ALT_MASK
+
+        # Alt key alone — toggle nav mode
+        if keyval in (Gdk.KEY_Alt_L, Gdk.KEY_Alt_R):
+            if self._nav_mode:
+                self._exit_nav_mode()
+            else:
+                self._enter_nav_mode()
+            return True
+
+        # In nav mode: handle navigation keys; pass everything else through
+        if self._nav_mode:
+            if keyval in (Gdk.KEY_Up, Gdk.KEY_KP_Up):
+                self._buffer_clear()
+                self._navigate_sidebar(-1)
+                return True
+            if keyval in (Gdk.KEY_Down, Gdk.KEY_KP_Down):
+                self._buffer_clear()
+                self._navigate_sidebar(1)
+                return True
+            if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                if self._nav_buffer:
+                    self._buffer_commit()
+                elif self._focused_row and getattr(
+                    self._focused_row, "_is_folder", False
+                ):
+                    self._toggle_focused_folder()
+                else:
+                    self._open_focused_note()
+                return True
+            if Gdk.KEY_1 <= keyval <= Gdk.KEY_9:
+                digit = keyval - Gdk.KEY_1 + 1
+                self._nav_mode_digit(digit)
+                return True
+            if keyval == Gdk.KEY_Escape:
+                if self._nav_buffer:
+                    self._buffer_clear()
+                else:
+                    self._exit_nav_mode()
+                return True
+            if keyval == Gdk.KEY_BackSpace:
+                if self._nav_buffer:
+                    self._buffer_backspace()
+                return True
+            return False  # pass through for typing
+
+        # Backward-compat chords: Alt+Up/Down/Enter/1-9 enter nav mode
+        if alt:
+            if keyval in (Gdk.KEY_Up, Gdk.KEY_KP_Up):
+                self._enter_nav_mode()
+                return True
+            if keyval in (Gdk.KEY_Down, Gdk.KEY_KP_Down):
+                self._enter_nav_mode()
+                self._navigate_sidebar(1)
+                return True
+            if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                self._enter_nav_mode()
+                if self._focused_row and getattr(
+                    self._focused_row, "_is_folder", False
+                ):
+                    self._toggle_focused_folder()
+                else:
+                    self._open_focused_note()
+                return True
+            if Gdk.KEY_1 <= keyval <= Gdk.KEY_9:
+                self._enter_nav_mode()
+                self._open_nth_note(keyval - Gdk.KEY_1)
+                return True
+            return True  # consume other Alt combos
+
+        return False
+
+    def _on_sidebar_key_released(
+        self,
+        _ctrl: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        _state: Gdk.ModifierType,
+    ) -> bool:
+        return keyval in (Gdk.KEY_Alt_L, Gdk.KEY_Alt_R)
+
+    def _enter_nav_mode(self) -> None:
+        lb = self._get_active_listbox()
+        if not lb:
+            return
+        self._exit_nav_mode()
+        self._buffer_cancel_timer()
+        self._nav_buffer = ""
+
+        all_rows = self._get_visible_rows(lb)
+        if not all_rows:
+            return
+        note_rows = self._get_visible_note_rows(lb)
+
+        for i, row in enumerate(note_rows):
+            label = Gtk.Label(label=f" {i + 1}")
+            label.add_css_class("sidebar-num-badge")
+            row.title_box.append(label)
+            self._number_labels[row] = label
+
+        # Focus the currently-open note, or the first visible row
+        selected = lb.get_selected_row()
+        if selected in all_rows:
+            focus_idx = all_rows.index(selected)
+            focus_row = selected
+        else:
+            focus_idx = 0
+            focus_row = all_rows[0]
+        self._focused_idx = focus_idx
+        self._focused_row = focus_row
+        self._focused_row.add_css_class("keyboard-focus")
+        self._nav_mode = True
+
+    def _exit_nav_mode(self) -> None:
+        self._buffer_cancel_timer()
+        self._nav_buffer = ""
+        for row, label in self._number_labels.items():
+            try:
+                row.title_box.remove(label)
+            except Exception:
+                pass
+        self._number_labels.clear()
+        if self._focused_row:
+            try:
+                self._focused_row.remove_css_class("keyboard-focus")
+            except Exception:
+                pass
+            self._focused_row = None
+        self._focused_idx = -1
+        self._nav_mode = False
+
+    def _buffer_cancel_timer(self) -> None:
+        if self._nav_buffer_timer is not None:
+            GLib.source_remove(self._nav_buffer_timer)
+            self._nav_buffer_timer = None
+
+    def _buffer_clear(self) -> None:
+        self._buffer_cancel_timer()
+        self._nav_buffer = ""
+        self._update_buffer_badge()
+
+    def _update_buffer_badge(self) -> None:
+        if self._focused_row in self._number_labels:
+            lbl = self._number_labels[self._focused_row]
+            if self._nav_buffer:
+                lbl.set_label(f" {self._nav_buffer}")
+            else:
+                lbl.set_label(f" {self._focused_idx + 1}")
+
+    def _buffer_backspace(self) -> None:
+        self._nav_buffer = self._nav_buffer[:-1]
+        self._buffer_cancel_timer()
+        if self._nav_buffer:
+            self._buffer_start_timer()
+        self._update_buffer_badge()
+
+    def _buffer_commit(self) -> None:
+        if not self._nav_buffer:
+            return
+        try:
+            idx = int(self._nav_buffer) - 1
+            self._open_nth_note(idx)
+        except (ValueError, IndexError):
+            self._buffer_clear()
+
+    def _on_nav_buffer_timeout(self) -> bool:
+        self._nav_buffer_timer = None
+        self._buffer_commit()
+        return False
+
+    def _buffer_start_timer(self) -> None:
+        self._buffer_cancel_timer()
+        self._nav_buffer_timer = GLib.timeout_add(500, self._on_nav_buffer_timeout)
+
+    def _nav_mode_digit(self, digit: int) -> None:
+        lb = self._get_active_listbox()
+        if not lb:
+            return
+        note_rows = self._get_visible_note_rows(lb)
+        total = len(note_rows)
+
+        if total <= 9:
+            self._open_nth_note(digit - 1)
+            return
+
+        new_buffer = self._nav_buffer + str(digit)
+        candidate = int(new_buffer)
+        if candidate > total:
+            return
+
+        self._buffer_cancel_timer()
+        self._nav_buffer = new_buffer
+        self._update_buffer_badge()
+
+        if candidate == total or candidate * 10 > total:
+            self._buffer_commit()
+        else:
+            self._nav_buffer_timer = GLib.timeout_add(400, self._on_nav_buffer_timeout)
+
+    def _navigate_sidebar(self, direction: int) -> None:
+        lb = self._get_active_listbox()
+        if not lb:
+            return
+        rows = self._get_visible_rows(lb)
+        if not rows:
+            return
+
+        new_idx = self._focused_idx + direction
+        if new_idx < 0 or new_idx >= len(rows):
+            return
+
+        if self._focused_row:
+            self._focused_row.remove_css_class("keyboard-focus")
+        self._focused_idx = new_idx
+        self._focused_row = rows[new_idx]
+        self._focused_row.add_css_class("keyboard-focus")
+        self._scroll_to_row(self._focused_row)
+
+    def _scroll_to_row(self, row: Gtk.ListBoxRow) -> None:
+        adj = self.scrolled.get_vadjustment()
+        if not adj:
+            return
+        row_alloc = row.get_allocation()
+        row_y = row_alloc.y
+        row_height = row_alloc.height
+        if row_height <= 0:
+            return
+        page = adj.get_page_size()
+        cur = adj.get_value()
+        margin = 20
+        if row_y < cur + margin:
+            adj.set_value(max(0, row_y - margin))
+        elif row_y + row_height > cur + page - margin:
+            adj.set_value(row_y + row_height + margin - page)
+
+    def _open_focused_note(self) -> None:
+        if not self._focused_row:
+            return
+        if getattr(self._focused_row, "_is_folder", False):
+            return
+        lb = self._get_active_listbox()
+        if not lb:
+            return
+        row = self._focused_row
+        self._scroll_to_row(row)
+        self._exit_nav_mode()
+        lb.select_row(row)
+
+    def _open_nth_note(self, idx: int) -> None:
+        lb = self._get_active_listbox()
+        if not lb:
+            return
+        rows = self._get_visible_note_rows(lb)
+        if idx < 0 or idx >= len(rows):
+            return
+        row = rows[idx]
+        self._scroll_to_row(row)
+        self._exit_nav_mode()
+        lb.select_row(row)
+
+    def _toggle_focused_folder(self) -> None:
+        if not self._focused_row or not getattr(self._focused_row, "_is_folder", False):
+            return
+        row = self._focused_row
+
+        # Reuse the same expand/collapse logic as mouse click
+        self._on_folder_header_clicked(None, None, None, None, row)
+
+        # Re-number badges without losing focus on the folder row
+        for old_row, old_label in self._number_labels.items():
+            try:
+                old_row.title_box.remove(old_label)
+            except Exception:
+                pass
+        self._number_labels.clear()
+        lb = self._get_active_listbox()
+        if lb:
+            for i, nr in enumerate(self._get_visible_note_rows(lb)):
+                label = Gtk.Label(label=f" {i + 1}")
+                label.add_css_class("sidebar-num-badge")
+                nr.title_box.append(label)
+                self._number_labels[nr] = label
 
     # Populate
 
@@ -622,6 +950,7 @@ class Sidebar(Gtk.Box):
 
         row.set_child(box)
         row.note_name = note_name
+        row.title_box = title_box
         row.title_label = label
         row.snippet_label = snippet
         row.is_encrypted = is_encrypted
