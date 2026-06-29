@@ -124,10 +124,85 @@ def _draw_arrowhead(cr, tip_x, tip_y, angle, size=10.0):
     cr.stroke()
 
 
-def _draw_edge_line(cr, sx, sy, ex, ey, edge_type: str, color, line_width: float):
+def _get_connection_sides(
+    src_cx: float,
+    src_cy: float,
+    src_w: float,
+    src_h: float,
+    dst_cx: float,
+    dst_cy: float,
+    dst_w: float,
+    dst_h: float,
+) -> tuple[float, float, str, float, float, str]:
+    dx = dst_cx - src_cx
+    dy = dst_cy - src_cy
+    if abs(dx) > abs(dy):
+        if dx > 0:
+            return (
+                src_cx + src_w / 2,
+                src_cy,
+                "right",
+                dst_cx - dst_w / 2,
+                dst_cy,
+                "left",
+            )
+        else:
+            return (
+                src_cx - src_w / 2,
+                src_cy,
+                "left",
+                dst_cx + dst_w / 2,
+                dst_cy,
+                "right",
+            )
+    else:
+        if dy > 0:
+            return (
+                src_cx,
+                src_cy + src_h / 2,
+                "bottom",
+                dst_cx,
+                dst_cy - dst_h / 2,
+                "top",
+            )
+        else:
+            return (
+                src_cx,
+                src_cy - src_h / 2,
+                "top",
+                dst_cx,
+                dst_cy + dst_h / 2,
+                "bottom",
+            )
+
+
+def _draw_edge_line(
+    cr,
+    sx,
+    sy,
+    ex,
+    ey,
+    s_side: str,
+    t_side: str,
+    edge_type: str,
+    color,
+    line_width: float,
+):
+    mid_x = (sx + ex) / 2
     mid_y = (sy + ey) / 2
+
+    if s_side in ("top", "bottom") and t_side in ("top", "bottom"):
+        c1x, c1y = sx, mid_y
+        c2x, c2y = ex, mid_y
+    elif s_side in ("left", "right") and t_side in ("left", "right"):
+        c1x, c1y = mid_x, sy
+        c2x, c2y = mid_x, ey
+    else:
+        c1x, c1y = sx, mid_y
+        c2x, c2y = mid_x, ey
+
     cr.move_to(sx, sy)
-    cr.curve_to(sx, mid_y, ex, mid_y, ex, ey)
+    cr.curve_to(c1x, c1y, c2x, c2y, ex, ey)
 
     if edge_type == "dashed":
         cr.set_dash([6.0, 3.0], 0)
@@ -140,9 +215,19 @@ def _draw_edge_line(cr, sx, sy, ex, ey, edge_type: str, color, line_width: float
         cr.set_source_rgba(color.red, color.green, color.blue, color.alpha)
         cr.set_line_width(line_width)
         cr.stroke()
-        offset = 3.0
-        cr.move_to(sx, sy - offset)
-        cr.curve_to(sx, mid_y - offset, ex, mid_y - offset, ex, ey - offset)
+        if s_side in ("top", "bottom"):
+            doff_x, doff_y = 3.0, 0.0
+        else:
+            doff_x, doff_y = 0.0, 3.0
+        cr.move_to(sx + doff_x, sy + doff_y)
+        cr.curve_to(
+            c1x + doff_x,
+            c1y + doff_y,
+            c2x + doff_x,
+            c2y + doff_y,
+            ex + doff_x,
+            ey + doff_y,
+        )
         cr.stroke()
     else:
         cr.set_source_rgba(color.red, color.green, color.blue, color.alpha)
@@ -151,12 +236,23 @@ def _draw_edge_line(cr, sx, sy, ex, ey, edge_type: str, color, line_width: float
 
     cr.set_dash([], 0)
 
-    angle = math.pi / 2 if ey > mid_y else -math.pi / 2
+    angle = {
+        "top": math.pi / 2,
+        "bottom": -math.pi / 2,
+        "left": 0,
+        "right": math.pi,
+    }.get(t_side, math.pi / 2)
 
     if edge_type in ("arrow", "bidirect"):
         _draw_arrowhead(cr, ex, ey, angle, size=8.0)
     if edge_type == "bidirect":
-        _draw_arrowhead(cr, sx, sy, angle + math.pi, size=8.0)
+        s_angle = {
+            "top": -math.pi / 2,
+            "bottom": math.pi / 2,
+            "left": math.pi,
+            "right": 0,
+        }.get(s_side, -math.pi / 2)
+        _draw_arrowhead(cr, sx, sy, s_angle, size=8.0)
 
 
 def render_diagram_preview(
@@ -222,11 +318,28 @@ def render_diagram_preview(
         if not src or not dst:
             continue
 
-        s_bottom = src.y + src.h / 2
-        d_top = dst.y - dst.h / 2
         line_color = Gdk.RGBA(red=0.4, green=0.4, blue=0.4, alpha=0.5)
+        ex, ey, s_side, fx, fy, t_side = _get_connection_sides(
+            src.x,
+            src.y,
+            src.w,
+            src.h,
+            dst.x,
+            dst.y,
+            dst.w,
+            dst.h,
+        )
         _draw_edge_line(
-            cr, src.x, s_bottom, dst.x, d_top, edge.edge_type, line_color, 1.5
+            cr,
+            ex,
+            ey,
+            fx,
+            fy,
+            s_side,
+            t_side,
+            edge.edge_type,
+            line_color,
+            1.5,
         )
 
     # Edge labels with anti-collision
@@ -336,6 +449,7 @@ class DiagramView(Gtk.Box):
         # Interaction state
         self._selected: set[str] = set()
         self._selected_edge: str | None = None
+        self._connecting_from: str | None = None
         self._hovered: str | None = None
         self._drag_type: str | None = None
         self._drag_node_id: str | None = None
@@ -607,8 +721,20 @@ class DiagramView(Gtk.Box):
                 continue
             sx, sy = self._graph_to_canvas(src.x, src.y, cw, ch)
             dx, dy = self._graph_to_canvas(dst.x, dst.y, cw, ch)
-            x1, y1 = sx, sy + src.h * self._scale / 2
-            x2, y2 = dx, dy - dst.h * self._scale / 2
+            sw = src.w * self._scale
+            sh = src.h * self._scale
+            dw = dst.w * self._scale
+            dh = dst.h * self._scale
+            x1, y1, _, x2, y2, _ = _get_connection_sides(
+                sx,
+                sy,
+                sw,
+                sh,
+                dx,
+                dy,
+                dw,
+                dh,
+            )
             # Distance from point (cx, cy) to the line segment
             seg_dx = x2 - x1
             seg_dy = y2 - y1
@@ -680,8 +806,20 @@ class DiagramView(Gtk.Box):
             sx, sy = positions[src.id]
             dx, dy = positions[dst.id]
 
-            s_bottom = sy + src.h * self._scale / 2
-            d_top = dy - dst.h * self._scale / 2
+            sw = src.w * self._scale
+            sh = src.h * self._scale
+            dw = dst.w * self._scale
+            dh = dst.h * self._scale
+            ex, ey, s_side, fx, fy, t_side = _get_connection_sides(
+                sx,
+                sy,
+                sw,
+                sh,
+                dx,
+                dy,
+                dw,
+                dh,
+            )
             is_hovered = edge.from_id == self._hovered or edge.to_id == self._hovered
             is_edge_sel = edge.id == self._selected_edge
             if is_hovered or is_edge_sel:
@@ -696,7 +834,7 @@ class DiagramView(Gtk.Box):
                 ec = Gdk.RGBA(red=fg.red, green=fg.green, blue=fg.blue, alpha=0.25)
                 lw = 1.5
 
-            _draw_edge_line(cr, sx, s_bottom, dx, d_top, edge.edge_type, ec, lw)
+            _draw_edge_line(cr, ex, ey, fx, fy, s_side, t_side, edge.edge_type, ec, lw)
 
         # Edge labels with anti-collision
         label_rects: list[tuple[float, float, float, float]] = []
@@ -980,6 +1118,20 @@ class DiagramView(Gtk.Box):
                 self._start_edit_node(nid, x, y)
             return
 
+        if self._connecting_from is not None:
+            target = self._node_at(x, y)
+            if target and target != self._connecting_from and self._diagram:
+                self._push_undo(tr("Add edge"))
+                self._diagram.edges.append(
+                    DiagramEdge.new(self._connecting_from, target)
+                )
+                self._mark_dirty()
+                self.canvas.queue_draw()
+            self._connecting_from = None
+            self.canvas.set_cursor(None)
+            self._update_toolbar_buttons()
+            return
+
         nid = self._node_at(x, y)
         state = gesture.get_current_event_state()
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
@@ -1034,6 +1186,7 @@ class DiagramView(Gtk.Box):
             _item(tr("Rename"), lambda: self._start_edit_node(nid, x, y))
             _item(tr("Add Child"), lambda: self._add_child(nid))
             _item(tr("Add Sibling"), lambda: self._add_sibling(nid))
+            _item(tr("Add Edge"), lambda: self._start_connect(nid))
             vbox.append(Gtk.Separator())
             _item(tr("Copy"), self._copy_selected)
             _item(tr("Duplicate"), self._duplicate_selected)
@@ -1102,8 +1255,14 @@ class DiagramView(Gtk.Box):
             else:
                 _item(tr("Add Label"), lambda: self._edit_edge_label(eid))
 
+            vbox.append(Gtk.Separator())
+            _item(
+                tr("Reverse Direction"),
+                lambda: self._reverse_edge_direction(eid),
+            )
+
         else:
-            return
+            _item(tr("Add Node"), lambda: self._add_free_node(x, y))
 
         popover.set_child(vbox)
         popover.set_parent(self.canvas)
@@ -1173,7 +1332,20 @@ class DiagramView(Gtk.Box):
                     dx = step
                 self._nudge_selected(dx, dy)
                 return True
+
+        if keyval in (Gdk.KEY_Escape,) and self._connecting_from is not None:
+            self._connecting_from = None
+            self.canvas.set_cursor(None)
+            self._update_toolbar_buttons()
+            return True
+
         return False
+
+    def _start_connect(self, source_id: str) -> None:
+        self._connecting_from = source_id
+        cursor = Gdk.Cursor.new_from_name("crosshair")
+        self.canvas.set_cursor(cursor)
+        self._update_toolbar_buttons()
 
     # ── Dialogs (rename node / edge label) ────────────────────────────
 
@@ -1418,6 +1590,20 @@ class DiagramView(Gtk.Box):
         edge = DiagramEdge.new(parent.id, sibling.id)
         self._diagram.edges.append(edge)
         self._selected = {sibling.id}
+        self._mark_dirty()
+        self._update_toolbar_buttons()
+        self.canvas.queue_draw()
+
+    def _add_free_node(self, cx: float, cy: float) -> None:
+        if not self._diagram:
+            return
+        self._push_undo(tr("Add node"))
+        cw = self.canvas.get_width()
+        ch = self.canvas.get_height()
+        gx, gy = self._canvas_to_graph(cx, cy, cw, ch)
+        node = DiagramNode.new("New Node", gx, gy)
+        self._diagram.nodes.append(node)
+        self._selected = {node.id}
         self._mark_dirty()
         self._update_toolbar_buttons()
         self.canvas.queue_draw()
@@ -1675,6 +1861,17 @@ class DiagramView(Gtk.Box):
 
     def _remove_edge_label(self, edge_id: str) -> None:
         self._set_edge_label(edge_id, "")
+
+    def _reverse_edge_direction(self, edge_id: str) -> None:
+        if not self._diagram:
+            return
+        self._push_undo(tr("Reverse direction"))
+        for edge in self._diagram.edges:
+            if edge.id == edge_id:
+                edge.from_id, edge.to_id = edge.to_id, edge.from_id
+                break
+        self._mark_dirty()
+        self.canvas.queue_draw()
 
     # ── Style: color & shape ─────────────────────────────────────────
 
