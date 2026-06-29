@@ -1017,6 +1017,8 @@ class Sidebar(Gtk.Box):
         )
         arrow.set_pixel_size(16)
         arrow.add_css_class("sidebar-icon")
+        arrow.set_valign(Gtk.Align.CENTER)
+        arrow.set_margin_bottom(4)
         box.append(arrow)
 
         # Folder display name (last component) with full path as tooltip
