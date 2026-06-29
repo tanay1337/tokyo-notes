@@ -1388,9 +1388,7 @@ class Editor(Gtk.Box):
         except (ImportError, ValueError):
             return None
         try:
-            document = Poppler.Document.new_from_file(
-                f"file://{pdf_path.resolve()}", None
-            )
+            document = Poppler.Document.new_from_file(pdf_path.resolve().as_uri(), None)
             p = document.get_page(page)
             if p is None:
                 return None
@@ -1572,7 +1570,7 @@ class Editor(Gtk.Box):
             gi.require_version("Poppler", "0.18")
             from gi.repository import Poppler
 
-            doc = Poppler.Document.new_from_file(f"file://{pdf_path.resolve()}", None)
+            doc = Poppler.Document.new_from_file(pdf_path.resolve().as_uri(), None)
             return doc.get_n_pages()
         except (ImportError, ValueError, Exception):
             pass

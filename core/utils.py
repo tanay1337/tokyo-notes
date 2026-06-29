@@ -110,8 +110,9 @@ def confirm_destructive_dialog(
 H1_TITLE_RE: re.Pattern = re.compile(r"^#\s*(.+)$", re.MULTILINE)
 
 # URL pattern that handles balanced parentheses (e.g., "image(1).png").
+# Allows spaces so file paths like "my file.pdf" work in markdown links.
 # Used by MD_LINK_RE, MD_LINK_CLICK_RE, and by highlighter/editor directly.
-MD_URL_BALANCED: str = r"[^\s()]*(?:\([^\s()]*\)[^\s()]*)*"
+MD_URL_BALANCED: str = r"[^()]*(?:\([^()]*\)[^()]*)*"
 
 # Wiki-style and standard markdown links (used by snippet cleaner & highlighter).
 WIKI_LINK_RE: re.Pattern = re.compile(r"\[\[(.*?)\]\]")
@@ -123,7 +124,7 @@ WIKI_CLICK_RE: re.Pattern = re.compile(r"\[\[([^\]]+)\]\]")
 MD_LINK_CLICK_RE: re.Pattern = re.compile(
     r"(!?)\[([^\]]+)\]\((" + MD_URL_BALANCED + r")\)"
 )
-URL_RE: re.Pattern = re.compile(r"https?://" + MD_URL_BALANCED)
+URL_RE: re.Pattern = re.compile(r"https?://[^\s()]*(?:\([^\s()]*\)[^\s()]*)*")
 TAG_RE: re.Pattern = re.compile(r"(?<!\w)#(\w+)")
 DEADLINE_RE: re.Pattern = re.compile(r"@(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)")
 
