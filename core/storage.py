@@ -71,6 +71,7 @@ class NotesManager:
         self._backlink_index: dict[str, set[str]] = {}
         self._last_full_scan: float = 0.0
         self._io_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._save_seq: dict[str, int] = {}
         self.sort_order: str = "last_modified"
         self._cleanup_stale_temps()
 
@@ -475,6 +476,8 @@ class NotesManager:
         For encrypted notes, use save_encrypted() instead.
         """
         self.validate_name(name)
+        with self._lock:
+            self._save_seq[name] = self._save_seq.get(name, 0) + 1
         self._sync_save_note(name, content)
         self._backlink_cache.clear()
 
@@ -485,10 +488,26 @@ class NotesManager:
         or GLib.idle_add) to update UI state after completion.
         """
         self.validate_name(name)
-        return self._io_executor.submit(self._sync_save_note, name, content)
+        with self._lock:
+            seq = self._save_seq.get(name, 0) + 1
+            self._save_seq[name] = seq
+        return self._io_executor.submit(self._sync_save_note, name, content, seq)
 
-    def _sync_save_note(self, name: str, content: str) -> None:
-        """Low-level synchronous save (runs on IO thread when called async)."""
+    def _sync_save_note(
+        self, name: str, content: str, save_seq: int | None = None
+    ) -> None:
+        """Low-level synchronous save (runs on IO thread when called async).
+
+        When *save_seq* is provided (async path), the write is skipped if
+        a newer save was submitted after this one, preventing an inflight
+        async task from overwriting a more recent synchronous save.
+        """
+        if save_seq is not None:
+            with self._lock:
+                current = self._save_seq.get(name, 0)
+                if save_seq < current:
+                    return
+
         import tempfile
 
         note_path = self.notes_dir / f"{name}.md"
@@ -497,6 +516,7 @@ class NotesManager:
         fd, tmp_name = tempfile.mkstemp(
             dir=note_path.parent, prefix=safe_prefix, suffix=".tmp"
         )
+
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -582,6 +602,8 @@ class NotesManager:
     def save_encrypted(self, name: str, ciphertext: bytes) -> None:
         """Write encrypted *ciphertext* to disk for *name*."""
         self.validate_name(name)
+        with self._lock:
+            self._save_seq[name] = self._save_seq.get(name, 0) + 1
         self._sync_save_encrypted(name, ciphertext)
         self._backlink_cache.clear()
 
@@ -590,15 +612,32 @@ class NotesManager:
     ) -> concurrent.futures.Future:
         """Save encrypted note on background thread. Returns a Future."""
         self.validate_name(name)
-        return self._io_executor.submit(self._sync_save_encrypted, name, ciphertext)
+        with self._lock:
+            seq = self._save_seq.get(name, 0) + 1
+            self._save_seq[name] = seq
+        return self._io_executor.submit(
+            self._sync_save_encrypted, name, ciphertext, seq
+        )
 
     def delete_note_async(self, name: str) -> concurrent.futures.Future:
         """Delete note on background thread. Returns a Future."""
         self.validate_name(name)
         return self._io_executor.submit(self._sync_delete_note, name)
 
-    def _sync_save_encrypted(self, name: str, ciphertext: bytes) -> None:
-        """Atomic write of ciphertext bytes to *name*.md.enc."""
+    def _sync_save_encrypted(
+        self, name: str, ciphertext: bytes, save_seq: int | None = None
+    ) -> None:
+        """Atomic write of ciphertext bytes to *name*.md.enc.
+
+        When *save_seq* is provided (async path), the write is skipped if
+        a newer save was submitted after this one.
+        """
+        if save_seq is not None:
+            with self._lock:
+                current = self._save_seq.get(name, 0)
+                if save_seq < current:
+                    return
+
         import tempfile
 
         enc_path = self.notes_dir / f"{name}.md.enc"
@@ -829,9 +868,65 @@ class NotesManager:
                 )
         return boxes
 
-    def update_checkbox(self, note_name: str, line_num: int, checked: bool) -> bool:
-        """Toggle checkbox at *line_num* in *note_name* to *checked*, return success."""
+    def _resolve_in_content(
+        self,
+        content: str,
+        old_line_num: int,
+        text: str,
+    ) -> int:
+        """Like :meth:`resolve_checkbox_line` but re-uses already-read *content*.
+
+        Avoids a second cache/disk read so there is no window for a background
+        save to invalidate the cache between resolution and modification.
+        """
+        boxes = self._extract_checkboxes("", content)
+
+        for b in boxes:
+            if b["text"] == text and b["line"] == old_line_num:
+                return old_line_num
+
+        candidates = [b for b in boxes if b["text"] == text]
+        if len(candidates) == 1:
+            return candidates[0]["line"]
+        if len(candidates) > 1:
+            return min(candidates, key=lambda b: abs(b["line"] - old_line_num))["line"]
+
+        return old_line_num
+
+    def resolve_checkbox_line(
+        self, note_name: str, old_line_num: int, text: str
+    ) -> int:
+        """Re-read the note and find the current line for the checkbox matching *text*.
+
+        When a note is edited in the editor, lines above a checkbox can be inserted
+        or deleted, shifting the checkbox's line number.  This method re-parses the
+        note and matches by text so that the correct line is used for subsequent
+        read/write operations.
+
+        Priority:
+          1. Exact match on (text, old_line_num) – no shift occurred.
+          2. Single checkbox with matching text.
+          3. Closest match among duplicates.
+          4. Fallback to *old_line_num* if no text match is found.
+        """
         content = self.read_plain(note_name)
+        return self._resolve_in_content(content, old_line_num, text)
+
+    def update_checkbox(
+        self,
+        note_name: str,
+        line_num: int,
+        checked: bool,
+        content: str | None = None,
+    ) -> bool:
+        """Toggle checkbox at *line_num* in *note_name* to *checked*.
+
+        When *content* is provided it is used directly, avoiding a
+        second cache/disk read.  The caller is responsible for ensuring
+        *content* reflects the current state of the note on disk.
+        """
+        if content is None:
+            content = self.read_plain(note_name)
         lines = content.split("\n")
         if 0 < line_num <= len(lines):
             m = CB_UPDATE_RE.match(lines[line_num - 1])
@@ -844,10 +939,19 @@ class NotesManager:
         return False
 
     def update_deadline(
-        self, note_name: str, line_num: int, new_deadline: str | None
+        self,
+        note_name: str,
+        line_num: int,
+        new_deadline: str | None,
+        content: str | None = None,
     ) -> bool:
-        """Set the @deadline on the checkbox at *line_num*; pass None to remove it."""
-        content = self.read_plain(note_name)
+        """Set the @deadline on the checkbox at *line_num*; pass None to remove it.
+
+        When *content* is provided it is used directly, avoiding a
+        second cache/disk read.
+        """
+        if content is None:
+            content = self.read_plain(note_name)
         lines = content.split("\n")
         if 0 < line_num <= len(lines):
             prefix = re.sub(

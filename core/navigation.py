@@ -47,7 +47,11 @@ class NavigationController:
             app.dashboard_view = Dashboard(
                 app.on_dashboard_checkbox_toggled,
                 lambda cb, x, y: app.handle_deadline_click(
-                    x, y, cb["note"], cb["line"]
+                    x,
+                    y,
+                    cb["note"],
+                    cb["line"],
+                    cb.get("text", ""),
                 ),
                 app.lifecycle.handle_row_click,
                 self.on_dashboard_empty,

@@ -35,7 +35,6 @@ from core.theme_manager import ThemeManager
 from core.translations import load as load_i18n
 from core.translations import tr
 from core.utils import (
-    CB_ANY_RE,
     IS_MAC,
     confirm_destructive_dialog,
     is_entry_focused,
@@ -3580,58 +3579,67 @@ class TokyoNotes(Adw.Application):
 
     def on_dashboard_checkbox_toggled(self, cb: dict, checked: bool) -> None:
         # Flush any pending debounced save for this note before modifying it
-        # on disk. Without this, the debounced save fires after update_checkbox
-        # and overwrites the toggle with the old buffer content.
-        if self.current_note == cb["note"] and self.rename_timeout_id > 0:
+        # on disk. Without this, an inflight async save can fire after
+        # update_checkbox and overwrite the toggle with the old buffer content.
+        note = cb["note"]
+        if self.current_note == note:
             self._flush_pending_save()
 
-        self.notes_manager.update_checkbox(cb["note"], cb["line"], checked)
+        # Read the note content ONCE and resolve the checkbox's current line
+        # within it so there is no window for a background async save to
+        # invalidate the content cache between resolution and modification.
+        content = self.notes_manager.read_plain(note)
+        current_line = self.notes_manager._resolve_in_content(
+            content, cb["line"], cb.get("text", "")
+        )
 
-        # If the toggled note is open in the editor, patch the buffer line
-        # in place so it stays consistent with the disk without scheduling
-        # another save cycle.
-        if self.current_note == cb["note"]:
-            self._sync_checkbox_in_buffer(cb["line"], checked)
+        ok = self.notes_manager.update_checkbox(
+            note, current_line, checked, content=content
+        )
+        if not ok:
+            # Could not find the checkbox line — refresh and bail.
+            if self.dashboard_view is not None:
+                self.nav.refresh_dashboard(self.dashboard_view.active_filter)
+            return
+
+        # If the toggled note is open in the editor, reload its buffer
+        # from disk so the checkbox change is reflected in the editor too.
+        # We use set_text() to reinitialize the GtkTextBtree from scratch,
+        # avoiding the "byte index off the end of the line" crash that
+        # occurs when modifying a single line in-place (delete+insert
+        # can leave the cursor iterator's byte offset out of sync with
+        # the btree representation).
+        #
+        # We block the changed handler around set_text to prevent
+        # on_text_changed from scheduling partial highlight + image
+        # reload passes that would cause visible flicker.  (Unlike
+        # single-line delete+insert, set_text on the whole buffer is
+        # safe to wrap in handler_block — the btree is rebuilt from
+        # scratch so there is no stale cursor to cause byte-index
+        # crashes.)
+        if self.current_note == note:
+            fresh = self.notes_manager.read_plain(note)
+            cursor_offset = self.buffer.get_iter_at_mark(
+                self.buffer.get_insert()
+            ).get_offset()
+            self.buffer.handler_block(self.changed_handler_id)
+            self.buffer.set_text(fresh)
+            self._schedule_full_highlight()
+            self.buffer.handler_unblock(self.changed_handler_id)
+            if (
+                self._has_images
+                and hasattr(self.editor, "_image_update_running")
+                and not self.editor._image_update_running
+            ):
+                self._reschedule("image_timeout_id", 100, self.do_delayed_images)
+            restore = min(cursor_offset, len(fresh.rstrip("\n")))
+            self.buffer.place_cursor(self.buffer.get_iter_at_offset(restore))
 
         if checked and self.cfg.get("sakura_effect"):
             self.sakura_overlay.start_celebration()
         if self.dashboard_view is not None:
-            if not self.dashboard_view.update_checkbox(cb["note"], cb["line"], checked):
+            if not self.dashboard_view.update_checkbox(note, current_line, checked):
                 self.nav.refresh_dashboard(self.dashboard_view.active_filter)
-
-    def _sync_checkbox_in_buffer(self, line_num: int, checked: bool) -> None:
-        """Patch a checkbox line in the editor buffer to match *checked*.
-
-        Called after update_checkbox writes the new state to disk so that the
-        buffer stays in sync without triggering the debounced save again.
-        """
-        try:
-            result = self.buffer.get_iter_at_line(line_num - 1)
-            line_start = result[1] if isinstance(result, tuple) else result
-        except (TypeError, IndexError):
-            return
-        line_end = line_start.copy()
-        if not line_end.ends_line():
-            line_end.forward_to_line_end()
-        line_text = self.buffer.get_text(line_start, line_end, False)
-        new_text = CB_ANY_RE.sub(
-            "[x]" if checked else "[ ]",
-            line_text,
-            count=1,
-        )
-        if new_text == line_text:
-            return  # nothing to patch
-        self.buffer.handler_block(self.changed_handler_id)
-        try:
-            self.buffer.delete(line_start, line_end)
-            # Re-fetch iter after delete (line_start is now invalid)
-            result = self.buffer.get_iter_at_line(line_num - 1)
-            insert_iter = result[1] if isinstance(result, tuple) else result
-        except (TypeError, IndexError):
-            self.buffer.handler_unblock(self.changed_handler_id)
-            return
-        self.buffer.insert(insert_iter, new_text)
-        self.buffer.handler_unblock(self.changed_handler_id)
 
     # Quick Add
 
@@ -3835,10 +3843,23 @@ class TokyoNotes(Adw.Application):
         y: float,
         note_name: str | None = None,
         line_num: int | None = None,
+        checkbox_text: str | None = None,
         widget: Gtk.Widget | None = None,
     ) -> None:
+        # Flush any inflight async save so the disk matches the buffer.
+        if note_name and self.current_note == note_name:
+            self._flush_pending_save()
+
+        # Resolve the checkbox's current line so the deadline picker
+        # operates on the correct line even when lines have shifted.
+        if note_name and line_num and checkbox_text:
+            line_num = self.notes_manager.resolve_checkbox_line(
+                note_name, line_num, checkbox_text
+            )
         picker = DeadlinePicker(
-            lambda deadline: self._apply_deadline_update(note_name, line_num, deadline),
+            lambda deadline: self._apply_deadline_update(
+                note_name, line_num, deadline, checkbox_text
+            ),
             has_deadline=True,
         )
         rect = Gdk.Rectangle()
@@ -3848,26 +3869,47 @@ class TokyoNotes(Adw.Application):
         picker.popup()
 
     def handle_snooze(
-        self, note_name: str, line_num: int, deadline: str | None
+        self,
+        note_name: str,
+        line_num: int,
+        deadline: str | None,
+        checkbox_text: str | None = None,
     ) -> None:
         """Snooze a task by updating its deadline."""
-        self._apply_deadline_update(note_name, line_num, deadline)
+        self._apply_deadline_update(note_name, line_num, deadline, checkbox_text)
 
     def _apply_deadline_update(
         self,
         note_name: str | None,
         line_num: int | None,
         deadline: str | None,
+        checkbox_text: str | None = None,
     ) -> None:
         if not note_name or not line_num:
             return
-        self.notes_manager.update_deadline(note_name, line_num, deadline)
+
+        # Flush any inflight async save so the disk reflects the latest
+        # buffer content before we read and modify.
+        if self.current_note == note_name:
+            self._flush_pending_save()
+
+        # Read once, resolve, and modify — no window for a background save
+        # to invalidate the cache between resolution and modification.
+        content = self.notes_manager.read_plain(note_name)
+        if checkbox_text:
+            line_num = self.notes_manager._resolve_in_content(
+                content, line_num, checkbox_text
+            )
+
+        if not self.notes_manager.update_deadline(
+            note_name, line_num, deadline, content=content
+        ):
+            return
         if self.dashboard_view is not None:
             self.nav.refresh_dashboard(self.dashboard_view.active_filter)
         self.refresh_list(self.sidebar.search_entry.get_text())
         if self.current_note == note_name:
             # Re-read just the updated line from cache (no full disk read).
-            content = self.notes_manager.read_plain(note_name)
             lines = content.split("\n")
             if 0 < line_num <= len(lines):
                 self._update_deadline_line_in_buffer(line_num, lines[line_num - 1])

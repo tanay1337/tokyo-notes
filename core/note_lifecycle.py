@@ -261,7 +261,15 @@ class NoteLifecycleManager:
         app = self.app
         app.content_stack.set_visible_child_name("editor")
         if app._select_sidebar_row(cb["note"]):
-            GLib.idle_add(self.scroll_to_line, cb["line"])
+            # Flush pending editor save so the disk and buffer match before
+            # we re-read the note to resolve the checkbox's current line.
+            if app.current_note == cb["note"]:
+                app._flush_pending_save()
+            content = app.notes_manager.read_plain(cb["note"])
+            current_line = app.notes_manager._resolve_in_content(
+                content, cb["line"], cb.get("text", "")
+            )
+            GLib.idle_add(self.scroll_to_line, current_line)
 
     def scroll_to_line(self, line_num: int) -> bool:
         app = self.app

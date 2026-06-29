@@ -32,7 +32,7 @@ class Dashboard(Gtk.Box):
         get_show_completed: Callable[[], bool],
         get_show_progress_rings: Callable[[], bool],
         get_start_week_on_sunday: Callable[[], bool],
-        on_snooze: Callable[[str, int, str | None], Any] | None = None,
+        on_snooze: Callable[[str, int, str | None, str | None], Any] | None = None,
         assets_dir: Path | None = None,
         default_filter: str = "today",
         on_quick_add: Callable[[str, str, str | None], Any] | None = None,
@@ -914,7 +914,7 @@ class Dashboard(Gtk.Box):
 
     def _apply_snooze(self, cb: dict[str, Any], new_dl: str | None) -> None:
         if self.on_snooze:
-            self.on_snooze(cb["note"], cb["line"], new_dl)
+            self.on_snooze(cb["note"], cb["line"], new_dl, cb.get("text", ""))
 
     def _snooze_pick_date(self, cb: dict[str, Any]) -> None:
         self.on_deadline_click(cb, 0, 0)
