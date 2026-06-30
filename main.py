@@ -1361,8 +1361,7 @@ class TokyoNotes(Adw.Application):
         self._single_editor_ref = None
         self.diagram_view = None
         self.table_view = None
-        self._table_edit_start_offset: int = -1
-        self._table_edit_end_offset: int = -1
+        self._table_edit_raw: str | None = None
 
         overlay = self._build_content_stack()
 
@@ -2113,23 +2112,28 @@ class TokyoNotes(Adw.Application):
                 continue
             table_end = table_start + len(raw)
             if table_start <= offset <= table_end:
-                self._table_edit_start_offset = table_start
-                self._table_edit_end_offset = table_end
+                self._table_edit_raw = raw
                 self._open_table_editor("edit", tbl)
                 return
 
     def _on_table_save_and_insert(self, table_id: str, table: Table) -> None:
         """Save table changes and insert markdown into the buffer."""
         markdown = table_to_markdown(table)
-        so = self._table_edit_start_offset
-        eo = self._table_edit_end_offset
-        self._table_edit_start_offset = -1
-        self._table_edit_end_offset = -1
-        if so >= 0 and eo > so:
-            it1 = self.buffer.get_iter_at_offset(so)
-            it2 = self.buffer.get_iter_at_offset(eo)
-            self.buffer.delete(it1, it2)
-            self.buffer.insert(it1, markdown)
+        raw = self._table_edit_raw
+        self._table_edit_raw = None
+        if raw is not None:
+            start, end = self.buffer.get_bounds()
+            text = self.buffer.get_text(start, end, True)
+            pos = text.find(raw)
+            if pos >= 0:
+                new_text = text[:pos] + markdown.rstrip("\n") + text[pos + len(raw) :]
+                self.buffer.handler_block(self.changed_handler_id)
+                self.buffer.set_text(new_text)
+                self.buffer.handler_unblock(self.changed_handler_id)
+                if self._has_images:
+                    self._reschedule("image_timeout_id", 100, self.do_delayed_images)
+            else:
+                self.buffer.insert_at_cursor(markdown)
         else:
             self.buffer.insert_at_cursor(markdown)
         self._schedule_full_highlight()
@@ -2148,18 +2152,28 @@ class TokyoNotes(Adw.Application):
             tbl = self.table_view._collect_table()
             if tbl.headers:
                 markdown = table_to_markdown(tbl)
-                so = self._table_edit_start_offset
-                eo = self._table_edit_end_offset
-                if so >= 0 and eo > so:
-                    it1 = self.buffer.get_iter_at_offset(so)
-                    it2 = self.buffer.get_iter_at_offset(eo)
-                    self.buffer.delete(it1, it2)
-                    self.buffer.insert(it1, markdown)
+                raw = self._table_edit_raw
+                self._table_edit_raw = None
+                if raw is not None:
+                    start, end = self.buffer.get_bounds()
+                    text = self.buffer.get_text(start, end, True)
+                    pos = text.find(raw)
+                    if pos >= 0:
+                        new_text = (
+                            text[:pos] + markdown.rstrip("\n") + text[pos + len(raw) :]
+                        )
+                        self.buffer.handler_block(self.changed_handler_id)
+                        self.buffer.set_text(new_text)
+                        self.buffer.handler_unblock(self.changed_handler_id)
+                        if self._has_images:
+                            self._reschedule(
+                                "image_timeout_id", 100, self.do_delayed_images
+                            )
+                    else:
+                        self.buffer.insert_at_cursor(markdown)
                 else:
                     self.buffer.insert_at_cursor(markdown)
                 self._schedule_full_highlight()
-        self._table_edit_start_offset = -1
-        self._table_edit_end_offset = -1
         # Switch back to the note editor
         target = "split_editor" if self.split_editor is not None else "editor"
         self.content_stack.set_visible_child_name(target)

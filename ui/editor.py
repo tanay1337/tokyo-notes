@@ -869,7 +869,12 @@ class Editor(Gtk.Box):
             marker_only = match.group(1)
 
             # Empty marker line -> break (root) or outdent (indented).
-            if line_text.strip() == marker_only.strip():
+            # Use the full line text (not just the prefix before cursor)
+            # so content after the marker isn't mistaken for emptiness.
+            line_end_iter = line_start.copy()
+            line_end_iter.forward_to_line_end()
+            full_line = buffer.get_text(line_start, line_end_iter, False).strip()
+            if full_line == marker_only.strip():
                 indent_text = re.match(r"^(\s*)", marker_only).group(1)
                 current_level = len(indent_text) // 2
 
