@@ -3909,8 +3909,10 @@ class TokyoNotes(Adw.Application):
             self.nav.refresh_dashboard(self.dashboard_view.active_filter)
         self.refresh_list(self.sidebar.search_entry.get_text())
         if self.current_note == note_name:
-            # Re-read just the updated line from cache (no full disk read).
-            lines = content.split("\n")
+            # Re-read from cache — update_deadline already saved the new
+            # content to disk, so the cache has the updated line.
+            updated = self.notes_manager.read_plain(note_name)
+            lines = updated.split("\n")
             if 0 < line_num <= len(lines):
                 self._update_deadline_line_in_buffer(line_num, lines[line_num - 1])
 
