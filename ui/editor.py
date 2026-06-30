@@ -1208,6 +1208,7 @@ class Editor(Gtk.Box):
             self.buffer.delete(start, end)
             self.buffer.insert_at_cursor(cleaned)
             self.buffer.end_user_action()
+            self._last_image_text_hash = ""
             if self.highlighter:
                 self.highlighter.highlight()
         self.text_view._skip_focus_restore = False
@@ -1839,6 +1840,17 @@ class Editor(Gtk.Box):
 
         try:
             image_re = re.compile(r"!\[([^\]]*)\]\((" + MD_URL_BALANCED + r")\)")
+
+            start, end = self.buffer.get_bounds()
+            text = self.buffer.get_text(start, end, True)
+            matches = list(image_re.finditer(text))
+            signature = "|".join(m.group(0) for m in matches)
+            if signature == self._last_image_text_hash:
+                self._image_update_running = False
+                if done_callback:
+                    done_callback()
+                return
+            self._last_image_text_hash = signature
 
             self.buffer.handler_block(self.changed_handler_id)
             if hasattr(self, "cursor_handler_id"):

@@ -2130,6 +2130,7 @@ class TokyoNotes(Adw.Application):
                 self.buffer.handler_block(self.changed_handler_id)
                 self.buffer.set_text(new_text)
                 self.buffer.handler_unblock(self.changed_handler_id)
+                self.editor._last_image_text_hash = ""
                 if self._has_images:
                     self._reschedule("image_timeout_id", 100, self.do_delayed_images)
             else:
@@ -2165,6 +2166,7 @@ class TokyoNotes(Adw.Application):
                         self.buffer.handler_block(self.changed_handler_id)
                         self.buffer.set_text(new_text)
                         self.buffer.handler_unblock(self.changed_handler_id)
+                        self.editor._last_image_text_hash = ""
                         if self._has_images:
                             self._reschedule(
                                 "image_timeout_id", 100, self.do_delayed_images
@@ -3542,7 +3544,7 @@ class TokyoNotes(Adw.Application):
         cursor_line = cursor_iter.get_line()
         self.highlighter.highlight(cursor_line=cursor_line)
         self.last_cursor_line = cursor_line
-        self._apply_search_highlights()
+        self._apply_search_highlights(full_reset=False)
         return False
 
     def do_delayed_highlight(self) -> bool:
@@ -3640,6 +3642,7 @@ class TokyoNotes(Adw.Application):
             self.buffer.set_text(fresh)
             self._schedule_full_highlight()
             self.buffer.handler_unblock(self.changed_handler_id)
+            self.editor._last_image_text_hash = ""
             if (
                 self._has_images
                 and hasattr(self.editor, "_image_update_running")

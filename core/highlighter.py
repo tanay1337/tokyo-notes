@@ -255,7 +255,7 @@ class MarkdownHighlighter:
         The result is cached and keyed on the buffer's character count so
         repeated calls during the same highlight pass cost nothing.
         """
-        stamp = self.buffer.get_char_count()
+        stamp = self.buffer.get_line_count()
         if stamp == self._code_block_stamp:
             return self._code_block_cache
 
@@ -277,7 +277,7 @@ class MarkdownHighlighter:
 
     def _front_matter_range(self) -> tuple[int, int] | None:
         """Return (start_line, end_line) of front matter block, or None."""
-        stamp = self.buffer.get_char_count()
+        stamp = self.buffer.get_line_count()
         if stamp == self._fm_stamp:
             return self._fm_cached
         start, end = self.buffer.get_bounds()
