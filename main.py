@@ -1719,6 +1719,8 @@ class TokyoNotes(Adw.Application):
         elif key == "sort_order":
             self.notes_manager.sort_order = value
             self.refresh_list()
+        elif key == "embed_width":
+            self._reschedule("image_timeout_id", 100, self.do_delayed_images)
         elif key == "speech_rebuild":
             from core.speech_setup import remove as remove_venv
 
@@ -3588,6 +3590,7 @@ class TokyoNotes(Adw.Application):
                     self._scroll_to_cursor(),
                     self.update_highlighting(immediate=False),
                 ),
+                app_width=self.cfg.get("embed_width", 0),
             )
         return False
 

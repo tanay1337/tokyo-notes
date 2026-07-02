@@ -195,6 +195,7 @@ class NavigationController:
                     "language": app.cfg.get("language", "en"),
                     "spell_check_enabled": app.cfg.get("spell_check_enabled", True),
                     "spell_check_language": app.cfg.get("spell_check_language", "en"),
+                    "embed_width": app.cfg.get("embed_width", 0),
                     "always_show_markdown": app.cfg.get("always_show_markdown", False),
                     "speech_enabled": app.cfg.get("speech_enabled", False),
                     "speech_language": app.cfg.get("speech_language"),

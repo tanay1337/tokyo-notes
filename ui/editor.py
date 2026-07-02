@@ -27,7 +27,12 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 
 from core.translations import tr
-from core.utils import MD_URL_BALANCED
+from core.utils import (
+    _FM_EMBED_KEY_RE,
+    MD_URL_BALANCED,
+    parse_embed_hint,
+    resolve_embed_width,
+)
 from ui.deadline_picker import DeadlinePicker
 from ui.find_bar import FindBar
 from ui.link_picker import LinkPicker
@@ -1260,10 +1265,14 @@ class Editor(Gtk.Box):
 
     # Diagram embed
 
-    def _build_diagram_embed(self, diagram_id: str) -> Gtk.Widget | None:
+    def _build_diagram_embed(
+        self, diagram_id: str, embed_width: int
+    ) -> Gtk.Widget | None:
         """Build a clickable preview widget for a diagram reference."""
         dm = getattr(self, "_diagram_manager", None)
         pixbuf: GdkPixbuf.Pixbuf | None = None
+        max_w = embed_width
+        max_h = int(embed_width * 0.6)
         if dm is not None:
             diagram = dm.load(diagram_id)
             if diagram is not None:
@@ -1274,13 +1283,6 @@ class Editor(Gtk.Box):
                 if not ok_bg:
                     ok_bg, bg = ctx.lookup_color("theme_base_color")
                 ok_fg, fg = ctx.lookup_color("theme_fg_color")
-
-                editor_width = self.text_view.get_allocated_width()
-                max_w = 400
-                max_h = 300
-                if editor_width > 0:
-                    max_w = max(400, min(int(editor_width * 0.47), 700))
-                    max_h = max(300, int(max_w * 0.6))
 
                 pixbuf = render_diagram_preview(
                     diagram,
@@ -1640,7 +1642,7 @@ class Editor(Gtk.Box):
         return box
 
     def _build_pdf_embed(
-        self, img_path: str, notes_dir: Path, max_load: int
+        self, img_path: str, notes_dir: Path, embed_width: int
     ) -> Gtk.Widget | None:
         clean = img_path.split("#")[0].split("?")[0]
         pdf_path: Path | None = None
@@ -1660,7 +1662,7 @@ class Editor(Gtk.Box):
         if pdf_path is None:
             return self._build_pdf_placeholder(img_path)
 
-        load_res = max_load * 2
+        load_res = embed_width * 2
         n_pages = self._get_pdf_page_count(pdf_path)
         if n_pages == 0:
             return self._build_pdf_placeholder(str(pdf_path))
@@ -1819,7 +1821,10 @@ class Editor(Gtk.Box):
         return False
 
     def update_images(
-        self, notes_dir: Path, done_callback: Callable | None = None
+        self,
+        notes_dir: Path,
+        done_callback: Callable | None = None,
+        app_width: int = 0,
     ) -> None:
         """Scan buffer for markdown image syntax and render inline widgets."""
         self._notes_dir = notes_dir
@@ -1832,11 +1837,6 @@ class Editor(Gtk.Box):
         self._image_update_pending = False
 
         editor_width = self.text_view.get_allocated_width()
-        if editor_width > 0:
-            max_load = int(editor_width * 0.47)
-            max_load = min(max_load, 700)
-        else:
-            max_load = 500
 
         try:
             image_re = re.compile(r"!\[([^\]]*)\]\((" + MD_URL_BALANCED + r")\)")
@@ -1844,13 +1844,24 @@ class Editor(Gtk.Box):
             start, end = self.buffer.get_bounds()
             text = self.buffer.get_text(start, end, True)
             matches = list(image_re.finditer(text))
-            signature = "|".join(m.group(0) for m in matches)
+            fmt = _FM_EMBED_KEY_RE.search(text)
+            fm_sig = fmt.group(1) if fmt else ""
+            signature = f"{app_width}|{fm_sig}|" + "|".join(m.group(0) for m in matches)
             if signature == self._last_image_text_hash:
                 self._image_update_running = False
                 if done_callback:
                     done_callback()
                 return
             self._last_image_text_hash = signature
+
+            doc_hint = fmt.group(1) if fmt else None
+            doc_width: int | None = None
+            if doc_hint is not None:
+                try:
+                    doc_width = int(doc_hint)
+                except ValueError:
+                    SIZE_KEYWORDS = {"small": 300, "medium": 600}
+                    doc_width = SIZE_KEYWORDS.get(doc_hint)
 
             self.buffer.handler_block(self.changed_handler_id)
             if hasattr(self, "cursor_handler_id"):
@@ -1878,7 +1889,13 @@ class Editor(Gtk.Box):
                 matches = list(image_re.finditer(text))
 
                 for match in reversed(matches):
+                    alt_text = match.group(1)
                     img_path = match.group(2)
+
+                    clean_alt, w_hint, h_hint = parse_embed_hint(alt_text)
+                    embed_w = resolve_embed_width(
+                        w_hint, doc_width, app_width, editor_width
+                    )
 
                     self.buffer.insert(
                         self.buffer.get_iter_at_offset(match.start()), "\n"
@@ -1893,7 +1910,7 @@ class Editor(Gtk.Box):
                     if dm is not None and img_path and _DIAGRAM_ID_RE.match(img_path):
                         diagram = dm.load(img_path)
                     if diagram is not None:
-                        embed = self._build_diagram_embed(diagram.id)
+                        embed = self._build_diagram_embed(diagram.id, embed_w)
                         if embed:
                             self.text_view.add_child_at_anchor(embed, anchor)
                             self.image_widgets.append(embed)
@@ -1902,14 +1919,14 @@ class Editor(Gtk.Box):
                     # PDF embed
                     clean_path = img_path.split("#")[0].split("?")[0]
                     if clean_path.lower().endswith(".pdf"):
-                        embed = self._build_pdf_embed(img_path, notes_dir, max_load)
+                        embed = self._build_pdf_embed(img_path, notes_dir, embed_w)
                         if embed:
                             self.text_view.add_child_at_anchor(embed, anchor)
                             self.image_widgets.append(embed)
                         continue
 
                     pixbuf = None
-                    load_res = max_load * 2
+                    load_res = embed_w * 2
                     if img_path.startswith(("http://", "https://")):
                         cache_path = self._remote_image_cache_path(img_path, notes_dir)
                         if cache_path.exists():
@@ -1933,7 +1950,7 @@ class Editor(Gtk.Box):
                         img_widget.set_halign(Gtk.Align.START)
                         pw = pixbuf.get_width()
                         ph = pixbuf.get_height()
-                        display_w = min(pw, max_load)
+                        display_w = min(pw, embed_w)
                         display_h = int(ph * display_w / pw) if pw > 0 else ph
                         img_widget.set_size_request(display_w, display_h)
                     else:

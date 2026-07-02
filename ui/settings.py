@@ -204,6 +204,7 @@ class SettingsView(Gtk.Box):
                 "show_toc",
             )
         )
+        group.add(self._make_embed_width_row())
         group.add(
             self._make_switch_row(
                 tr("Spell Check"),
@@ -871,6 +872,39 @@ class SettingsView(Gtk.Box):
         self._font_size_spin.set_value(12)
         self.on_config_changed("font_size", None)
 
+    def _make_embed_width_row(self) -> Adw.ActionRow:
+        subtitle = tr("Default embed width. 0 = auto (47% of editor width, max 700 px)")
+        row = Adw.ActionRow(title=tr("Embed Width"), subtitle=subtitle)
+
+        self._embed_width_spin = Gtk.SpinButton.new_with_range(0, 2000, 50)
+        self._embed_width_spin.set_valign(Gtk.Align.CENTER)
+        current = self._initial_values.get("embed_width", 0)
+        self._embed_width_spin.set_value(float(current))
+        self._embed_width_handler_id = self._embed_width_spin.connect(
+            "notify::value",
+            lambda s, _pspec: self.on_config_changed("embed_width", int(s.get_value())),
+        )
+        row.add_suffix(self._embed_width_spin)
+
+        reset_btn = Gtk.Button()
+        reset_icon = Gtk.Image.new_from_file(str(self._assets_dir / "undo.svg"))
+        reset_icon.set_pixel_size(16)
+        reset_btn.set_child(reset_icon)
+        reset_btn.set_valign(Gtk.Align.CENTER)
+        reset_btn.add_css_class("flat")
+        reset_btn.add_css_class("settings-icon-btn")
+        reset_btn.set_tooltip_text(tr("Reset to default"))
+        reset_btn.connect("clicked", lambda _: self._on_embed_width_reset())
+        row.add_suffix(reset_btn)
+
+        return row
+
+    def _on_embed_width_reset(self) -> None:
+        self._embed_width_spin.handler_block(self._embed_width_handler_id)
+        self._embed_width_spin.set_value(0)
+        self._embed_width_spin.handler_unblock(self._embed_width_handler_id)
+        self.on_config_changed("embed_width", 0)
+
     def _make_language_row(self) -> Adw.ComboRow:
         """Create a dropdown listing available translation languages."""
         languages = list_languages()
@@ -1043,6 +1077,7 @@ class SettingsView(Gtk.Box):
             "git_enabled": False,
             "git_auto_commit": True,
             "theme": "tokyo-night",
+            "embed_width": 0,
             "font_family": None,
             "font_size": None,
             "language": "en",
@@ -1061,6 +1096,9 @@ class SettingsView(Gtk.Box):
         self._font_size_spin.handler_block(self._font_size_handler_id)
         self._font_size_spin.set_value(12)
         self._font_size_spin.handler_unblock(self._font_size_handler_id)
+        self._embed_width_spin.handler_block(self._embed_width_handler_id)
+        self._embed_width_spin.set_value(0)
+        self._embed_width_spin.handler_unblock(self._embed_width_handler_id)
 
         try:
             lang_idx = self._lang_codes.index("en")

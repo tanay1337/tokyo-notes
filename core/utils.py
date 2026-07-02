@@ -274,6 +274,72 @@ def is_entry_focused(widget: object) -> bool:
     return is_entry_focused(widget.get_parent())
 
 
+# ── Embed sizing ──────────────────────────────────────────────────────────
+
+_EMBED_SIZE_RE = re.compile(r"^([^|]*)\|\s*(\d+|small|medium|large|full)(?:x(\d+))?$")
+
+_FM_EMBED_KEY_RE = re.compile(r"^embed_(?:width|size):\s*(\S+)", re.MULTILINE)
+
+_SIZE_KEYWORDS: dict[str, int] = {
+    "small": 300,
+    "medium": 600,
+}
+
+
+def parse_embed_hint(alt: str) -> tuple[str, str | int | None, int | None]:
+    """Parse a ``|{size}`` suffix from markdown image alt text.
+
+    Returns ``(clean_alt, width_hint, height_hint)`` where *width_hint* is an
+    ``int`` for pixel values, a ``str`` for named keywords, or ``None``.
+    """
+    m = _EMBED_SIZE_RE.match(alt)
+    if not m:
+        return (alt, None, None)
+    clean = m.group(1)
+    raw = m.group(2)
+    raw_h = m.group(3)
+    width: str | int | None
+    try:
+        width = int(raw)
+    except ValueError:
+        width = raw  # "small", "medium", "large", "full"
+    height = int(raw_h) if raw_h is not None else None
+    return (clean, width, height)
+
+
+def resolve_embed_width(
+    hint: str | int | None,
+    doc_width: int | None,
+    app_width: int,
+    editor_width: int,
+    padding: int = 48,
+) -> int:
+    """Convert a size hint (pixel int, keyword, or None) to a display width.
+
+    Precedence (higher wins):
+      1. Per-embed *hint*
+      2. Per-document *doc_width* (from front matter)
+      3. *app_width* (global config default)
+      4. Auto: 47 % of *editor_width* – *padding*, capped at 700
+
+    Named keywords:
+      ``small``  → 300, ``medium`` → 600, ``large`` → 90 %, ``full`` → 100 %
+    """
+    if isinstance(hint, str):
+        if hint == "large":
+            return max(400, int(editor_width * 0.9) - padding)
+        if hint == "full":
+            return editor_width - padding
+        return _SIZE_KEYWORDS.get(hint, 400)
+    if isinstance(hint, int):
+        return max(100, hint)
+    if doc_width is not None:
+        return max(100, doc_width)
+    if app_width:
+        return max(100, app_width)
+    return min(max(300, int(editor_width * 0.47) - padding), 700)
+
+
 def strip_anchors_for_save(buffer: Gtk.TextBuffer) -> str:
     """Get buffer text sans child-anchor chars and the newline after each.
 

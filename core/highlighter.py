@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from core.spell_checker import SpellChecker
 
 from core.utils import (
+    _EMBED_SIZE_RE,
     BLOCKQUOTE_RE,
     CB_CHECKED_RE,
     CB_EMPTY_RE,
@@ -790,6 +791,10 @@ class MarkdownHighlighter:
                     self.apply_tag(mt, alt_e + 1, alt_e + 2)  # (
                     self.apply_tag(mt, alt_e + 2, fe - 1)  # url
                     self.apply_tag(mt, fe - 1, fe)  # )
+                    em = _EMBED_SIZE_RE.match(m.group(3))
+                    if em:
+                        dim_start = alt_s + len(em.group(1))
+                        self.apply_tag("dim", dim_start, alt_e)
                 else:  # [text](url)
                     text_s = fs + 1
                     text_e = text_s + len(m.group(3))
