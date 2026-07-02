@@ -513,6 +513,9 @@ class MarkdownHighlighter:
                         line_start_offset,
                         marker_end,
                     )
+                self._apply_blockquote_hanging(
+                    line, line_start_offset, line_end_offset, bq
+                )
             else:
                 self._current_callout_type = None
 
@@ -656,6 +659,24 @@ class MarkdownHighlighter:
         end_iter = self.get_iter_at_offset(end_offset)
         self.buffer.apply_tag_by_name(tag_name, start_iter, end_iter)
 
+    def _apply_blockquote_hanging(
+        self,
+        line: str,
+        line_start_offset: int,
+        line_end_offset: int,
+        bq_match,
+    ) -> None:
+        leading = line[: bq_match.start(2)]
+        raw = sum(4 if c == " " else 6 for c in leading)
+        indent_px = min(raw, 40)
+        cache = self._hanging_tag_cache
+        name = cache.get(indent_px)
+        if name is None:
+            name = f"_h_{indent_px}"
+            self.buffer.create_tag(name, indent=-indent_px)
+            cache[indent_px] = name
+        self.apply_tag(name, line_start_offset, line_end_offset)
+
     def _apply_list_hanging(
         self, line: str, line_start_offset: int, line_end_offset: int
     ) -> None:
@@ -792,6 +813,10 @@ class MarkdownHighlighter:
                     title_start = line_start_offset + callout_match.start(4)
                     title_end = line_start_offset + callout_match.end(4)
                     self.apply_tag("callout_title", title_start, title_end)
+            if bq_match:
+                self._apply_blockquote_hanging(
+                    line, line_start_offset, line_end_offset, bq_match
+                )
 
         # Pipe dimming for table lines
         if md_line.kind in ("table_row", "table_sep"):
