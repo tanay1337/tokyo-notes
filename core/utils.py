@@ -160,6 +160,43 @@ FLASHCARD_FENCE_RE: re.Pattern = re.compile(
     re.MULTILINE | re.DOTALL,
 )
 
+# --- Callouts ---
+
+CALLOUT_RE: re.Pattern = re.compile(r"^(\s*>)\s*\[!([\w-]+)\](\s*[+-]?)\s*(.*)$")
+
+# Some types share a colour by design (they are just aliases);
+# `_DEFAULT_SYNTAX_COLORS` in `core/highlighter.py` provides the actual
+# hex values that themes can override via `syntax_callout_<type>`.
+_CALLOUT_TYPE_META: dict[str, tuple[str, list[str]]] = {
+    "note": ("Note", []),
+    "abstract": ("Abstract", ["summary", "tldr"]),
+    "info": ("Info", []),
+    "todo": ("Todo", []),
+    "tip": ("Tip", ["hint", "important"]),
+    "success": ("Success", ["check", "done"]),
+    "question": ("Question", ["help", "faq"]),
+    "warning": ("Warning", ["caution", "attention"]),
+    "failure": ("Failure", ["fail", "missing"]),
+    "danger": ("Danger", ["error"]),
+    "bug": ("Bug", []),
+    "example": ("Example", []),
+    "quote": ("Quote", ["cite"]),
+}
+# Build reverse-lookup: alias -> canonical type name.
+_CALLOUT_ALIAS_MAP: dict[str, str] = {}
+for _canon, (_label, _aliases) in _CALLOUT_TYPE_META.items():
+    _CALLOUT_ALIAS_MAP[_canon] = _canon
+    for _a in _aliases:
+        _CALLOUT_ALIAS_MAP[_a] = _canon
+
+
+def resolve_callout_type(raw: str) -> str:
+    """Return the canonical callout type for *raw*, case-insensitive.
+
+    Falls back to ``"note"`` for unknown types.
+    """
+    return _CALLOUT_ALIAS_MAP.get(raw.strip().lower(), "note")
+
 
 # Text helpers
 

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from core.utils import (
     _EMBED_SIZE_RE,
     BLOCKQUOTE_RE,
+    CALLOUT_RE,
     CB_CHECKED_RE,
     CB_EMPTY_RE,
     DEADLINE_RE,
@@ -26,6 +27,7 @@ from core.utils import (
     TABLE_ROW_RE,
     TABLE_SEP_RE,
     TAG_RE,
+    resolve_callout_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,20 @@ _DEFAULT_SYNTAX_COLORS: dict[str, str] = {
     "dim": "#565f89",
     "front_matter_key": "#bb9af7",
     "front_matter_value": "#e0af68",
+    # Callout type colours (13 types, some share a hue)
+    "callout_note": "#7aa2f7",
+    "callout_abstract": "#2ac3de",
+    "callout_info": "#7aa2f7",
+    "callout_todo": "#7aa2f7",
+    "callout_tip": "#2ac3de",
+    "callout_success": "#9ece6a",
+    "callout_question": "#e0af68",
+    "callout_warning": "#ff9e64",
+    "callout_failure": "#f7768e",
+    "callout_danger": "#f7768e",
+    "callout_bug": "#f7768e",
+    "callout_example": "#bb9af7",
+    "callout_quote": "#565f89",
 }
 
 
@@ -77,6 +93,7 @@ class MarkdownHighlighter:
         self.re_fenced_code = FENCED_CODE_RE
         self.re_hr = HR_RE
         self.re_blockquote = BLOCKQUOTE_RE
+        self.re_callout = CALLOUT_RE
         self.re_unordered = LIST_UL_RE
         self.re_ordered = LIST_OL_RE
         self.re_table_row = TABLE_ROW_RE
@@ -219,8 +236,6 @@ class MarkdownHighlighter:
         bg_rgba.alpha = 0.04 if luminance > 180 else 0.08
         tag(
             "blockquote",
-            foreground=c["blockquote"],
-            style=Pango.Style.ITALIC,
             left_margin=40,
             paragraph_background_rgba=bg_rgba,
         )
@@ -230,9 +245,52 @@ class MarkdownHighlighter:
         tag(
             "blockquote_marker",
             background_rgba=marker_bg,
-            foreground=c["blockquote"],
-            weight=Pango.Weight.BOLD,
+            foreground=c["dim"],
         )
+        _callout_types = (
+            "note",
+            "abstract",
+            "info",
+            "todo",
+            "tip",
+            "success",
+            "question",
+            "warning",
+            "failure",
+            "danger",
+            "bug",
+            "example",
+            "quote",
+        )
+        for _ct in _callout_types:
+            _fg = c.get(f"callout_{_ct}", c["blockquote"])
+            _bg = Gdk.RGBA()
+            _bg.parse(_fg)
+            _bg.alpha = 0.15
+            tag(
+                f"callout_type_{_ct}",
+                foreground=_fg,
+                weight=Pango.Weight.BOLD,
+                background_rgba=_bg,
+            )
+        for _ct in _callout_types:
+            _fg = c.get(f"callout_{_ct}", c["blockquote"])
+            _pbg = Gdk.RGBA()
+            _pbg.parse(_fg)
+            _pbg.alpha = 0.08
+            tag(
+                f"callout_bg_{_ct}",
+                paragraph_background_rgba=_pbg,
+            )
+            _mbg = Gdk.RGBA()
+            _mbg.parse(_fg)
+            _mbg.alpha = 0.25
+            tag(
+                f"callout_marker_{_ct}",
+                background_rgba=_mbg,
+                foreground=c["dim"],
+            )
+        tag("callout_title", weight=Pango.Weight.BOLD)
         tag("autolink", foreground=c["external_link"], underline=Pango.Underline.SINGLE)
         tag("inline_html", foreground=c["checkbox_empty"])
         tag("line_break", weight=Pango.Weight.BOLD)
@@ -333,6 +391,7 @@ class MarkdownHighlighter:
 
         is_full_pass = start_line == 0 and end_line == total_lines
         self._in_fence = False
+        self._current_callout_type: str | None = None
 
         start_iter = self.get_iter_at_line(start_line)
         end_iter = (
@@ -419,6 +478,24 @@ class MarkdownHighlighter:
             # Block quotes
             bq = self.re_blockquote.match(line)
             if bq:
+                callout = self.re_callout.match(line)
+                if callout:
+                    ctype = resolve_callout_type(callout.group(2))
+                    self._current_callout_type = ctype
+                    type_start = line_start_offset + callout.start(2) - 2
+                    type_end = line_start_offset + callout.end(2) + 1
+                    self.apply_tag(f"callout_type_{ctype}", type_start, type_end)
+                    title_text = callout.group(4)
+                    if title_text.strip():
+                        title_start = line_start_offset + callout.start(4)
+                        title_end = line_start_offset + callout.end(4)
+                        self.apply_tag("callout_title", title_start, title_end)
+                if self._current_callout_type:
+                    self.apply_tag(
+                        f"callout_bg_{self._current_callout_type}",
+                        line_start_offset,
+                        line_end_offset,
+                    )
                 self.apply_tag(
                     "blockquote",
                     line_start_offset,
@@ -430,6 +507,14 @@ class MarkdownHighlighter:
                     line_start_offset,
                     marker_end,
                 )
+                if self._current_callout_type:
+                    self.apply_tag(
+                        f"callout_marker_{self._current_callout_type}",
+                        line_start_offset,
+                        marker_end,
+                    )
+            else:
+                self._current_callout_type = None
 
             # Lists
             ul = self.re_unordered.match(line)
@@ -696,6 +781,17 @@ class MarkdownHighlighter:
                     line_start_offset,
                     line_start_offset + len(bq_match.group(1)),
                 )
+            callout_match = self.re_callout.match(line)
+            if callout_match:
+                ctype = resolve_callout_type(callout_match.group(2))
+                type_start = line_start_offset + callout_match.start(2) - 2
+                type_end = line_start_offset + callout_match.end(2) + 1
+                self.apply_tag(f"callout_type_{ctype}", type_start, type_end)
+                title_text = callout_match.group(4)
+                if title_text.strip():
+                    title_start = line_start_offset + callout_match.start(4)
+                    title_end = line_start_offset + callout_match.end(4)
+                    self.apply_tag("callout_title", title_start, title_end)
 
         # Pipe dimming for table lines
         if md_line.kind in ("table_row", "table_sep"):
@@ -895,6 +991,22 @@ class MarkdownHighlighter:
         # tokenizer correctly identifies code lines (fences may start earlier).
         if start_line in code_block_lines:
             in_block = True
+        callout_type: str | None = None
+        # Scan backward from start_line to find active callout type when
+        # the incremental pass starts in the middle of a callout block.
+        for scan_line in range(start_line - 1, -1, -1):
+            scan_it = self.get_iter_at_line(scan_line)
+            scan_end = scan_it.copy()
+            if not scan_end.ends_line():
+                scan_end.forward_to_line_end()
+            scan_text = self.buffer.get_text(scan_it, scan_end, True)
+            if self.re_blockquote.match(scan_text):
+                scan_callout = self.re_callout.match(scan_text)
+                if scan_callout:
+                    callout_type = resolve_callout_type(scan_callout.group(2))
+                    break
+            else:
+                break
         for line_num in range(start_line, end_line + 1):
             it = self.get_iter_at_line(line_num)
             it_end = it.copy()
@@ -942,6 +1054,26 @@ class MarkdownHighlighter:
                 is_cursor=(line_num == cursor_line),
                 line_num=line_num,
             )
+
+            # Callout background & marker override
+            if md.kind == "blockquote":
+                callout_match = self.re_callout.match(line)
+                if callout_match:
+                    callout_type = resolve_callout_type(callout_match.group(2))
+                    self.apply_tag(f"callout_bg_{callout_type}", line_start, line_end)
+                elif callout_type:
+                    self.apply_tag(f"callout_bg_{callout_type}", line_start, line_end)
+                if callout_type:
+                    bq_match = self.re_blockquote.match(line)
+                    if bq_match:
+                        marker_end = line_start + len(bq_match.group(1))
+                        self.apply_tag(
+                            f"callout_marker_{callout_type}",
+                            line_start,
+                            marker_end,
+                        )
+            else:
+                callout_type = None
 
     def set_spell_checker(
         self, spell_checker: SpellChecker | None, enabled: bool = True
