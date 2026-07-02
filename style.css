@@ -541,6 +541,28 @@ button.pill {
     opacity: 0.5;
 }
 
+/* Callout type picker */
+.callout-picker row {
+    padding: 6px 10px;
+}
+
+.callout-type-name {
+    font-size: 11pt;
+    font-weight: 500;
+}
+
+.callout-type-syntax {
+    font-size: 9pt;
+    opacity: 0.8;
+}
+
+.callout-type-aliases {
+    font-size: 8pt;
+    color: @fg_color;
+    opacity: 0.5;
+    padding-left: 16px;
+}
+
 /* Inline images in editor */
 .inline-image {
     margin: 8px 0;

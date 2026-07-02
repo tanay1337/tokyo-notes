@@ -33,6 +33,7 @@ from core.utils import (
     parse_embed_hint,
     resolve_embed_width,
 )
+from ui.callout_picker import CalloutPicker
 from ui.deadline_picker import DeadlinePicker
 from ui.find_bar import FindBar
 from ui.link_picker import LinkPicker
@@ -1076,6 +1077,15 @@ class Editor(Gtk.Box):
             if prev_iter.get_char() == "[":
                 self._picker_open = True
                 GLib.idle_add(self.show_link_picker)
+        elif text == "!" and location.get_offset() >= 1:
+            prev_iter = buffer.get_iter_at_offset(location.get_offset() - 1)
+            if prev_iter.get_char() == "[":
+                line_start = location.copy()
+                line_start.set_line_offset(0)
+                prefix = buffer.get_text(line_start, location, False)
+                if prefix.lstrip().startswith(">"):
+                    self._picker_open = True
+                    GLib.idle_add(self.show_callout_picker)
         elif text == "{" and location.get_offset() > 0:
             prev_iter = buffer.get_iter_at_offset(location.get_offset() - 1)
             if prev_iter.get_char() == "{":
@@ -1263,6 +1273,28 @@ class Editor(Gtk.Box):
 
     def _trigger_deadline_after_slash(self) -> None:
         self.buffer.insert_at_cursor("@")
+
+    def _remove_last_callout_trigger(self) -> None:
+        """Delete the [! that triggered the callout picker."""
+        cursor = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+        if cursor.get_offset() >= 2:
+            start = cursor.copy()
+            start.backward_chars(2)
+            if self.buffer.get_text(start, cursor, False) == "[!":
+                self.buffer.delete(start, cursor)
+
+    def show_callout_picker(self) -> None:
+        """Show the callout-type picker popover at the cursor."""
+        self._picker_open = True
+
+        def on_selected(canon: str, label: str) -> None:
+            self._picker_open = False
+            self._remove_last_callout_trigger()
+            self.buffer.insert_at_cursor(f"[!{canon}] ")
+
+        picker = CalloutPicker(on_selected, self.text_view)
+        picker.connect("closed", lambda *_: setattr(self, "_picker_open", False))
+        self._popup_at_cursor(picker)
 
     # Drag-and-drop image support
 
