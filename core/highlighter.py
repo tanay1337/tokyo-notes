@@ -210,7 +210,29 @@ class MarkdownHighlighter:
             family="Monospace",
         )
         tag("table_data_row", family="Monospace")
-        tag("blockquote", foreground=c["blockquote"], style=Pango.Style.ITALIC)
+        bg_rgba = Gdk.RGBA()
+        bg_rgba.parse(c["blockquote"])
+        r = int(bg_rgba.red * 255)
+        g = int(bg_rgba.green * 255)
+        b = int(bg_rgba.blue * 255)
+        luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        bg_rgba.alpha = 0.04 if luminance > 180 else 0.08
+        tag(
+            "blockquote",
+            foreground=c["blockquote"],
+            style=Pango.Style.ITALIC,
+            left_margin=40,
+            paragraph_background_rgba=bg_rgba,
+        )
+        marker_bg = Gdk.RGBA()
+        marker_bg.parse(c["blockquote"])
+        marker_bg.alpha = 0.25
+        tag(
+            "blockquote_marker",
+            background_rgba=marker_bg,
+            foreground=c["blockquote"],
+            weight=Pango.Weight.BOLD,
+        )
         tag("autolink", foreground=c["external_link"], underline=Pango.Underline.SINGLE)
         tag("inline_html", foreground=c["checkbox_empty"])
         tag("line_break", weight=Pango.Weight.BOLD)
@@ -400,7 +422,13 @@ class MarkdownHighlighter:
                 self.apply_tag(
                     "blockquote",
                     line_start_offset,
-                    line_start_offset + len(bq.group(1)),
+                    line_end_offset,
+                )
+                marker_end = line_start_offset + len(bq.group(1))
+                self.apply_tag(
+                    "blockquote_marker",
+                    line_start_offset,
+                    marker_end,
                 )
 
             # Lists
@@ -658,6 +686,16 @@ class MarkdownHighlighter:
         tag_name = self._tag_for_line(md_line, line_num=line_num)
         if tag_name:
             self.apply_tag(tag_name, line_start_offset, line_end_offset)
+
+        # Blockquote marker styling (visual accent bar at the `>` position)
+        if md_line.kind == "blockquote":
+            bq_match = self.re_blockquote.match(line)
+            if bq_match:
+                self.apply_tag(
+                    "blockquote_marker",
+                    line_start_offset,
+                    line_start_offset + len(bq_match.group(1)),
+                )
 
         # Pipe dimming for table lines
         if md_line.kind in ("table_row", "table_sep"):

@@ -52,6 +52,7 @@ _CONTINUATION_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^(\s*\d+\.)\s+"), "ordered"),
     (re.compile(r"^(\s*(?:[ivxlcdmIVXLCDM]{2,}|[ivxIVX])\.)\s+"), "ordered_roman"),
     (re.compile(r"^(\s*[a-zA-Z]\.)\s+"), "ordered_alpha"),
+    (re.compile(r"^(\s*>+)\s*"), "blockquote"),
 ]
 
 # Ordered list schemes cycled by nesting level (Notion/Google Docs style).
@@ -573,6 +574,8 @@ class Editor(Gtk.Box):
             return False
 
         _match, p_type, indent_text, marker_stripped, content = info
+        if p_type == "blockquote":
+            return False
         current_level = len(indent_text) // 2
         new_level = current_level + 1
         new_indent = "  " * new_level
@@ -632,6 +635,8 @@ class Editor(Gtk.Box):
             return False
 
         _match, p_type, indent_text, marker_stripped, content = info
+        if p_type == "blockquote":
+            return False
         current_level = len(indent_text) // 2
         if current_level == 0:
             return False
@@ -880,6 +885,38 @@ class Editor(Gtk.Box):
             line_end_iter.forward_to_line_end()
             full_line = buffer.get_text(line_start, line_end_iter, False).strip()
             if full_line == marker_only.strip():
+                if p_type == "blockquote":
+                    indent_text = re.match(r"^(\s*)", marker_only).group(1)
+                    depth = marker_only.strip().count(">")
+                    if depth > 1:
+                        new_marker = indent_text + ">" * (depth - 1) + " "
+                        old_line_num = line_start.get_line()
+                        line_end = line_start.copy()
+                        line_end.forward_to_line_end()
+                        buffer.begin_user_action()
+                        buffer.delete(line_start, line_end)
+
+                        def _line_iter(buf, ln: int):
+                            r = buf.get_iter_at_line(ln)
+                            return r[1] if isinstance(r, tuple) else r
+
+                        new_line_start = _line_iter(buffer, old_line_num)
+                        buffer.insert(new_line_start, new_marker)
+                        after_insert = _line_iter(buffer, old_line_num)
+                        after_insert.forward_to_line_end()
+                        buffer.place_cursor(after_insert)
+                        buffer.end_user_action()
+                        self._last_list_type = p_type
+                        self._last_list_prefix = new_marker
+                        return True
+                    else:
+                        line_end = line_start.copy()
+                        line_end.forward_to_line_end()
+                        buffer.delete(line_start, line_end)
+                        self._last_list_type = None
+                        self._last_list_prefix = None
+                        return False
+
                 indent_text = re.match(r"^(\s*)", marker_only).group(1)
                 current_level = len(indent_text) // 2
 
