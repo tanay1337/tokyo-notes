@@ -90,7 +90,7 @@ class NotesManager:
 
     # Note name validation — prevents path traversal via crafted note names.
 
-    _VALID_NAME_RE = re.compile(r"^[a-zA-Z0-9][\w .\-()]*(/[a-zA-Z0-9][\w .\-()]*)*$")
+    _VALID_NAME_RE = re.compile(r"^[\w][\w .\-()]*(/[\w][\w .\-()]*)*$")
 
     @classmethod
     def validate_name(cls, name: str) -> str:
