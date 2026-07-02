@@ -116,11 +116,14 @@ class TocSidebar(Gtk.Box):
         self._headings.clear()
         self._list_box.remove_all()
 
+        _offset = 0
+        _line_num = 0
         for match in _HEADING_RE.finditer(content):
-            line_start = content[: match.start()].count("\n")
+            _line_num += content[_offset : match.start()].count("\n")
+            _offset = match.start()
             level = len(match.group(1))
             text = match.group(2).strip()
-            row = TocHeadingRow(line_start, level, text)
+            row = TocHeadingRow(_line_num, level, text)
             self._headings.append(row)
             self._list_box.append(row)
 

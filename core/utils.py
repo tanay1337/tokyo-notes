@@ -153,6 +153,8 @@ TABLE_SEP_RE: re.Pattern = re.compile(r"^\s*\|?[\s\-:|]+\|?\s*$")
 HEADER_ATX_RE: re.Pattern = re.compile(r"^(#+)( .+)$")
 
 FENCED_CODE_RE: re.Pattern = re.compile(r"```([\w-]*)\n?([\s\S]*?)```")
+
+_ANCHOR_STRIP_RE: re.Pattern = re.compile(r"\uFFFC\n?")
 FLASHCARD_FENCE_RE: re.Pattern = re.compile(
     r"^```flashcard\s*\n(.*?)\n```",
     re.MULTILINE | re.DOTALL,
@@ -273,17 +275,19 @@ def is_entry_focused(widget: object) -> bool:
 
 
 def strip_anchors_for_save(buffer: Gtk.TextBuffer) -> str:
-    """Get buffer text sans child-anchor chars and the newline after each."""
+    """Get buffer text sans child-anchor chars and the newline after each.
+
+    MUST use get_slice(), not get_text(). In GTK 4, get_text() silently omits
+    child-anchor characters (U+FFFC) from its return value, so a regex on that
+    string would find nothing to strip and would leave behind the \\n that
+    update_images() inserts immediately before each anchor — writing one extra
+    blank line per image/PDF/diagram to disk on every save, accumulating
+    indefinitely across load/edit/save cycles. get_slice() preserves the U+FFFC
+    placeholder for every child anchor, letting the regex strip both the anchor
+    and its trailing \\n in one fast C-level pass.
+    """
     start, end = buffer.get_bounds()
-    chars: list[str] = []
-    it = start.copy()
-    while it.compare(end) < 0:
-        ch = it.get_char()
-        if ord(ch) == 0xFFFC:
-            it.forward_char()
-            if it.compare(end) < 0 and it.get_char() == "\n":
-                it.forward_char()
-            continue
-        chars.append(ch)
-        it.forward_char()
-    return "".join(chars)
+    text = buffer.get_slice(start, end, True)
+    if "\ufffc" not in text:
+        return text
+    return _ANCHOR_STRIP_RE.sub("", text)

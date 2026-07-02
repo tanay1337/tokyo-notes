@@ -491,10 +491,24 @@ class NoteLifecycleManager:
                 app.cfg.encrypted.discard(old_name)
                 app.cfg.encrypted.add(new_name)
                 app.cfg.sync_encrypted_set(app.cfg.encrypted)
+            # Structure changed (name changed) — full rebuild needed so the
+            # row appears under the correct sorted position and filename.
             app.refresh_list(app.sidebar.search_entry.get_text())
             app._select_sidebar_row(app.current_note)
-        elif not app.sidebar.search_entry.has_focus():
-            app._select_sidebar_row(app.current_note)
+        else:
+            # Title or snippet may have changed but the note was not renamed,
+            # so its position in the list and its folder are unchanged.
+            # Update the existing row in-place instead of rebuilding every row.
+            start, end = app.buffer.get_bounds()
+            _head_content = app.buffer.get_text(start, end, True)
+            _head = "\n".join(_head_content.split("\n")[:10])
+            app.sidebar.update_row(
+                new_name,
+                derive_display_title(_head, new_name),
+                get_snippet(_head),
+            )
+            if not app.sidebar.search_entry.has_focus():
+                app._select_sidebar_row(app.current_note)
 
         self._maybe_git_commit(new_name, old_name if did_rename else None)
 
