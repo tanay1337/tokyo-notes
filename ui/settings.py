@@ -462,7 +462,7 @@ class SettingsView(Gtk.Box):
         owner_entry.connect(
             "changed",
             lambda e: self.on_config_changed(
-                "telegram_owner_id", int(e.get_text()) if e.get_text().strip() else 0
+                "telegram_owner_id", self._parse_owner_id(e.get_text())
             ),
         )
         owner_row = Adw.ActionRow(
@@ -552,6 +552,14 @@ class SettingsView(Gtk.Box):
             group.add(test_btn)
 
         return group
+
+    @staticmethod
+    def _parse_owner_id(text: str) -> int:
+        text = text.strip()
+        try:
+            return int(text) if text else 0
+        except ValueError:
+            return 0
 
     def _on_telegram_test(self, bot, entry, status_row, status_label) -> None:
         """Test the Telegram bot connection and update the status row."""

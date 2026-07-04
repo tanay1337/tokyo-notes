@@ -32,6 +32,17 @@ def bot(mock_nm, notes_dir):
         token="test:token",
         notes_manager=mock_nm,
         notes_dir=notes_dir,
+        owner_id=12345,
+        on_inbox_updated=MagicMock(),
+    )
+
+
+@pytest.fixture
+def bot_no_owner(mock_nm, notes_dir):
+    return TelegramBot(
+        token="test:token",
+        notes_manager=mock_nm,
+        notes_dir=notes_dir,
         on_inbox_updated=MagicMock(),
     )
 
@@ -93,6 +104,7 @@ class TestHandleMessage:
     def test_text_message(self, bot, mock_nm, notes_dir):
         msg = {
             "message_id": 1,
+            "from": {"id": 12345},
             "chat": {"id": 123},
             "text": "Hello, world!",
             "date": 1700000000,
@@ -106,6 +118,7 @@ class TestHandleMessage:
     def test_photo_without_caption(self, bot, mock_nm, notes_dir):
         msg = {
             "message_id": 2,
+            "from": {"id": 12345},
             "chat": {"id": 123},
             "photo": [
                 {"file_id": "small_photo", "width": 100, "height": 100},
@@ -124,6 +137,7 @@ class TestHandleMessage:
     def test_photo_with_caption(self, bot, notes_dir):
         msg = {
             "message_id": 3,
+            "from": {"id": 12345},
             "chat": {"id": 123},
             "photo": [{"file_id": "pid", "width": 100, "height": 100}],
             "caption": "A nice view",
@@ -139,6 +153,7 @@ class TestHandleMessage:
     def test_photo_download_failure(self, bot, notes_dir):
         msg = {
             "message_id": 4,
+            "from": {"id": 12345},
             "chat": {"id": 123},
             "photo": [{"file_id": "fid", "width": 100, "height": 100}],
             "date": 1700000000,
@@ -153,6 +168,7 @@ class TestHandleMessage:
     def test_pdf_document(self, bot, notes_dir):
         msg = {
             "message_id": 5,
+            "from": {"id": 12345},
             "chat": {"id": 123},
             "document": {
                 "file_id": "pdf_id",
@@ -174,6 +190,7 @@ class TestHandleMessage:
     def test_pdf_download_failure(self, bot, notes_dir):
         msg = {
             "message_id": 6,
+            "from": {"id": 12345},
             "chat": {"id": 123},
             "document": {
                 "file_id": "bad_pdf",
@@ -192,6 +209,7 @@ class TestHandleMessage:
     def test_non_pdf_document_is_ignored(self, bot):
         msg = {
             "message_id": 7,
+            "from": {"id": 12345},
             "chat": {"id": 123},
             "document": {
                 "file_id": "zip_id",
@@ -207,6 +225,7 @@ class TestHandleMessage:
     def test_sticker_is_ignored(self, bot):
         msg = {
             "message_id": 8,
+            "from": {"id": 12345},
             "chat": {"id": 123},
             "sticker": {"file_id": "sticker_id", "emoji": "😊"},
             "date": 1700000000,
@@ -218,8 +237,33 @@ class TestHandleMessage:
     def test_voice_is_ignored(self, bot):
         msg = {
             "message_id": 9,
+            "from": {"id": 12345},
             "chat": {"id": 123},
             "voice": {"file_id": "voice_id", "duration": 5},
+            "date": 1700000000,
+        }
+        with patch.object(bot, "_append_to_inbox") as mock_append:
+            bot._handle_message(msg)
+        mock_append.assert_not_called()
+
+    def test_rejects_message_when_no_owner_id(self, bot_no_owner, mock_nm, notes_dir):
+        msg = {
+            "message_id": 10,
+            "from": {"id": 99999},
+            "chat": {"id": 123},
+            "text": "Hello from unknown user!",
+            "date": 1700000000,
+        }
+        with patch.object(bot_no_owner, "_append_to_inbox") as mock_append:
+            bot_no_owner._handle_message(msg)
+        mock_append.assert_not_called()
+
+    def test_rejects_non_owner_message(self, bot, mock_nm, notes_dir):
+        msg = {
+            "message_id": 11,
+            "from": {"id": 99999},
+            "chat": {"id": 123},
+            "text": "Hello from non-owner!",
             "date": 1700000000,
         }
         with patch.object(bot, "_append_to_inbox") as mock_append:

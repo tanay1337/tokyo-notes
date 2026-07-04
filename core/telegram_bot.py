@@ -134,11 +134,13 @@ class TelegramBot:
         if chat_id is None:
             return
 
-        if self.owner_id is not None:
-            sender = msg.get("from", {}).get("id")
-            if sender != self.owner_id:
-                logger.debug("Ignoring message from non-owner user %s", sender)
-                return
+        if not self.owner_id:
+            logger.debug("No owner ID configured — rejecting message")
+            return
+        sender = msg.get("from", {}).get("id")
+        if sender != self.owner_id:
+            logger.debug("Ignoring message from non-owner user %s", sender)
+            return
 
         photo = msg.get("photo")
         document = msg.get("document")

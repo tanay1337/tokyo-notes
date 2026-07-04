@@ -49,17 +49,24 @@ class SpeechButton(Gtk.ToggleButton):
             language=self._language,
             input_device=self._input_device,
             on_final=lambda text: GLib.idle_add(self._insert_text, text),
-            on_quiet_audio=self._on_quiet_audio,
+            on_quiet_audio=lambda: (
+                GLib.idle_add(self._on_quiet_audio) if self._on_quiet_audio else None
+            ),
         )
         return self._client
 
+    def _shutdown_client(self) -> None:
+        if self._client is not None:
+            self._client.shutdown()
+            self._client = None
+
     def update_input_device(self, device: str | int | None) -> None:
         self._input_device = device
-        self._client = None
+        self._shutdown_client()
 
     def update_language(self, language: str | None) -> None:
         self._language = language
-        self._client = None
+        self._shutdown_client()
 
     def _start_recording(self) -> None:
         self.add_css_class("recording")

@@ -194,8 +194,6 @@ class GraphView(Gtk.Box):
 
     def _run_simulation(self, step: int) -> None:
         """Run one chunk of the force simulation (10 steps per idle tick)."""
-        if not getattr(self, "_realized", False):
-            return  # widget unrealized/destroyed
         chunk = 10
         end = min(step + chunk, _STEPS)
         for _ in range(step, end):

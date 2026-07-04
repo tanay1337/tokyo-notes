@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import threading
 from pathlib import Path
 from typing import Callable
 
@@ -27,14 +28,17 @@ _KEY_LEN = 32
 # Bounded thread pool for async key derivation. Each Argon2 job uses 64 MiB,
 # so keep concurrency low to avoid memory spikes during pre-derivation.
 _POOL: concurrent.futures.ThreadPoolExecutor | None = None
+_POOL_LOCK = threading.Lock()
 
 
 def get_pool() -> concurrent.futures.ThreadPoolExecutor:
     global _POOL
     if _POOL is None:
-        _POOL = concurrent.futures.ThreadPoolExecutor(
-            max_workers=max(1, min(2, os.cpu_count() or 2)),
-        )
+        with _POOL_LOCK:
+            if _POOL is None:
+                _POOL = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=max(1, min(2, os.cpu_count() or 2)),
+                )
     return _POOL
 
 

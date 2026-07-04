@@ -1800,6 +1800,7 @@ class DiagramView(Gtk.Box):
                 shape=ndata.get("shape", "pill"),
             )
             self._diagram.nodes.append(node)
+            id_map[ndata["_orig_id"]] = nid
             new_ids.append(nid)
         for from_id, to_id, etype, elabel in self._clipboard_edges:
             src = id_map.get(from_id)

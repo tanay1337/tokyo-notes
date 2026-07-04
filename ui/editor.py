@@ -300,6 +300,7 @@ class Editor(Gtk.Box):
         self._image_pixbuf_cache: OrderedDict[str, tuple[float, GdkPixbuf.Pixbuf]] = (
             OrderedDict()
         )
+        self._image_cache_lock = threading.RLock()
         self._image_cache_max_bytes: int = 256 * 1024 * 1024  # 256 MB default budget
         self._image_cache_bytes: int = 0  # running decoded-pixel total
         self._last_image_text_hash: str = ""
@@ -1636,16 +1637,18 @@ class Editor(Gtk.Box):
         except OSError:
             return None
         key = f"pdf:{pdf_path.resolve()}:{max_w}x{max_h}:p{page}"
-        cached = self._image_pixbuf_cache.get(key)
-        if cached is not None and cached[0] == mtime:
-            self._image_pixbuf_cache.move_to_end(key)  # keep LRU order accurate
-            return cached[1]
+        with self._image_cache_lock:
+            cached = self._image_pixbuf_cache.get(key)
+            if cached is not None and cached[0] == mtime:
+                self._image_pixbuf_cache.move_to_end(key)
+                return cached[1]
 
         pixbuf = self._render_pdf_via_poppler(pdf_path, max_w, max_h, page)
         if pixbuf is None:
             pixbuf = self._render_pdf_via_pdftoppm(pdf_path, max_w, max_h, page)
         if pixbuf is not None:
-            self._image_pixbuf_cache[key] = (mtime, pixbuf)
+            with self._image_cache_lock:
+                self._image_pixbuf_cache[key] = (mtime, pixbuf)
         return pixbuf
 
     def _get_pdf_page_count(self, pdf_path: Path) -> int:
@@ -1841,13 +1844,14 @@ class Editor(Gtk.Box):
         entry's byte cost is width × height × 4 (RGBA).
         """
         self._image_cache_bytes += new_bytes
-        while (
-            self._image_cache_bytes > self._image_cache_max_bytes
-            and self._image_pixbuf_cache
-        ):
-            _key, (_mtime, _pb) = self._image_pixbuf_cache.popitem(last=False)
-            evicted = _pb.get_width() * _pb.get_height() * 4
-            self._image_cache_bytes = max(0, self._image_cache_bytes - evicted)
+        with self._image_cache_lock:
+            while (
+                self._image_cache_bytes > self._image_cache_max_bytes
+                and self._image_pixbuf_cache
+            ):
+                _key, (_mtime, _pb) = self._image_pixbuf_cache.popitem(last=False)
+                evicted = _pb.get_width() * _pb.get_height() * 4
+                self._image_cache_bytes = max(0, self._image_cache_bytes - evicted)
 
     def _warm_image_cache(self, notes_dir: Path) -> None:
         """Pre-decode images referenced in the current buffer in a daemon thread.
@@ -1877,8 +1881,9 @@ class Editor(Gtk.Box):
             if full_path is None or not full_path.exists():
                 continue
             key = f"{full_path.resolve()}:{load_res}x{load_res}"
-            if key not in self._image_pixbuf_cache:
-                paths_to_warm.append(full_path)
+            with self._image_cache_lock:
+                if key not in self._image_pixbuf_cache:
+                    paths_to_warm.append(full_path)
 
         if not paths_to_warm:
             return
@@ -1902,23 +1907,25 @@ class Editor(Gtk.Box):
             logger.warning("IMAGE: stat failed for %s", full_path)
             return None
         key = f"{full_path.resolve()}:{max_w}x{max_h}"
-        cached = self._image_pixbuf_cache.get(key)
-        if cached is not None and cached[0] == mtime:
-            self._image_pixbuf_cache.move_to_end(key)  # keep LRU order accurate
-            return cached[1]
+        with self._image_cache_lock:
+            cached = self._image_pixbuf_cache.get(key)
+            if cached is not None and cached[0] == mtime:
+                self._image_pixbuf_cache.move_to_end(key)
+                return cached[1]
         try:
             pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
                 str(full_path), max_w, max_h, True
             )
-            self._image_pixbuf_cache[key] = (mtime, pixbuf)
-            # Move key to MRU position and evict LRU entries if over budget.
-            self._image_pixbuf_cache.move_to_end(key)
+            with self._image_cache_lock:
+                self._image_pixbuf_cache[key] = (mtime, pixbuf)
+                self._image_pixbuf_cache.move_to_end(key)
             decoded_bytes = pixbuf.get_width() * pixbuf.get_height() * 4
             self._evict_image_cache_if_needed(decoded_bytes)
             return pixbuf
         except Exception as exc:
             logger.warning("Failed to load image %s: %s", full_path, exc)
-            self._image_pixbuf_cache.pop(key, None)
+            with self._image_cache_lock:
+                self._image_pixbuf_cache.pop(key, None)
             return None
 
     def _pixbuf_from_broken(self) -> GdkPixbuf.Pixbuf | None:
@@ -1928,12 +1935,14 @@ class Editor(Gtk.Box):
         if not broken_path.exists():
             return None
         key = str(broken_path.resolve())
-        cached = self._image_pixbuf_cache.get(key)
-        if cached is not None:
-            return cached[1]
+        with self._image_cache_lock:
+            cached = self._image_pixbuf_cache.get(key)
+            if cached is not None:
+                return cached[1]
         try:
             pixbuf = GdkPixbuf.Pixbuf.new_from_file(str(broken_path))
-            self._image_pixbuf_cache[key] = (0.0, pixbuf)
+            with self._image_cache_lock:
+                self._image_pixbuf_cache[key] = (0.0, pixbuf)
             return pixbuf
         except Exception as exc:
             logger.warning("Failed to load broken-image.svg: %s", exc)
