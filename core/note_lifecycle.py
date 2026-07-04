@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import gi
@@ -172,6 +173,13 @@ class NoteLifecycleManager:
             app._set_buffer_text(content)
             app.content_stack.set_visible_child_name("editor")
 
+            # Start warming the pixbuf cache in the background so that the
+            # first update_images() render (fired after highlighting completes)
+            # finds already-decoded pixbufs and only has to attach widgets.
+            if app._has_images:
+                notes_dir = Path(app.notes_manager.notes_dir).resolve()
+                app.editor._warm_image_cache(notes_dir)
+
             if not app._sidebar_search_text:
                 app._restore_cursor_for_note(app.current_note)
             GLib.idle_add(
@@ -230,6 +238,33 @@ class NoteLifecycleManager:
             app._pending_highlight_id = 0
             if app._sidebar_search_text:
                 app._apply_search_highlights()
+            # Schedule progressive spell check now that the highlight is done.
+            # This runs 50 lines per idle tick so the note is immediately usable.
+            if app.highlighter and app.highlighter.spell_check_enabled:
+                GLib.idle_add(self._spell_check_chunk, expected_note, 0)
+        return False
+
+    def _spell_check_chunk(self, expected_note: str, start_line: int) -> bool:
+        """Spell-check 50 lines per idle tick, chaining until the note is done.
+
+        Returns GLib.SOURCE_REMOVE (False) always — the chain is continued by
+        scheduling the next call explicitly, not by returning True.
+        """
+        app = self.app
+        if app.current_note != expected_note:
+            return False  # note switched — abort
+        if not app.highlighter or not app.highlighter.spell_check_enabled:
+            return False
+        total = app.buffer.get_line_count()
+        if start_line >= total:
+            return False
+
+        end_line = min(start_line + 50, total)
+        code_block_lines = app.highlighter._code_block_line_set()
+        app.highlighter._spell_check_pass(start_line, end_line, code_block_lines)
+
+        if end_line < total:
+            GLib.idle_add(self._spell_check_chunk, expected_note, end_line)
         return False
 
     # Navigate

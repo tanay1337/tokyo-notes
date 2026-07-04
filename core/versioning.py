@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime
 import logging
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -134,6 +135,23 @@ class GitVersionController:
         except git.GitCommandError as e:
             logger.warning("Could not stage files: %s", e)
 
+    def _git_execute(self, *args: str, timeout: int = 10) -> str:
+        """Run a low-level git command with a hard timeout.
+
+        Wraps ``self._repo.git.execute`` so that runaway git operations
+        (e.g. background gc, slow index lock contention) cannot stall the
+        I/O thread pool indefinitely.  Raises ``git.GitCommandError`` on
+        failure or timeout so callers can handle both the same way.
+        """
+        try:
+            return self._repo.git.execute(
+                ["git"] + list(args),
+                kill_after_timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            logger.warning("git command timed out (%ds): %s", timeout, args)
+            raise git.GitCommandError(list(args), 128, stderr=str(exc)) from exc
+
     def auto_commit(self, note_name: str) -> bool:
         """Stage and commit a single note file.
 
@@ -153,9 +171,9 @@ class GitVersionController:
             has_head = bool(self._repo.heads)
 
             if has_head:
-                tracked = self._repo.git.ls_tree("-r", "HEAD", rel_path).strip()
+                tracked = self._git_execute("ls-tree", "-r", "HEAD", rel_path).strip()
                 if tracked:
-                    diff = self._repo.git.diff("HEAD", rel_path, no_color=True)
+                    diff = self._git_execute("diff", "HEAD", "--no-color", rel_path)
                     if not diff:
                         logger.debug("No changes to commit for '%s'", note_name)
                         return False

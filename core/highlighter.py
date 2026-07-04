@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from gi.repository import Gdk, Gtk, Pango
 
@@ -124,6 +124,8 @@ class MarkdownHighlighter:
         # Cache for _front_matter_range — invalidated when buffer content changes.
         self._fm_cached: tuple[int, int] | None = None
         self._fm_stamp: int = -1
+
+        self._on_invisible_applied: Callable | None = None
 
         self.setup_tags()
 
@@ -575,9 +577,12 @@ class MarkdownHighlighter:
 
             self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
 
-        if self.spell_checker and self.spell_check_enabled:
-            code_block_lines = self._code_block_line_set()
-            self._spell_check_pass(start_line, end_line, code_block_lines)
+        # Spell check is intentionally NOT called here. Running a full
+        # _spell_check_pass(0, total_lines) inside highlight() costs 200+ ms
+        # on large documents and fires synchronously on every selection release.
+        # The 500 ms do_delayed_spell_check debounce handles all incremental
+        # spell checking during editing. On note open the chunked spell-check
+        # idle chain (Fix E below) handles the initial full pass progressively.
 
     # Helpers
 
@@ -658,6 +663,8 @@ class MarkdownHighlighter:
         start_iter = self.get_iter_at_offset(start_offset)
         end_iter = self.get_iter_at_offset(end_offset)
         self.buffer.apply_tag_by_name(tag_name, start_iter, end_iter)
+        if tag_name == "invisible" and self._on_invisible_applied is not None:
+            self._on_invisible_applied()
 
     def _apply_blockquote_hanging(
         self,
@@ -1131,6 +1138,10 @@ class MarkdownHighlighter:
             it_end = it.copy()
             if not it_end.ends_line():
                 it_end.forward_to_line_end()
+            # Clear stale misspelled tags for this line before re-checking.
+            # Without this, corrected words keep their underline until the
+            # next remove_all_tags() in the highlight pass.
+            self.buffer.remove_tag_by_name("misspelled", it, it_end)
             line = self.buffer.get_text(it, it_end, True)
             line_start = it.get_offset()
 

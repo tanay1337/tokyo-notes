@@ -53,6 +53,7 @@ class TestHighlighterIntegration:
                 self.buffer = buffer
                 self.highlighter = highlighter
                 self._has_selection = False
+                self._has_invisible_tags = False
                 self.highlight_called = False
                 self.content_stack = MagicMock()
                 self.content_stack.get_visible_child_name.return_value = "editor"
@@ -63,6 +64,11 @@ class TestHighlighterIntegration:
                 return False
 
         app = MockApp()
+
+        # Wire the invisible-tag tracking callback (as done in main.py)
+        highlighter._on_invisible_applied = lambda: setattr(
+            app, "_has_invisible_tags", True
+        )
 
         # Connect the real handler from TokyoNotes
         buffer.connect(

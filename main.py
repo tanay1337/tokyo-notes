@@ -101,6 +101,9 @@ class TokyoNotes(Adw.Application):
         self.last_cursor_line: int = -1
         self._pending_highlight_id: int = 0
         self._has_selection: bool = False
+        self._has_invisible_tags: bool = (
+            False  # set True when highlighter applies "invisible" tag
+        )
         self._has_images: bool = False
         self._buffer_mod_counter: int = 0
         self._last_sidebar_update_counter: int = -1
@@ -1507,6 +1510,11 @@ class TokyoNotes(Adw.Application):
             "always_show_markdown", False
         )
         self.highlighter.highlight()
+
+        def _mark_invisible_present() -> None:
+            self._has_invisible_tags = True
+
+        self.highlighter._on_invisible_applied = _mark_invisible_present
 
         # Search-highlight tag for sidebar search matches in the editor
         self._search_highlight_tag = Gtk.TextTag.new("search-highlight")
@@ -3501,16 +3509,19 @@ class TokyoNotes(Adw.Application):
 
         if has_sel:
             # Selection just started: remove invisible tags so Pango and the
-            # btree stay in sync while the user drags. We do this atomically
-            # to avoid a visible redraw of the intermediate state.
-            buffer.begin_irreversible_action()
-            try:
-                start, end = buffer.get_bounds()
-                buffer.remove_tag_by_name("invisible", start, end)
-            finally:
-                buffer.end_irreversible_action()
+            # btree stay in sync while the user drags. Skip entirely when no
+            # invisible tags are present (plain-text lines — the common case).
+            if self._has_invisible_tags:
+                buffer.begin_irreversible_action()
+                try:
+                    start, end = buffer.get_bounds()
+                    buffer.remove_tag_by_name("invisible", start, end)
+                finally:
+                    buffer.end_irreversible_action()
+                self._has_invisible_tags = False
         else:
             # Selection cleared: restore the full render (invisible markers back).
+            # _has_invisible_tags will be set again by the highlight pass if needed.
             self._do_highlight()
 
     def on_click_pressed(

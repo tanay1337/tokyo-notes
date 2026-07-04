@@ -17,6 +17,7 @@ import threading
 import urllib.parse
 import urllib.request
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 from time import monotonic
 from typing import Any, Callable
@@ -296,7 +297,11 @@ class Editor(Gtk.Box):
         self._image_update_pending: bool = False
         self._pending_notes_dir: Path = Path()
         self._notes_dir: Path = Path()
-        self._image_pixbuf_cache: dict[str, tuple[float, GdkPixbuf.Pixbuf]] = {}
+        self._image_pixbuf_cache: OrderedDict[str, tuple[float, GdkPixbuf.Pixbuf]] = (
+            OrderedDict()
+        )
+        self._image_cache_max_bytes: int = 256 * 1024 * 1024  # 256 MB default budget
+        self._image_cache_bytes: int = 0  # running decoded-pixel total
         self._last_image_text_hash: str = ""
         self._image_update_done_callback: Callable | None = None
 
@@ -1633,6 +1638,7 @@ class Editor(Gtk.Box):
         key = f"pdf:{pdf_path.resolve()}:{max_w}x{max_h}:p{page}"
         cached = self._image_pixbuf_cache.get(key)
         if cached is not None and cached[0] == mtime:
+            self._image_pixbuf_cache.move_to_end(key)  # keep LRU order accurate
             return cached[1]
 
         pixbuf = self._render_pdf_via_poppler(pdf_path, max_w, max_h, page)
@@ -1827,6 +1833,65 @@ class Editor(Gtk.Box):
 
     # Image rendering
 
+    def _evict_image_cache_if_needed(self, new_bytes: int) -> None:
+        """Evict the least-recently-used pixbuf entries until there is room
+        for ``new_bytes`` of new decoded pixel data.
+
+        The budget is self._image_cache_max_bytes (default 256 MB).  Each
+        entry's byte cost is width × height × 4 (RGBA).
+        """
+        self._image_cache_bytes += new_bytes
+        while (
+            self._image_cache_bytes > self._image_cache_max_bytes
+            and self._image_pixbuf_cache
+        ):
+            _key, (_mtime, _pb) = self._image_pixbuf_cache.popitem(last=False)
+            evicted = _pb.get_width() * _pb.get_height() * 4
+            self._image_cache_bytes = max(0, self._image_cache_bytes - evicted)
+
+    def _warm_image_cache(self, notes_dir: Path) -> None:
+        """Pre-decode images referenced in the current buffer in a daemon thread.
+
+        Scans the buffer for ``![...](...)`` references, identifies which paths
+        are not yet in the pixbuf cache, and decodes them in the background.
+        By the time ``update_images()`` fires (2-second debounce), the cache is
+        warm and the main-thread render costs only widget attachment, not decode.
+        """
+        start, end = self.buffer.get_bounds()
+        text = self.buffer.get_text(start, end, True)
+        from core.utils import MD_URL_BALANCED
+
+        image_re = re.compile(r"!\[([^\]]*)\]\((" + MD_URL_BALANCED + r")\)")
+        paths_to_warm: list[Path] = []
+        editor_width = self.text_view.get_allocated_width() or 800
+        load_res = min(int(editor_width * 0.47), 700) * 2
+
+        for match in image_re.finditer(text):
+            img_path = match.group(2)
+            if img_path.startswith(("http://", "https://")):
+                continue
+            clean = img_path.split("#")[0].split("?")[0]
+            if clean.lower().endswith(".pdf"):
+                continue
+            full_path = resolve_image_path(notes_dir, img_path)
+            if full_path is None or not full_path.exists():
+                continue
+            key = f"{full_path.resolve()}:{load_res}x{load_res}"
+            if key not in self._image_pixbuf_cache:
+                paths_to_warm.append(full_path)
+
+        if not paths_to_warm:
+            return
+
+        def _decode() -> None:
+            for path in paths_to_warm:
+                try:
+                    self._load_image_pixbuf(path, load_res, load_res)
+                except Exception:
+                    pass  # errors handled by the main-thread render
+
+        threading.Thread(target=_decode, daemon=True).start()
+
     def _load_image_pixbuf(
         self, full_path: Path, max_w: int = 800, max_h: int = 800
     ) -> GdkPixbuf.Pixbuf | None:
@@ -1839,12 +1904,17 @@ class Editor(Gtk.Box):
         key = f"{full_path.resolve()}:{max_w}x{max_h}"
         cached = self._image_pixbuf_cache.get(key)
         if cached is not None and cached[0] == mtime:
+            self._image_pixbuf_cache.move_to_end(key)  # keep LRU order accurate
             return cached[1]
         try:
             pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
                 str(full_path), max_w, max_h, True
             )
             self._image_pixbuf_cache[key] = (mtime, pixbuf)
+            # Move key to MRU position and evict LRU entries if over budget.
+            self._image_pixbuf_cache.move_to_end(key)
+            decoded_bytes = pixbuf.get_width() * pixbuf.get_height() * 4
+            self._evict_image_cache_if_needed(decoded_bytes)
             return pixbuf
         except Exception as exc:
             logger.warning("Failed to load image %s: %s", full_path, exc)
