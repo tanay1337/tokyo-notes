@@ -38,6 +38,7 @@ class SettingsView(Gtk.Box):
         on_restore_builtins: Callable[[], Any] | None = None,
         templates: list[dict[str, str]] | None = None,
         assets_dir: Path | None = None,
+        telegram_bot=None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
 
@@ -57,6 +58,7 @@ class SettingsView(Gtk.Box):
         self._templates = templates or []
         self._git_available = initial_values.get("git_available", False)
         self._switch_rows: dict[str, Adw.SwitchRow] = {}
+        self._telegram_bot = telegram_bot
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
@@ -101,6 +103,10 @@ class SettingsView(Gtk.Box):
         self._versioning_group = self._build_versioning_group()
         self._content.append(self._versioning_group)
         self._settings_groups.append(self._versioning_group)
+
+        self._telegram_group = self._build_telegram_group()
+        self._content.append(self._telegram_group)
+        self._settings_groups.append(self._telegram_group)
 
         self._private_group = self._build_private_group()
         self._content.append(self._private_group)
@@ -425,6 +431,141 @@ class SettingsView(Gtk.Box):
         group.add(self._git_auto_commit_row)
 
         return group
+
+    def _build_telegram_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title=tr("Telegram Bot"))
+
+        token = self._initial_values.get("telegram_bot_token", "")
+
+        entry = Gtk.PasswordEntry()
+        entry.set_text(token)
+        entry.set_show_peek_icon(True)
+        entry.set_valign(Gtk.Align.CENTER)
+        entry.connect(
+            "changed",
+            lambda e: self.on_config_changed("telegram_bot_token", e.get_text()),
+        )
+        token_row = Adw.ActionRow(
+            title=tr("Bot Token"),
+            subtitle=tr("Connect to Telegram. Get a token from @BotFather."),
+        )
+        token_row.add_suffix(entry)
+        group.add(token_row)
+
+        owner_id = self._initial_values.get("telegram_owner_id", 0)
+        owner_entry = Gtk.Entry()
+        owner_entry.set_text(str(owner_id) if owner_id else "")
+        owner_entry.set_valign(Gtk.Align.CENTER)
+        owner_entry.set_placeholder_text(tr("123456789"))
+        owner_entry.set_max_length(15)
+        owner_entry.set_width_chars(12)
+        owner_entry.connect(
+            "changed",
+            lambda e: self.on_config_changed(
+                "telegram_owner_id", int(e.get_text()) if e.get_text().strip() else 0
+            ),
+        )
+        owner_row = Adw.ActionRow(
+            title=tr("Owner Telegram ID"),
+            subtitle=tr(
+                "Only accept messages from this user. Get your ID from @userinfobot."
+            ),
+        )
+        owner_row.add_suffix(owner_entry)
+        group.add(owner_row)
+
+        all_notes = self._initial_values.get("all_notes", ["Inbox"])
+        target = self._initial_values.get("telegram_target_note", "Inbox")
+        note_list = Gtk.StringList.new(all_notes)
+        target_idx = max(0, (all_notes.index(target) if target in all_notes else 0))
+        target_row = Adw.ComboRow(
+            title=tr("Target Note"),
+            subtitle=tr("Messages are appended to this note"),
+            model=note_list,
+            selected=target_idx,
+        )
+        target_row.connect(
+            "notify::selected",
+            lambda r, _pspec: self.on_config_changed(
+                "telegram_target_note",
+                r.get_selected_item().get_string(),
+            ),
+        )
+        group.add(target_row)
+
+        group.add(
+            self._make_switch_row(
+                tr("Separator Line"),
+                tr("Insert a blank line before each incoming message"),
+                self._initial_values.get("telegram_separator", False),
+                "telegram_separator",
+            )
+        )
+
+        prefix = self._initial_values.get("telegram_prefix", "")
+        prefix_entry = Gtk.Entry()
+        prefix_entry.set_text(prefix)
+        prefix_entry.set_valign(Gtk.Align.CENTER)
+        prefix_entry.set_placeholder_text("- [ ]  ")
+        prefix_entry.set_max_length(50)
+        prefix_entry.set_width_chars(12)
+        prefix_entry.connect(
+            "changed", lambda e: self.on_config_changed("telegram_prefix", e.get_text())
+        )
+        prefix_row = Adw.ActionRow(
+            title=tr("Message Prefix"),
+            subtitle=tr('Text added before each incoming message (e.g. "- [ ] ")'),
+        )
+        prefix_row.add_suffix(prefix_entry)
+        group.add(prefix_row)
+
+        bot = self._telegram_bot
+        status_text = tr("Not configured")
+        status_icon = "⊙"
+        if bot is not None:
+            if bot.is_running():
+                status_text = tr("Running")
+                status_icon = "●"
+            elif bot.token:
+                status_text = tr("Stopped (invalid token?)")
+                status_icon = "○"
+            else:
+                status_text = tr("Not configured")
+                status_icon = "⊙"
+
+        status_row = Adw.ActionRow(
+            title=tr("Status"),
+            subtitle=status_text,
+        )
+        status_label = Gtk.Label(label=status_icon)
+        status_label.add_css_class("caption")
+        status_row.add_suffix(status_label)
+        group.add(status_row)
+
+        if bot is not None:
+            test_btn = Gtk.Button(label=tr("Test Connection"))
+            test_btn.add_css_class("flat")
+            test_btn.connect(
+                "clicked",
+                lambda _b: self._on_telegram_test(bot, entry, status_row, status_label),
+            )
+            group.add(test_btn)
+
+        return group
+
+    def _on_telegram_test(self, bot, entry, status_row, status_label) -> None:
+        """Test the Telegram bot connection and update the status row."""
+        # Temporarily update the token in case the user changed it without saving
+        bot.token = entry.get_text()
+        error = bot.test_connection()
+        if error is None:
+            status_label.set_text("●")
+            status_row.set_subtitle(tr("Connected"))
+            self.on_config_changed("telegram_bot_token", entry.get_text())
+            bot.start()
+        else:
+            status_label.set_text("○")
+            status_row.set_subtitle(error)
 
     def _build_private_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=tr("Private Notes"))

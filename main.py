@@ -85,6 +85,19 @@ class TokyoNotes(Adw.Application):
         self.template_manager = TemplateManager(self)
         self.diagram_manager = DiagramManager(notes_dir=self.notes_folder)
 
+        from core.telegram_bot import TelegramBot
+
+        self.telegram_bot: TelegramBot | None = TelegramBot(
+            token=self.cfg.get("telegram_bot_token", ""),
+            notes_manager=self.notes_manager,
+            notes_dir=Path(self.notes_folder),
+            target_note=self.cfg.get("telegram_target_note", "Inbox"),
+            separator=self.cfg.get("telegram_separator", False),
+            prefix=self.cfg.get("telegram_prefix", ""),
+            owner_id=self.cfg.get("telegram_owner_id") or None,
+            on_inbox_updated=lambda: GLib.idle_add(self._on_bot_inbox_updated),
+        )
+
         # Runtime state — all timeout IDs kept together for easy auditing
         self.current_note: str | None = None
         self.current_open_diagram: Diagram | None = None
@@ -147,6 +160,8 @@ class TokyoNotes(Adw.Application):
         ):
             self.buffer.set_text("")
         self._zero_session_password()
+        if self.telegram_bot is not None:
+            self.telegram_bot.stop()
         self.cfg.flush_immediate()
         shutdown_pool()
         logger.info("Tokyo Notes shutting down")
@@ -1431,6 +1446,8 @@ class TokyoNotes(Adw.Application):
             on_bold=self.on_bold_shortcut,
             on_italic=self.on_italic_shortcut,
         )
+        if self.telegram_bot is not None:
+            self.telegram_bot.start()
         logger.info("Tokyo Notes started — notes folder: %s", self.notes_folder)
 
     def _build_content_header(self) -> Adw.HeaderBar:
@@ -1729,6 +1746,23 @@ class TokyoNotes(Adw.Application):
             self.refresh_list()
         elif key == "embed_width":
             self._reschedule("image_timeout_id", 100, self.do_delayed_images)
+        elif key == "telegram_bot_token":
+            self.telegram_bot_token_pending = value
+            self._reschedule(
+                "telegram_bot_restart_tid", 500, self._restart_telegram_bot
+            )
+        elif key == "telegram_target_note":
+            if self.telegram_bot is not None:
+                self.telegram_bot.target_note = value
+        elif key == "telegram_separator":
+            if self.telegram_bot is not None:
+                self.telegram_bot.separator = bool(value)
+        elif key == "telegram_prefix":
+            if self.telegram_bot is not None:
+                self.telegram_bot.prefix = str(value)
+        elif key == "telegram_owner_id":
+            if self.telegram_bot is not None:
+                self.telegram_bot.owner_id = int(value) if value else None
         elif key == "speech_rebuild":
             from core.speech_setup import remove as remove_venv
 
@@ -3177,7 +3211,7 @@ class TokyoNotes(Adw.Application):
 
     def _safe_source_remove(self, attr: str) -> None:
         """Cancel a GLib source by attr name, without warning if already removed."""
-        tid = getattr(self, attr)
+        tid = getattr(self, attr, 0)
         if tid > 0:
             setattr(self, attr, 0)
             GLib.source_remove(tid)
@@ -3253,6 +3287,24 @@ class TokyoNotes(Adw.Application):
         """Cancel any pending GLib timeout and schedule a fresh one."""
         self._safe_source_remove(timeout_attr)
         setattr(self, timeout_attr, GLib.timeout_add(delay_ms, callback))
+
+    def _restart_telegram_bot(self) -> bool:
+        """Debounced restart of the Telegram bot after token change."""
+        if self.telegram_bot is not None:
+            self.telegram_bot.stop()
+            self.telegram_bot.token = self.telegram_bot_token_pending
+            self.telegram_bot.start()
+        self.telegram_bot_restart_tid = 0
+        return False
+
+    def _on_bot_inbox_updated(self) -> None:
+        """Refresh the UI after the Telegram bot appended to the target note."""
+        self.refresh_list()
+        target = self.telegram_bot.target_note if self.telegram_bot else "Inbox"
+        if self.current_note == target:
+            content = self.notes_manager.read_plain(target)
+            self._set_buffer_text(content)
+            self._schedule_full_highlight()
 
     # Search
 

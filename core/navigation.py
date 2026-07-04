@@ -206,6 +206,14 @@ class NavigationController:
                     "git_enabled": app.cfg.get("git_enabled", False),
                     "git_auto_commit": app.cfg.get("git_auto_commit", True),
                     "sort_order": app.cfg.get("sort_order", "last_modified"),
+                    "telegram_bot_token": app.cfg.get("telegram_bot_token", ""),
+                    "telegram_target_note": app.cfg.get(
+                        "telegram_target_note", "Inbox"
+                    ),
+                    "telegram_separator": app.cfg.get("telegram_separator", False),
+                    "telegram_prefix": app.cfg.get("telegram_prefix", ""),
+                    "telegram_owner_id": app.cfg.get("telegram_owner_id", 0),
+                    "all_notes": app.notes_manager.get_notes(),
                 },
                 on_change_password=app._show_password_change_dialog,
                 on_set_password=app._show_setup_dialog,
@@ -216,6 +224,7 @@ class NavigationController:
                 on_restore_builtins=app._on_restore_builtins,
                 templates=templates,
                 assets_dir=app.base_dir / "assets" / "settings",
+                telegram_bot=app.telegram_bot,
             )
             app.content_stack.add_named(app.settings_view, "settings")
         else:

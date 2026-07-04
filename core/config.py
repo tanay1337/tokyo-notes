@@ -40,6 +40,11 @@ _DEFAULTS: dict[str, Any] = {
     "speech_language": None,
     "speech_input_device": None,
     "embed_width": 0,
+    "telegram_bot_token": "",
+    "telegram_target_note": "Inbox",
+    "telegram_separator": False,
+    "telegram_prefix": "",
+    "telegram_owner_id": 0,
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).

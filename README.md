@@ -48,6 +48,7 @@ Tokyo Notes is a beautiful markdown note-taking app that combines interactive di
 - **Flashcards**: Extract Q/A cards from flashcard codeblocks and flip through them to review. See format below.
 - **Diagrams**: Create, edit, and embed interactive node diagrams directly in your notes.
 - **Offline Dictation**: Optional speech-to-text dictation powered by faster-whisper that runs fully offline.
+- **Telegram Bot**: Forward messages, photos, and PDFs from Telegram directly into any note via a configurable bot. Supports owner-only filtering.
 - **And Much More**: Themes, Archive System, Full-Text Search, Sakura Animations.
 
 ## Installation
