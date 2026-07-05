@@ -271,12 +271,21 @@ class NoteLifecycleManager:
 
     def on_link_clicked(self, note_name: str) -> None:
         app = self.app
-        app.content_stack.set_visible_child_name("editor")
         if app._select_sidebar_row(note_name):
-            app.nav.update_header_ui(note_name, is_editor=True)
             app.sidebar.set_active_view("editor")
             app._set_backlinks_visible(True)
+        elif "/" in note_name:
+            parts = note_name.split("/")
+            for i in range(1, len(parts)):
+                app.sidebar._folder_expanded["/".join(parts[:i])] = True
+            app.refresh_list()
+            if app._select_sidebar_row(note_name):
+                app.sidebar.set_active_view("editor")
+                app._set_backlinks_visible(True)
+            else:
+                app.content_stack.set_visible_child_name("editor")
         elif app.cfg.get("create_on_link_click", True):
+            app.content_stack.set_visible_child_name("editor")
             try:
                 app._flush_pending_save()
                 name = app.notes_manager.reserve_name(note_name)

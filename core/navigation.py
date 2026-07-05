@@ -157,6 +157,10 @@ class NavigationController:
         if app.graph_view is None:
             app.graph_view = GraphView(graph_data, app.lifecycle.on_link_clicked)
             app.content_stack.add_named(app.graph_view, "graph")
+            app.graph_view.update_font(
+                app.cfg.get("font_family") or "Inter",
+                (app.cfg.get("font_size") or 11) * 96 // 72,
+            )
         else:
             app.graph_view.update_data(graph_data)
         app.content_stack.set_visible_child_name("graph")

@@ -10,6 +10,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("PangoCairo", "1.0")
+import cairo
 from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo
 
 from core.translations import tr
@@ -542,23 +543,27 @@ class GraphView(Gtk.Box):
                     label_alpha = 1.0
             if label_alpha > 0:
                 ox, oy = label_offsets.get(node, (0.0, 0.0))
-                cr.set_source_rgba(fg.red, fg.green, fg.blue, label_alpha)
                 stem = node
                 folder_path = ""
                 if "/" in node:
                     folder_path, stem = node.rsplit("/", 1)
+                cr.save()
+                cr.translate(x + r + 4 + ox, y - 6 + oy)
+                cr.set_source_rgba(fg.red, fg.green, fg.blue, label_alpha)
+                cr.select_font_face(
+                    self._label_family,
+                    cairo.FONT_SLANT_NORMAL,
+                    cairo.FONT_WEIGHT_NORMAL,
+                )
+                cr.set_font_size(self._label_size)
+                cr.text_path(stem)
+                cr.fill()
                 if folder_path:
-                    escaped_stem = GLib.markup_escape_text(stem)
-                    escaped_folder = GLib.markup_escape_text(folder_path)
-                    markup = (
-                        f'{escaped_stem}\n<span size="8000" alpha="40000">'
-                        f"{escaped_folder}</span>"
-                    )
-                    layout.set_markup(markup)
-                else:
-                    layout.set_markup(GLib.markup_escape_text(stem))
-                cr.move_to(x + r + 4 + ox, y - 6 + oy)
-                PangoCairo.show_layout(cr, layout)
+                    cr.move_to(0, 12)
+                    cr.set_font_size(9)
+                    cr.text_path(folder_path)
+                    cr.fill()
+                cr.restore()
 
     # Interaction
 

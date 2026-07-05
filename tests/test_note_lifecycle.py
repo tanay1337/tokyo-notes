@@ -254,7 +254,7 @@ class TestLinkClicked:
         lifecycle = NoteLifecycleManager(app)
         lifecycle.on_link_clicked("linked-note")
         app._select_sidebar_row.assert_called_once_with("linked-note")
-        app.content_stack.set_visible_child_name.assert_called_with("editor")
+        app.content_stack.set_visible_child_name.assert_not_called()
         app._set_backlinks_visible.assert_called_once_with(True)
 
 
