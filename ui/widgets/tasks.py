@@ -824,7 +824,7 @@ class TasksWidget(WidgetBase):
         chip_gesture = Gtk.GestureClick.new()
         chip_gesture.connect(
             "pressed",
-            lambda *a, _cb=cb: self._on_row_click(_cb, a[2], a[3]),
+            lambda *a, _cb=cb: self._on_row_click(a[0], a[1], a[2], a[3], _cb),
         )
         chip.add_controller(chip_gesture)
         box.append(chip)
@@ -854,11 +854,13 @@ class TasksWidget(WidgetBase):
             return
         app.handle_deadline_click(x, y, cb["note"], cb["line"], cb.get("text", ""))
 
-    def _on_row_click(self, cb: dict, x: float, y: float) -> None:
+    def _on_row_click(
+        self, gesture: Any, n_press: int, x: float, y: float, cb: dict
+    ) -> None:
         app = self.app
         if app is None:
             return
-        app.lifecycle.handle_row_click(cb, x, y, cb["note"])
+        app.lifecycle.handle_row_click(gesture, n_press, x, y, cb)
 
     # ── Snooze ──
 

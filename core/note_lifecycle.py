@@ -304,16 +304,26 @@ class NoteLifecycleManager:
     ) -> None:
         app = self.app
         app.content_stack.set_visible_child_name("editor")
-        if app._select_sidebar_row(cb["note"]):
-            # Flush pending editor save so the disk and buffer match before
-            # we re-read the note to resolve the checkbox's current line.
-            if app.current_note == cb["note"]:
-                app._flush_pending_save()
-            content = app.notes_manager.read_plain(cb["note"])
-            current_line = app.notes_manager._resolve_in_content(
-                content, cb["line"], cb.get("text", "")
-            )
-            GLib.idle_add(self.scroll_to_line, current_line)
+        note_name = cb["note"]
+        if not app._select_sidebar_row(note_name):
+            if "/" in note_name:
+                parts = note_name.split("/")
+                for i in range(1, len(parts)):
+                    app.sidebar._folder_expanded["/".join(parts[:i])] = True
+                app.refresh_list()
+                if not app._select_sidebar_row(note_name):
+                    return
+            else:
+                return
+        # Flush pending editor save so the disk and buffer match before
+        # we re-read the note to resolve the checkbox's current line.
+        if app.current_note == note_name:
+            app._flush_pending_save()
+        content = app.notes_manager.read_plain(note_name)
+        current_line = app.notes_manager._resolve_in_content(
+            content, cb["line"], cb.get("text", "")
+        )
+        GLib.idle_add(self.scroll_to_line, current_line)
 
     def scroll_to_line(self, line_num: int) -> bool:
         app = self.app
