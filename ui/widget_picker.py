@@ -23,6 +23,7 @@ _HELP_WIDGETS: dict[str, str] = {
     "api": tr("Display live data from any JSON API."),
     "worldtime": tr("Current time for multiple timezones around the world."),
     "habits": tr("Track daily habits with a GitHub-style contribution graph."),
+    "crypto": tr("Live crypto prices with 24h change and sparkline charts."),
 }
 
 

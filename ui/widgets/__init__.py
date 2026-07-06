@@ -1,5 +1,6 @@
 from .api import APIWidget
 from .base import WidgetBase
+from .crypto import CoinGeckoWidget
 from .habits import HabitTrackerWidget
 from .rss import RSSWidget
 from .tasks import TasksWidget
@@ -30,3 +31,4 @@ register(APIWidget)
 register(WeatherWidget)
 register(WorldTimeWidget)
 register(HabitTrackerWidget)
+register(CoinGeckoWidget)
