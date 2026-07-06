@@ -13,20 +13,11 @@ gi.require_version("Adw", "1")
 from gi.repository import Gdk, GLib, Gtk
 
 from core.translations import tr
+from ui.widget_picker import WidgetPicker
 from ui.widgets import WidgetBase, create_widget, get_widget_types
 
 if TYPE_CHECKING:
     from main import TokyoNotes
-
-_HELP_WIDGETS = [
-    (
-        "tasks",
-        tr("Your task checklist grouped by deadline with filters and quick-add."),
-    ),
-    ("weather", tr("Current weather and forecast from OpenWeatherMap.")),
-    ("rss", tr("Latest headlines from your favourite RSS/Atom feeds.")),
-    ("api", tr("Display live data from any JSON API.")),
-]
 
 _DEFAULT_WIDTHS: dict[str, int] = {
     "tasks": 4,
@@ -293,62 +284,26 @@ class Dashboard(Gtk.Box):
     # ── Add widget ──
 
     def _show_add_popover(self, x: float | None = None, y: float | None = None) -> None:
-        popover = Gtk.Popover()
-        popover.set_parent(self._scrolled)
-        popover.set_autohide(False)
-
-        if x is not None and y is not None:
-            rect = Gdk.Rectangle()
-            rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
-            popover.set_pointing_to(rect)
-
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.set_margin_top(8)
-        box.set_margin_bottom(8)
-        box.set_margin_start(8)
-        box.set_margin_end(8)
-
-        header = Gtk.Label(label=tr("Add Widget"))
-        header.add_css_class("heading")
-        header.set_halign(Gtk.Align.START)
-        box.append(header)
-
         has_tasks = any(
             info["widget"].widget_type == "tasks" for info in self._widget_infos
         )
-        for wtype, cls in get_widget_types().items():
-            if wtype == "tasks" and has_tasks:
-                continue
-            help_text = ""
-            for wt, ht in _HELP_WIDGETS:
-                if wt == wtype:
-                    help_text = ht
-                    break
-            btn = Gtk.Button(label=cls.widget_title)
-            btn.set_halign(Gtk.Align.FILL)
-            btn.set_hexpand(True)
-            btn.set_tooltip_text(help_text)
-            btn.add_css_class("flat")
-            btn.connect(
-                "clicked", lambda *a, _t=wtype: self._add_new_widget(_t, popover)
-            )
-            box.append(btn)
+        types = {
+            wtype: cls
+            for wtype, cls in get_widget_types().items()
+            if not (wtype == "tasks" and has_tasks)
+        }
+        picker = WidgetPicker(
+            widget_types=types,
+            on_selected=lambda wtype: self._add_new_widget(wtype),
+        )
+        picker.set_parent(self._scrolled)
+        if x is not None and y is not None:
+            rect = Gdk.Rectangle()
+            rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+            picker.set_pointing_to(rect)
+        picker.popup()
 
-        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        box.append(sep)
-
-        close_btn = Gtk.Button(label=tr("Close"))
-        close_btn.set_halign(Gtk.Align.FILL)
-        close_btn.set_hexpand(True)
-        close_btn.add_css_class("flat")
-        close_btn.connect("clicked", lambda *a: popover.popdown())
-        box.append(close_btn)
-
-        popover.set_child(box)
-        popover.popup()
-
-    def _add_new_widget(self, widget_type: str, popover: Gtk.Popover) -> None:
-        popover.popdown()
+    def _add_new_widget(self, widget_type: str) -> None:
         import uuid
 
         wid = f"{widget_type}-{uuid.uuid4().hex[:8]}"
