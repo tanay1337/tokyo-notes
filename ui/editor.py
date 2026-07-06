@@ -9,7 +9,6 @@ import os
 import platform
 import re
 import shutil
-import ssl
 import subprocess
 import sys
 import tempfile
@@ -33,6 +32,7 @@ from core.utils import (
     MD_URL_BALANCED,
     parse_embed_hint,
     resolve_embed_width,
+    urlopen_with_fallback,
 )
 from ui.callout_picker import CalloutPicker
 from ui.deadline_picker import DeadlinePicker
@@ -1413,28 +1413,13 @@ class Editor(Gtk.Box):
         url_hash = hashlib.md5(url.encode()).hexdigest()
         return notes_dir / ".documents" / f"remote_{url_hash}.pdf"
 
-    @staticmethod
-    def _urlopen_with_fallback(req: urllib.request.Request, timeout: int = 10) -> Any:
-        """Open *req* with default SSL; fall back to unverified on frozen macOS."""
-        try:
-            return urllib.request.urlopen(req, timeout=timeout)
-        except urllib.error.URLError as e:
-            if (
-                isinstance(e.reason, ssl.SSLCertVerificationError)
-                and getattr(sys, "frozen", False)
-                and sys.platform == "darwin"
-            ):
-                ctx = ssl._create_unverified_context()
-                return urllib.request.urlopen(req, timeout=timeout, context=ctx)
-            raise
-
     def _download_remote_document(self, url: str, cache_path: Path) -> None:
         def _download() -> None:
             try:
                 req = urllib.request.Request(
                     url, headers={"User-Agent": "TokyoNotes/1.0"}
                 )
-                with self._urlopen_with_fallback(req) as resp:
+                with urlopen_with_fallback(req) as resp:
                     data = resp.read()
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 cache_path.write_bytes(data)
@@ -1451,7 +1436,7 @@ class Editor(Gtk.Box):
                 req = urllib.request.Request(
                     url, headers={"User-Agent": "TokyoNotes/1.0"}
                 )
-                with self._urlopen_with_fallback(req) as resp:
+                with urlopen_with_fallback(req) as resp:
                     data = resp.read()
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 cache_path.write_bytes(data)

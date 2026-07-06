@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import ssl
 import threading
 import urllib.parse
 import urllib.request
@@ -15,6 +14,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk, Pango
 
 from core.translations import tr
+from core.utils import urlopen_with_fallback
 from ui.widgets.base import WidgetBase
 
 logger = logging.getLogger(__name__)
@@ -44,9 +44,8 @@ def _parse_date(s: str) -> datetime | None:
 
 
 def _fetch_feed(url: str) -> list[dict[str, str]]:
-    ctx = ssl.create_default_context()
     req = urllib.request.Request(url, headers={"User-Agent": "TokyoNotes/1.0"})
-    with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+    with urlopen_with_fallback(req, timeout=15) as resp:
         raw = resp.read()
 
     if HAS_FEEDPARSER:

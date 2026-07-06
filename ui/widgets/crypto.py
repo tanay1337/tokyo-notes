@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import ssl
 import threading
 import urllib.request
 from typing import Any
@@ -17,6 +16,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk
 
 from core.translations import tr
+from core.utils import urlopen_with_fallback
 from ui.widgets.base import WidgetBase
 
 logger = logging.getLogger(__name__)
@@ -226,9 +226,8 @@ class CoinGeckoWidget(WidgetBase):
     def _fetch_worker(self, ids: str) -> None:
         url = _MARKETS_URL.format(ids=ids)
         try:
-            ctx = ssl.create_default_context()
             req = urllib.request.Request(url, headers={"User-Agent": "TokyoNotes/1.0"})
-            with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+            with urlopen_with_fallback(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
             GLib.idle_add(lambda: self._populate(data))
         except Exception as e:

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import logging
 import re
+import ssl
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,27 @@ from gi.repository import Gtk
 from core.translations import tr
 
 IS_MAC: bool = sys.platform == "darwin"
+
+
+def urlopen_with_fallback(req: urllib.request.Request, timeout: int = 10) -> Any:
+    """Open *req* with default SSL; fall back to unverified on frozen macOS.
+
+    PyInstaller-frozen Python on macOS often cannot locate system root
+    certificates, causing ``ssl.SSLCertVerificationError``.  When that
+    happens and the process is frozen on Darwin we retry with certificate
+    verification disabled.
+    """
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.URLError as e:
+        if (
+            isinstance(e.reason, ssl.SSLCertVerificationError)
+            and getattr(sys, "frozen", False)
+            and sys.platform == "darwin"
+        ):
+            ctx = ssl._create_unverified_context()
+            return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+        raise
 
 
 class ErrorLabelMixin:

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import ssl
 import threading
 import urllib.parse
 import urllib.request
@@ -16,6 +15,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk
 
 from core.translations import tr
+from core.utils import urlopen_with_fallback
 from ui.widgets.base import WidgetBase
 
 logger = logging.getLogger(__name__)
@@ -240,8 +240,7 @@ class WeatherWidget(WidgetBase):
             return
         try:
             url = _FORECAST_URL.format(lat=lat, lon=lon)
-            ctx = ssl.create_default_context()
-            with urllib.request.urlopen(url, context=ctx, timeout=10) as resp:
+            with urlopen_with_fallback(urllib.request.Request(url), timeout=10) as resp:
                 data = json.loads(resp.read().decode())
             GLib.idle_add(lambda: self._apply_weather(data))
         except Exception as e:
@@ -252,8 +251,7 @@ class WeatherWidget(WidgetBase):
 
     def _geocode_impl(self, city: str) -> tuple[float, float]:
         url = _GEOCODING_URL.format(city=urllib.parse.quote(city))
-        ctx = ssl.create_default_context()
-        with urllib.request.urlopen(url, context=ctx, timeout=10) as resp:
+        with urlopen_with_fallback(urllib.request.Request(url), timeout=10) as resp:
             data = json.loads(resp.read().decode())
         results = data.get("results", [])
         if not results:

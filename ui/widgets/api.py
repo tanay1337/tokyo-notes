@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import ssl
 import threading
 import urllib.request
 from typing import Any
@@ -13,6 +12,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
 from core.translations import tr
+from core.utils import urlopen_with_fallback
 from ui.widgets.base import WidgetBase
 
 logger = logging.getLogger(__name__)
@@ -150,9 +150,8 @@ class APIWidget(WidgetBase):
 
     def _fetch_data_worker(self, url: str, fields: list[dict[str, str]]) -> None:
         try:
-            ctx = ssl.create_default_context()
             req = urllib.request.Request(url, headers={"User-Agent": "TokyoNotes/1.0"})
-            with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+            with urlopen_with_fallback(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
             GLib.idle_add(lambda: self._populate_api_data(data, fields))
         except urllib.error.HTTPError as e:

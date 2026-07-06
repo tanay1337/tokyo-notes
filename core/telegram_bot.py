@@ -16,6 +16,8 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, Callable
 
+from core.utils import urlopen_with_fallback
+
 logger = logging.getLogger(__name__)
 
 _API_BASE = "https://api.telegram.org/bot"
@@ -214,7 +216,7 @@ class TelegramBot:
                 return False
             url = f"{_FILE_BASE}{self.token}/{file_path}"
             req = urllib.request.Request(url, headers={"User-Agent": "TokyoNotes/1.0"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urlopen_with_fallback(req, timeout=30) as resp:
                 data = resp.read()
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
@@ -243,7 +245,7 @@ class TelegramBot:
             url = f"{url}?{qs}"
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "TokyoNotes/1.0"})
-            with urllib.request.urlopen(req, timeout=_POLL_TIMEOUT + 5) as resp:
+            with urlopen_with_fallback(req, timeout=_POLL_TIMEOUT + 5) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")
