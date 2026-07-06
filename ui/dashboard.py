@@ -24,6 +24,7 @@ _DEFAULT_WIDTHS: dict[str, int] = {
     "weather": 2,
     "rss": 2,
     "api": 2,
+    "worldtime": 2,
 }
 
 _HANDLE_SIZE = 20

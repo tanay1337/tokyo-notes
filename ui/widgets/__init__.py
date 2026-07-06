@@ -3,6 +3,7 @@ from .base import WidgetBase
 from .rss import RSSWidget
 from .tasks import TasksWidget
 from .weather import WeatherWidget
+from .worldtime import WorldTimeWidget
 
 _registry: dict[str, type[WidgetBase]] = {}
 
@@ -26,3 +27,4 @@ register(TasksWidget)
 register(RSSWidget)
 register(APIWidget)
 register(WeatherWidget)
+register(WorldTimeWidget)

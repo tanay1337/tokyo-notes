@@ -511,6 +511,7 @@
   "Undo last action": "Letzte Aktion rückgängig machen",
   "inserts interactive diagram": "fügt interaktives Diagramm ein",
   "Audio too quiet. Check microphone or change input device in Settings.": "Audio zu leise. Mikrofon prüfen oder Eingabegerät in den Einstellungen ändern.",
+  "Current time for multiple timezones around the world.": "Aktuelle Uhrzeit für mehrere Zeitzonen weltweit.",
   "Current weather and forecast from Open-Meteo.": "Aktuelles Wetter und Vorhersage von Open-Meteo.",
   "Display live data from any JSON API.": "Live-Daten von jeder JSON-API anzeigen.",
   "Latest headlines from your favourite RSS/Atom feeds.": "Neueste Schlagzeilen Ihrer Lieblings-RSS/Atom-Feeds.",
