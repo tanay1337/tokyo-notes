@@ -272,16 +272,21 @@ class WeatherWidget(WidgetBase):
         pattern = _wmo_to_pattern(weather_code)
         is_hot = temp is not None and temp >= 35
 
+        temp_str = f"{temp:.0f}°C" if temp is not None else "—"
+        feels_str = f"{feels_like:.0f}°C" if feels_like is not None else "—"
+        humidity_str = f"{humidity}%" if humidity is not None else "—"
+        wind_str = f"{wind} km/h" if wind is not None else "—"
+
         self._icon.set_pattern(pattern, hot=is_hot)
         self._temp_label.set_markup(
-            f'<span size="30000" weight="bold">{temp:.0f}°C</span>'
+            f'<span size="30000" weight="bold">{temp_str}</span>'
         )
         self._cond_label.set_text(condition)
 
         labels = {
-            "feels": (tr("Feels"), f"{feels_like:.0f}°C"),
-            "humidity": (tr("Humidity"), f"{humidity}%"),
-            "wind": (tr("Wind"), f"{wind} km/h"),
+            "feels": (tr("Feels"), feels_str),
+            "humidity": (tr("Humidity"), humidity_str),
+            "wind": (tr("Wind"), wind_str),
         }
         for item in self._detail_items:
             label, value = labels.get(item["key"], ("", ""))

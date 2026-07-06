@@ -6,6 +6,7 @@ import threading
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import gi
@@ -173,26 +174,31 @@ class RSSWidget(WidgetBase):
         ).start()
 
     def _fetch_all_worker(self, urls: list[str], max_items: int) -> None:
-        all_items: list[tuple[str, str, str]] = []
-        for url in urls:
-            try:
-                items = _fetch_feed(url)
-                for it in items:
+        all_items: list[tuple[str, str, str, str]] = []
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            fut_map = {pool.submit(_fetch_feed, url): url for url in urls}
+            for future in as_completed(fut_map):
+                url = fut_map[future]
+                try:
+                    items = future.result()
                     domain = urllib.parse.urlparse(url).netloc
-                    all_items.append((it["title"], it["link"], domain))
-            except Exception as e:
-                logger.warning("RSS fetch failed for %s: %s", url, e)
+                    for it in items:
+                        all_items.append(
+                            (it["title"], it["link"], domain, it["published"])
+                        )
+                except Exception as e:
+                    logger.warning("RSS fetch failed for %s: %s", url, e)
 
         all_items.sort(
             key=lambda x: (
-                _parse_date(x[0]) or datetime.min.replace(tzinfo=timezone.utc)
+                _parse_date(x[3]) or datetime.min.replace(tzinfo=timezone.utc)
             ),
             reverse=True,
         )
         GLib.idle_add(lambda: self._populate_fetched(all_items[:max_items]))
 
-    def _populate_fetched(self, items: list[tuple[str, str, str]]) -> None:
-        for title, link, domain in items:
+    def _populate_fetched(self, items: list[tuple[str, str, str, str]]) -> None:
+        for title, link, domain, _published in items:
             row = Gtk.ListBoxRow()
             row.set_selectable(False)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)

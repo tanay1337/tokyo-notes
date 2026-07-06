@@ -175,9 +175,20 @@ class Dashboard(Gtk.Box):
         info = self._find_info(widget)
         if info is None:
             return
+        self._grid.remove(widget)
         self._widget_infos.remove(info)
+        snapshot = [
+            (o["row"], o["col"], o["width"], o["height"]) for o in self._widget_infos
+        ]
+        self._compact_layout()
+        moved = [
+            o
+            for o, (r, c, w, h) in zip(self._widget_infos, snapshot)
+            if o["row"] != r or o["col"] != c or o["width"] != w or o["height"] != h
+        ]
+        if moved:
+            self._relocate_widgets(moved)
         self._save_config()
-        self._rebuild_grid()
 
     # ── Right-click context menus ──
 
@@ -325,8 +336,13 @@ class Dashboard(Gtk.Box):
                 "height": 1,
             }
             self._widget_infos.append(info)
+
+            w.set_halign(Gtk.Align.FILL)
+            w.set_hexpand(True)
+            w.set_valign(Gtk.Align.FILL)
+            self._grid.attach(w, col, row, dw, 1)
+
             self._save_config()
-            self._rebuild_grid()
         except Exception:
             pass
 
