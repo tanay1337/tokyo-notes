@@ -22,6 +22,8 @@ SPEECH_PYVENV_CFG = SPEECH_VENV / "pyvenv.cfg"
 REQUIRED_PACKAGES = [
     "faster-whisper>=1.0.0",
     "sounddevice>=0.4.6",
+    "huggingface_hub",
+    "numpy",
 ]
 
 
@@ -65,6 +67,23 @@ def import_numpy():
             sys.path.insert(0, str(site_packages))
         import numpy as np
     return np
+
+
+def import_huggingface_hub():
+    """Import huggingface_hub, falling back to the speech venv site-packages."""
+    try:
+        import huggingface_hub as hf
+    except ModuleNotFoundError:
+        site_packages = (
+            SPEECH_VENV
+            / "lib"
+            / f"python{sys.version_info.major}.{sys.version_info.minor}"
+            / "site-packages"
+        )
+        if site_packages.is_dir():
+            sys.path.insert(0, str(site_packages))
+        import huggingface_hub as hf
+    return hf
 
 
 def is_available_for_build() -> bool:

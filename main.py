@@ -3885,7 +3885,16 @@ class TokyoNotes(Adw.Application):
             )
             Thread(target=do_provision, daemon=True).start()
         else:
-            self._download_speech_model()
+            # Venv exists but may need updated packages. provision() is
+            # idempotent — pip install is a no-op when already satisfied.
+            def do_reprov():
+                try:
+                    provision()
+                except Exception as e:
+                    logger.error("Venv update failed: %s", e)
+                GLib.idle_add(self._download_speech_model)
+
+            Thread(target=do_reprov, daemon=True).start()
 
     def _on_venv_provisioned(self, dialog: Adw.MessageDialog) -> None:
         dialog.close()

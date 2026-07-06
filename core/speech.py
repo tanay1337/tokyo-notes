@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
+from core.speech_paths import import_huggingface_hub
+
 logger = logging.getLogger(__name__)
 
 _MODEL_SIZE = "base"
@@ -25,10 +27,9 @@ def _repo_id(size: str) -> str:
 
 def model_cached(size: str = _MODEL_SIZE) -> bool:
     try:
-        from huggingface_hub import try_to_load_from_cache
-
+        hf = import_huggingface_hub()
         repo_id = _repo_id(size)
-        path = try_to_load_from_cache(repo_id, "model.bin")
+        path = hf.try_to_load_from_cache(repo_id, "model.bin")
         return path is not None
     except Exception:
         return False
@@ -97,7 +98,7 @@ def download_model_with_progress(
     size: str = _MODEL_SIZE,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> str:
-    from huggingface_hub import snapshot_download
+    hf = import_huggingface_hub()
     from tqdm import tqdm
 
     repo_id = _repo_id(size)
@@ -115,7 +116,7 @@ def download_model_with_progress(
             if self.total and on_progress:
                 on_progress(self.n, self.total)
 
-    return snapshot_download(
+    return hf.snapshot_download(
         repo_id,
         allow_patterns=allow_patterns,
         tqdm_class=_ProgressTqdm,
