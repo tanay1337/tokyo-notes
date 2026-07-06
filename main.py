@@ -3298,8 +3298,13 @@ class TokyoNotes(Adw.Application):
 
     def _on_bot_inbox_updated(self) -> None:
         """Refresh the UI after the Telegram bot appended to the target note."""
-        self.refresh_list()
         target = self.telegram_bot.target_note if self.telegram_bot else "Inbox"
+
+        meta = self.notes_manager.get_metadata(target)
+        snippet = meta.get("snippet", "")
+        if not self.sidebar.update_row(target, target, snippet):
+            self.refresh_list()
+
         if self.current_note == target:
             content = self.notes_manager.read_plain(target)
             self._set_buffer_text(content)

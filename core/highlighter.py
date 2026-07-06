@@ -480,7 +480,7 @@ class MarkdownHighlighter:
             # Block quotes
             bq = self.re_blockquote.match(line)
             if bq:
-                callout = self.re_callout.match(line)
+                callout = self.re_callout.match(line) if "> [!" in line else None
                 if callout:
                     ctype = resolve_callout_type(callout.group(2))
                     self._current_callout_type = ctype
@@ -809,7 +809,7 @@ class MarkdownHighlighter:
                     line_start_offset,
                     line_start_offset + len(bq_match.group(1)),
                 )
-            callout_match = self.re_callout.match(line)
+            callout_match = self.re_callout.match(line) if "> [!" in line else None
             if callout_match:
                 ctype = resolve_callout_type(callout_match.group(2))
                 type_start = line_start_offset + callout_match.start(2) - 2
@@ -1033,7 +1033,9 @@ class MarkdownHighlighter:
                 scan_end.forward_to_line_end()
             scan_text = self.buffer.get_text(scan_it, scan_end, True)
             if self.re_blockquote.match(scan_text):
-                scan_callout = self.re_callout.match(scan_text)
+                scan_callout = (
+                    self.re_callout.match(scan_text) if "> [!" in scan_text else None
+                )
                 if scan_callout:
                     callout_type = resolve_callout_type(scan_callout.group(2))
                     break
@@ -1089,7 +1091,7 @@ class MarkdownHighlighter:
 
             # Callout background & marker override
             if md.kind == "blockquote":
-                callout_match = self.re_callout.match(line)
+                callout_match = self.re_callout.match(line) if "> [!" in line else None
                 if callout_match:
                     callout_type = resolve_callout_type(callout_match.group(2))
                     self.apply_tag(f"callout_bg_{callout_type}", line_start, line_end)

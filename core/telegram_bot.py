@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _API_BASE = "https://api.telegram.org/bot"
 _FILE_BASE = "https://api.telegram.org/file/bot"
 _POLL_INTERVAL = 5.0
-_POLL_TIMEOUT = 10
+_POLL_TIMEOUT = 1  # short long-poll so stop() returns within ~2s instead of 15s
 
 
 class TelegramBot:
