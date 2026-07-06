@@ -40,7 +40,7 @@ class WidgetBase(Gtk.Overlay):
         return {
             "type": self.widget_type,
             "id": self.widget_id,
-            "settings": self.settings,
+            "settings": dict(self.settings),
         }
 
     def update_periodic(self) -> None:

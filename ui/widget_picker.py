@@ -22,6 +22,7 @@ _HELP_WIDGETS: dict[str, str] = {
     "rss": tr("Latest headlines from your favourite RSS/Atom feeds."),
     "api": tr("Display live data from any JSON API."),
     "worldtime": tr("Current time for multiple timezones around the world."),
+    "habits": tr("Track daily habits with a GitHub-style contribution graph."),
 }
 
 

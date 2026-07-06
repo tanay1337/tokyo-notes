@@ -999,5 +999,5 @@ class TasksWidget(WidgetBase):
         return {
             "type": self.widget_type,
             "id": self.widget_id,
-            "settings": self.settings,
+            "settings": dict(self.settings),
         }

@@ -1,5 +1,6 @@
 from .api import APIWidget
 from .base import WidgetBase
+from .habits import HabitTrackerWidget
 from .rss import RSSWidget
 from .tasks import TasksWidget
 from .weather import WeatherWidget
@@ -28,3 +29,4 @@ register(RSSWidget)
 register(APIWidget)
 register(WeatherWidget)
 register(WorldTimeWidget)
+register(HabitTrackerWidget)
