@@ -29,6 +29,10 @@ _DEFAULT_WIDTHS: dict[str, int] = {
     "habits": 2,
 }
 
+_DEFAULT_HEIGHTS: dict[str, int] = {
+    "tasks": 4,
+}
+
 _HANDLE_SIZE = 20
 
 
@@ -55,7 +59,7 @@ class Dashboard(Gtk.Box):
         self._grid.set_margin_start(12)
         self._grid.set_margin_end(12)
         self._grid.set_hexpand(True)
-        self._grid.set_valign(Gtk.Align.START)
+        self._grid.set_vexpand(True)
         layout = self._grid.get_layout_manager()
         if hasattr(layout, "set_column_homogeneous"):
             layout.set_column_homogeneous(True)
@@ -104,13 +108,15 @@ class Dashboard(Gtk.Box):
                     "row": cfg.get("row", 0),
                     "col": cfg.get("col", 0),
                     "width": cfg.get("width", 2),
-                    "height": cfg.get("height", 1),
+                    "height": cfg.get("height", _DEFAULT_HEIGHTS.get(cfg["type"], 1)),
                 }
                 self._widget_infos.append(info)
 
                 w.set_halign(Gtk.Align.FILL)
                 w.set_hexpand(True)
                 w.set_valign(Gtk.Align.FILL)
+                if info["height"] > 1:
+                    w.set_vexpand(True)
                 self._grid.attach(
                     w, info["col"], info["row"], info["width"], info["height"]
                 )
@@ -160,7 +166,7 @@ class Dashboard(Gtk.Box):
             cfg["row"] = row
             cfg["col"] = col
             cfg["width"] = dw
-            cfg["height"] = 1
+            cfg["height"] = _DEFAULT_HEIGHTS.get(cfg.get("type", ""), 1)
             col += dw
             if col >= self._grid_cols:
                 col = 0
@@ -330,19 +336,22 @@ class Dashboard(Gtk.Box):
             if col + dw > self._grid_cols:
                 col = self._grid_cols - dw
 
+            dh = _DEFAULT_HEIGHTS.get(widget_type, 1)
             info: dict[str, Any] = {
                 "widget": w,
                 "row": row,
                 "col": col,
                 "width": dw,
-                "height": 1,
+                "height": dh,
             }
             self._widget_infos.append(info)
 
             w.set_halign(Gtk.Align.FILL)
             w.set_hexpand(True)
             w.set_valign(Gtk.Align.FILL)
-            self._grid.attach(w, col, row, dw, 1)
+            if dh > 1:
+                w.set_vexpand(True)
+            self._grid.attach(w, col, row, dw, dh)
 
             self._save_config()
         except Exception:
