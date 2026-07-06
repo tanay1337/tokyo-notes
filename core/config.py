@@ -45,6 +45,8 @@ _DEFAULTS: dict[str, Any] = {
     "telegram_separator": False,
     "telegram_prefix": "",
     "telegram_owner_id": 0,
+    "widgets": [],
+    "grid_cols": 4,
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).

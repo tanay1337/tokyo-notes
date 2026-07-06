@@ -204,8 +204,10 @@ class TestUIFlows:
 
         # Find the checkbox in dashboard and click it
         dashboard = app.dashboard_view
+        tasks_w = dashboard.get_widget("tasks") if dashboard else None
+        assert tasks_w is not None
         task_row = None
-        child = dashboard.dashboard_list.get_first_child()
+        child = tasks_w.dashboard_list.get_first_child()
         while child:
             cb = getattr(child, "checkbox_data", None)
             if cb and cb.get("text") == "My Task":
@@ -313,12 +315,14 @@ class TestUIFlows:
 
         # Check if popover is visible. If get_visible() is flaky, we check focus
         # or just proceed with typing if we trust the method was called.
-        assert dashboard._quick_add_popover.get_visible() is True
+        tasks_w = dashboard.get_widget("tasks") if dashboard else None
+        assert tasks_w is not None
+        assert tasks_w._quick_add_popover.get_visible() is True
 
         # Fill Quick Add
-        dashboard._quick_add_entry.set_text("Quick Task")
+        tasks_w._quick_add_entry.set_text("Quick Task")
         # Submit
-        dashboard._on_quick_add_submit()
+        tasks_w._on_quick_add_submit()
 
         # Verify disk
         inbox_path = tmp_path / "Inbox.md"
@@ -419,10 +423,8 @@ class TestUIFlows:
         from gi.repository import Adw
 
         app.nav.on_dashboard_clicked()
-        dashboard = app.dashboard_view
-
         # Initial state (from our mock_get in fixture, start_week_on_sunday is True)
-        assert dashboard.get_start_week_on_sunday() is True
+        assert app.cfg.get("start_week_on_sunday") is True
 
         # Change setting via UI
         app.nav.on_settings_clicked()
@@ -451,8 +453,8 @@ class TestUIFlows:
         # Toggle it OFF
         sunday_row.set_active(False)  # Triggers on_config_changed
 
-        # Verify Dashboard state updated
-        assert dashboard.get_start_week_on_sunday() is False
+        # Verify config was updated
+        assert app.cfg.get("start_week_on_sunday") is False
 
     def test_backlink_navigation_loop(self, app, ui, tmp_path, monkeypatch):
         """Verify navigating from backlinks popover back to source note."""

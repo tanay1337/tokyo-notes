@@ -1268,7 +1268,6 @@ class TokyoNotes(Adw.Application):
         if self.dashboard_view:
             self.content_stack.remove(self.dashboard_view)
         self.dashboard_view = None
-        self.dashboard_list = None
 
         if self.diagram_view:
             self.content_stack.remove(self.diagram_view)
@@ -1373,7 +1372,6 @@ class TokyoNotes(Adw.Application):
         self.graph_view = None
         self.graph_manager = None
         self.dashboard_view = None
-        self.dashboard_list = None
         self.flashcard_view = None
         self.split_editor = None
         self._single_editor_ref = None
@@ -1691,10 +1689,11 @@ class TokyoNotes(Adw.Application):
             self.toolbar.set_visible(value)
         elif key == "show_stats":
             self.editor.status_bar.set_visible(value)
-        elif key == "show_completed" and self.dashboard_view is not None:
-            self.nav.refresh_dashboard(self.dashboard_view.active_filter)
-        elif key == "show_progress_rings" and self.dashboard_view is not None:
-            self.nav.refresh_dashboard(self.dashboard_view.active_filter)
+        elif (
+            key in ("show_completed", "show_progress_rings")
+            and self.dashboard_view is not None
+        ):
+            self.nav.refresh_dashboard("today")
         elif key == "show_backlinks":
             self._update_backlinks()
         elif key == "show_toc":
@@ -3681,7 +3680,7 @@ class TokyoNotes(Adw.Application):
         if not ok:
             # Could not find the checkbox line — refresh and bail.
             if self.dashboard_view is not None:
-                self.nav.refresh_dashboard(self.dashboard_view.active_filter)
+                self.nav.refresh_dashboard("today")
             return
 
         # If the toggled note is open in the editor, reload its buffer
@@ -3721,8 +3720,12 @@ class TokyoNotes(Adw.Application):
         if checked and self.cfg.get("sakura_effect"):
             self.sakura_overlay.start_celebration()
         if self.dashboard_view is not None:
-            if not self.dashboard_view.update_checkbox(note, current_line, checked):
-                self.nav.refresh_dashboard(self.dashboard_view.active_filter)
+            tasks_w = self.dashboard_view.get_widget("tasks")
+            if tasks_w is not None:
+                if not tasks_w.update_checkbox(note, current_line, checked):
+                    self.nav.refresh_dashboard("today")
+            else:
+                self.nav.refresh_dashboard("today")
 
     # Quick Add
 
@@ -3764,7 +3767,7 @@ class TokyoNotes(Adw.Application):
             self._full_pass_complete = False
 
         if self.dashboard_view is not None:
-            self.nav.refresh_dashboard(self.dashboard_view.active_filter)
+            self.nav.refresh_dashboard("today")
 
         self._show_toast(tr("Task added to {note_name}").format(note_name=note_name))
 
@@ -3777,7 +3780,15 @@ class TokyoNotes(Adw.Application):
             self.nav.update_header_ui("Dashboard", is_editor=False)
             self.sidebar.set_active_view("dashboard")
             self._set_backlinks_visible(False)
-        GLib.idle_add(self.dashboard_view.open_quick_add_popover)
+
+        def _open_popover():
+            tasks_w = (
+                self.dashboard_view.get_widget("tasks") if self.dashboard_view else None
+            )
+            if tasks_w is not None:
+                tasks_w.open_quick_add_popover()
+
+        GLib.idle_add(_open_popover)
         return True
 
     def _on_speech_toggle(self) -> bool:
@@ -3989,7 +4000,7 @@ class TokyoNotes(Adw.Application):
         ):
             return
         if self.dashboard_view is not None:
-            self.nav.refresh_dashboard(self.dashboard_view.active_filter)
+            self.nav.refresh_dashboard("today")
         self.refresh_list(self.sidebar.search_entry.get_text())
         if self.current_note == note_name:
             # Re-read from cache — update_deadline already saved the new

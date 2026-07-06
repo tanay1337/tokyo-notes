@@ -15,7 +15,7 @@ from core.graph_manager import GraphManager
 from core.services import get_week_boundaries
 from core.speech import model_cached
 from core.translations import tr
-from core.utils import create_empty_state_widget, is_entry_focused
+from core.utils import is_entry_focused
 from ui.dashboard import Dashboard
 from ui.flashcard_review import FlashcardReview
 from ui.graph_view import GraphView
@@ -40,110 +40,25 @@ class NavigationController:
     # Dashboard
 
     def on_dashboard_clicked(self, button: Gtk.Button | None = None) -> None:
-        """Switch to the dashboard view, lazily creating it on first access."""
+        """Switch to the widget-based dashboard view, lazily creating it."""
         app = self.app
         app._save_current_cursor()
         if app.dashboard_view is None:
-            app.dashboard_view = Dashboard(
-                app.on_dashboard_checkbox_toggled,
-                lambda cb, x, y: app.handle_deadline_click(
-                    x,
-                    y,
-                    cb["note"],
-                    cb["line"],
-                    cb.get("text", ""),
-                ),
-                app.lifecycle.handle_row_click,
-                self.on_dashboard_empty,
-                self.refresh_dashboard,
-                lambda: app.cfg.get("show_completed", True),
-                lambda: app.cfg.get("show_progress_rings", True),
-                lambda: app.cfg.get("start_week_on_sunday", True),
-                on_snooze=app.handle_snooze,
-                assets_dir=app.base_dir / "assets",
-                default_filter="today",
-                on_quick_add=app.on_quick_add_task,
-                get_notes_fn=lambda: [
-                    n
-                    for n in app.notes_manager.get_notes()
-                    if not app.cfg.is_archived(n)
-                ],
-            )
-            app.dashboard_list = app.dashboard_view.dashboard_list
+            app.dashboard_view = Dashboard(app)
             app.content_stack.add_named(app.dashboard_view, "dashboard")
 
-        checkboxes = app.notes_manager.get_all_checkboxes(exclude=app.cfg.archived)
-        unchecked = [cb for cb in checkboxes if not cb["checked"]]
-        default_filter = self._compute_default_filter(
-            unchecked,
-            start_week_on_sunday=app.cfg.get("start_week_on_sunday", True),
-        )
-
-        app.dashboard_view.update_active_filter(default_filter)
-        # Pass already-fetched checkboxes to avoid a second get_all_checkboxes call.
-        self._populate_dashboard(checkboxes, default_filter)
         app.content_stack.set_visible_child_name("dashboard")
         self.update_header_ui(tr("Dashboard"), is_editor=False)
         app.sidebar.set_active_view("dashboard")
         app._set_backlinks_visible(False)
 
     def refresh_dashboard(self, filter_type: str = "today") -> None:
-        """Repopulate the dashboard, fetching fresh checkboxes from storage."""
+        """Refresh the tasks widget if present."""
         if self.app.dashboard_view is None:
             return
-        checkboxes = self.app.notes_manager.get_all_checkboxes(
-            exclude=self.app.cfg.archived
-        )
-        self._populate_dashboard(checkboxes, filter_type)
-
-    def _populate_dashboard(self, checkboxes: list[dict], filter_type: str) -> None:
-        """Render *checkboxes* into the dashboard for *filter_type*.
-
-        Separated from refresh_dashboard so on_dashboard_clicked can pass
-        already-fetched checkboxes without triggering a second storage read.
-        """
-        app = self.app
-        if app.dashboard_view is None:
-            return
-        count = app.dashboard_view.populate(checkboxes, filter_type)
-        app.win.set_title(
-            tr("Dashboard — {count} items").format(count=count)
-            if count
-            else tr("Dashboard")
-        )
-
-    def on_dashboard_empty(self, filter_type: str) -> None:
-        """Insert an empty-state widget when the dashboard has no items."""
-        msg = (
-            tr("No tasks found.")
-            if filter_type == "all"
-            else tr("No tasks for {filter_type}.").format(filter_type=filter_type)
-        )
-        widget = create_empty_state_widget(msg, self.app.base_dir)
-        self.app.dashboard_list.append(widget)
-
-    @staticmethod
-    def _compute_default_filter(
-        unchecked: list[dict[str, Any]], *, start_week_on_sunday: bool = True
-    ) -> str:
-        """Return the most relevant dashboard filter for the current unchecked tasks.
-
-        cb["deadline"] can be None (key present but no value set), so we always
-        coerce with ``or ""`` rather than relying on dict.get's default argument,
-        which is only used when the key is *absent*.
-        """
-        today = datetime.date.today()
-        today_str = today.isoformat()
-        if any((cb.get("deadline") or "").startswith(today_str) for cb in unchecked):
-            return "today"
-        week_start, week_end = get_week_boundaries(start_week_on_sunday)
-        if any(
-            week_start <= cb["deadline"] <= week_end
-            for cb in unchecked
-            if cb.get("deadline")
-        ):
-            return "week"
-        return "all"
+        tasks_w = self.app.dashboard_view.get_widget("tasks")
+        if tasks_w is not None:
+            tasks_w._refresh(filter_type)
 
     # Graph
 
@@ -167,6 +82,24 @@ class NavigationController:
         self.update_header_ui(tr("Knowledge Graph"), is_editor=False)
         app.sidebar.set_active_view("graph")
         app._set_backlinks_visible(False)
+
+    @staticmethod
+    def _compute_default_filter(
+        unchecked: list[dict[str, Any]], *, start_week_on_sunday: bool = True
+    ) -> str:
+        """Return the most relevant dashboard filter for the current unchecked tasks."""
+        today = datetime.date.today()
+        today_str = today.isoformat()
+        if any((cb.get("deadline") or "").startswith(today_str) for cb in unchecked):
+            return "today"
+        week_start, week_end = get_week_boundaries(start_week_on_sunday)
+        if any(
+            week_start <= cb["deadline"] <= week_end
+            for cb in unchecked
+            if cb.get("deadline")
+        ):
+            return "week"
+        return "all"
 
     # Settings
 
