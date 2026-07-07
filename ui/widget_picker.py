@@ -16,15 +16,18 @@ if TYPE_CHECKING:
     from ui.widgets.base import WidgetBase
 
 
-_HELP_WIDGETS: dict[str, str] = {
-    "tasks": tr("Your task checklist grouped by deadline with filters and quick-add."),
-    "weather": tr("Current weather and forecast from Open-Meteo."),
-    "rss": tr("Latest headlines from your favourite RSS/Atom feeds."),
-    "api": tr("Display live data from any JSON API."),
-    "worldtime": tr("Current time for multiple timezones around the world."),
-    "habits": tr("Track daily habits with a GitHub-style contribution graph."),
-    "crypto": tr("Live crypto prices with 24h change and sparkline charts."),
-}
+def _get_help_widgets() -> dict[str, str]:
+    return {
+        "tasks": tr(
+            "Your task checklist grouped by deadline with filters and quick-add."
+        ),
+        "weather": tr("Current weather and forecast from Open-Meteo."),
+        "rss": tr("Latest headlines from your favourite RSS/Atom feeds."),
+        "api": tr("Display live data from any JSON API."),
+        "worldtime": tr("Current time for multiple timezones around the world."),
+        "habits": tr("Track daily habits with a GitHub-style contribution graph."),
+        "crypto": tr("Live crypto prices with 24h change and sparkline charts."),
+    }
 
 
 class WidgetPicker(SearchablePicker):
@@ -64,7 +67,7 @@ class WidgetPicker(SearchablePicker):
         title.set_ellipsize(Pango.EllipsizeMode.END)
         box.append(title)
 
-        desc = Gtk.Label(label=_HELP_WIDGETS.get(wtype, ""), xalign=0)
+        desc = Gtk.Label(label=_get_help_widgets().get(wtype, ""), xalign=0)
         desc.add_css_class("sidebar-snippet")
         desc.set_ellipsize(Pango.EllipsizeMode.END)
         box.append(desc)

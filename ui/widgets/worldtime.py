@@ -80,7 +80,7 @@ class WorldTimeWidget(WidgetBase):
         self._cfg_entries: list[Gtk.Entry] = []
         for i in range(3):
             entry_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            label = Gtk.Label(label=tr(f"Zone {i + 1}:"))
+            label = Gtk.Label(label=tr("Zone {n}:").format(n=i + 1))
             entry = Gtk.Entry()
             entry.set_placeholder_text(_DEFAULT_ZONES[i] or "Asia/Tokyo")
             entry.set_text(zones[i] if i < len(zones) else "")

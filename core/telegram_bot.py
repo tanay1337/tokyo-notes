@@ -16,6 +16,7 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, Callable
 
+from core.translations import tr
 from core.utils import urlopen_with_fallback
 
 logger = logging.getLogger(__name__)
@@ -83,10 +84,10 @@ class TelegramBot:
         or an error message on failure."""
         result = self._api_call("getMe")
         if result is None:
-            return "Network error — could not reach Telegram API"
+            return tr("Network error — could not reach Telegram API")
         if not result.get("ok"):
-            desc = result.get("description", "Unknown error")
-            return f"API error: {desc}"
+            desc = result.get("description", tr("Unknown error"))
+            return tr("API error: {desc}").format(desc=desc)
         username = result.get("result", {}).get("username", "?")
         logger.info("Telegram connection OK — bot @%s", username)
         return None  # success

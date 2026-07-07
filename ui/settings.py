@@ -456,7 +456,7 @@ class SettingsView(Gtk.Box):
         owner_entry = Gtk.Entry()
         owner_entry.set_text(str(owner_id) if owner_id else "")
         owner_entry.set_valign(Gtk.Align.CENTER)
-        owner_entry.set_placeholder_text(tr("123456789"))
+        owner_entry.set_placeholder_text("123456789")
         owner_entry.set_max_length(15)
         owner_entry.set_width_chars(12)
         owner_entry.connect(
