@@ -570,6 +570,7 @@
   "Network error — could not reach Telegram API": "Netzwerkfehler – Telegram-API nicht erreichbar",
   "API error: {desc}": "API-Fehler: {desc}",
   "Unknown error": "Unbekannter Fehler",
+  "Search notes\u2026": "Notizen durchsuchen\u2026",
   "_meta": {
     "name": "Deutsch",
     "code": "de"

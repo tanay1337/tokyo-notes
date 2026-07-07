@@ -16,6 +16,20 @@ from spellchecker import SpellChecker as PySpellChecker
 from core.theme_manager import THEMES
 from core.translations import list_languages, tr
 from core.utils import clear_listbox, confirm_destructive_dialog
+from ui.base_picker import SearchablePicker
+
+
+class _NotePicker(SearchablePicker):
+    """Searchable picker for selecting a target note."""
+
+    def _make_row(self, item: str) -> Gtk.ListBoxRow:
+        row = super()._make_row(item)
+        row._note = item
+        return row
+
+    def _row_value(self, row: Gtk.ListBoxRow) -> str:
+        return row._note
+
 
 logger = logging.getLogger(__name__)
 
@@ -474,24 +488,29 @@ class SettingsView(Gtk.Box):
         owner_row.add_suffix(owner_entry)
         group.add(owner_row)
 
-        all_notes = self._initial_values.get("all_notes", ["Inbox"])
+        self._target_notes = self._initial_values.get("all_notes", ["Inbox"])
         target = self._initial_values.get("telegram_target_note", "Inbox")
-        note_list = Gtk.StringList.new(all_notes)
-        target_idx = max(0, (all_notes.index(target) if target in all_notes else 0))
-        target_row = Adw.ComboRow(
+
+        self._target_note_row = Adw.ActionRow(
             title=tr("Target Note"),
             subtitle=tr("Messages are appended to this note"),
-            model=note_list,
-            selected=target_idx,
         )
-        target_row.connect(
-            "notify::selected",
-            lambda r, _pspec: self.on_config_changed(
-                "telegram_target_note",
-                r.get_selected_item().get_string(),
-            ),
+        self._target_note_label = Gtk.Label(label=target, xalign=1)
+        self._target_note_label.add_css_class("dim-label")
+        self._target_note_row.add_suffix(self._target_note_label)
+
+        select_btn = Gtk.Button()
+        select_btn.add_css_class("flat")
+        select_btn.add_css_class("settings-icon-btn")
+        arrow = Gtk.Image.new_from_file(
+            str(self._assets_dir.parent / "sidebar" / "folder-toggle-expanded.svg")
         )
-        group.add(target_row)
+        arrow.set_pixel_size(12)
+        select_btn.set_child(arrow)
+        select_btn.connect("clicked", self._on_target_note_pick)
+        self._target_note_row.add_suffix(select_btn)
+
+        group.add(self._target_note_row)
 
         group.add(
             self._make_switch_row(
@@ -574,6 +593,24 @@ class SettingsView(Gtk.Box):
         else:
             status_label.set_text("○")
             status_row.set_subtitle(error)
+
+    def _on_target_note_pick(self, btn: Gtk.Button) -> None:
+        picker = _NotePicker(
+            items=self._target_notes,
+            on_selected=lambda note: self._on_target_note_selected(note),
+            placeholder=tr("Search notes\u2026"),
+            width=300,
+            height=320,
+        )
+        picker.set_parent(btn)
+        picker.popup()
+
+    def _on_target_note_selected(self, note: str) -> None:
+        self._target_note_label.set_label(note)
+        self.on_config_changed("telegram_target_note", note)
+
+    def refresh_target_notes(self, all_notes: list[str]) -> None:
+        self._target_notes = all_notes
 
     def _build_private_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=tr("Private Notes"))

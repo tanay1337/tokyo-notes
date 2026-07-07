@@ -671,14 +671,6 @@ class TokyoNotes(Adw.Application):
             self._set_buffer_text(plaintext)
 
             self._restore_cursor_for_note(note_name)
-            GLib.idle_add(
-                lambda: (
-                    self.text_view.grab_focus()
-                    if not is_entry_focused(self.win.get_focus())
-                    else None
-                )
-            )
-
             self._schedule_full_highlight()
         except Exception as e:
             logger.error("Failed to decrypt note '%s': %s", note_name, e)
@@ -734,8 +726,19 @@ class TokyoNotes(Adw.Application):
 
     def _do_scroll_to_mark(self, mark: Gtk.TextMark) -> bool:
         if self.buffer:
-            self.text_view.scroll_to_mark(mark, 0.0, False, 0.0, 0.0)
+            it = self.buffer.get_iter_at_mark(mark)
+            loc = self.text_view.get_iter_location(it)
             self.buffer.delete_mark(mark)
+            vadj = self.text_view.get_vadjustment()
+            if vadj:
+                page_size = vadj.get_page_size()
+                target = loc.y - page_size * 0.25
+                upper = vadj.get_upper()
+                if upper > page_size:
+                    target = max(0.0, min(target, upper - page_size))
+                    vadj.set_value(target)
+            if not is_entry_focused(self.win.get_focus()):
+                self.text_view.grab_focus()
         return False
 
     def _scroll_to_cursor(self) -> None:
@@ -914,17 +917,17 @@ class TokyoNotes(Adw.Application):
         self.nav.update_header_ui(note_name, is_editor=True)
         self._has_images = False
         if self.notes_manager.is_encrypted(note_name) and not self._is_session_locked:
+            self.content_stack.set_visible_child_name("editor")
             self._load_encrypted_note(note_name)
         else:
             content = self.notes_manager.read_plain(note_name) or ""
             self._set_buffer_text(content)
+            self.content_stack.set_visible_child_name("editor")
             self._restore_cursor_for_note(note_name)
             self._schedule_full_highlight()
         self.editor.set_editable(True)
-        self.content_stack.set_visible_child_name("editor")
         self.sidebar.set_active_view("editor")
         self._select_sidebar_row(note_name)
-        self._focus_text_view()
 
     def _show_save_template_dialog(self, note_name: str, content: str) -> None:
         """Show a dialog to name and save a template."""
@@ -3306,8 +3309,26 @@ class TokyoNotes(Adw.Application):
             self.refresh_list()
 
         if self.current_note == target:
+            self._save_current_cursor()
             content = self.notes_manager.read_plain(target)
             self._set_buffer_text(content)
+
+            cursor_pos = self._cursor_positions.get(target)
+            if cursor_pos is not None and cursor_pos <= self.buffer.get_char_count():
+                it = self.buffer.get_iter_at_offset(cursor_pos)
+            else:
+                it = self.buffer.get_end_iter()
+            self.buffer.place_cursor(it)
+
+            vadj = self.text_view.get_vadjustment()
+            if vadj:
+                loc = self.text_view.get_iter_location(it)
+                page_size = vadj.get_page_size()
+                target_y = loc.y - page_size * 0.25
+                upper = vadj.get_upper()
+                if upper > page_size:
+                    vadj.set_value(max(0.0, min(target_y, upper - page_size)))
+
             self._schedule_full_highlight()
 
     # Search

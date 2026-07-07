@@ -138,17 +138,10 @@ class NoteLifecycleManager:
                 and app._session_password_bytes is not None
             ):
                 try:
+                    app.content_stack.set_visible_child_name("editor")
                     app._load_encrypted_note(app.current_note)
                     content = app.buffer.get_text(*app.buffer.get_bounds(), True)
-                    app.content_stack.set_visible_child_name("editor")
                     app.last_cursor_line = -1
-                    GLib.idle_add(
-                        lambda: (
-                            app.text_view.grab_focus()
-                            if not is_entry_focused(app.win.get_focus())
-                            else None
-                        )
-                    )
                     app._update_backlinks()
                     if listbox == app.sidebar.main_list:
                         app.sidebar.archive_list.unselect_all()
@@ -182,13 +175,6 @@ class NoteLifecycleManager:
 
             if not app._sidebar_search_text:
                 app._restore_cursor_for_note(app.current_note)
-            GLib.idle_add(
-                lambda: (
-                    app.text_view.grab_focus()
-                    if not is_entry_focused(app.win.get_focus())
-                    else None
-                )
-            )
 
             if app.highlighter:
                 app.highlighter.highlight(start_line=0, end_line=30)

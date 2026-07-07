@@ -172,6 +172,7 @@ class NavigationController:
             app.settings_view.refresh_privacy_state(has_encrypted)
             templates = app.template_manager.get_all_templates()
             app.settings_view.refresh_templates(templates)
+            app.settings_view.refresh_target_notes(app.notes_manager.get_notes())
 
         app.content_stack.set_visible_child_name("settings")
         self.update_header_ui(tr("Settings"), is_editor=False)
