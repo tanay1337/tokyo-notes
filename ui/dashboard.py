@@ -362,6 +362,8 @@ class Dashboard(Gtk.Box):
     def _draw_grip(
         self, area: Gtk.DrawingArea, cr: Gdk.CairoContext, width: int, height: int
     ) -> None:
+        if width <= 0 or height <= 0:
+            return
         cr.set_source_rgba(0.5, 0.5, 0.5, 0.5)
         spacing = 5
         dot_r = 1.5

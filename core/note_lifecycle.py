@@ -579,7 +579,8 @@ class NoteLifecycleManager:
         total = app.buffer.get_line_count()
         start = max(0, cursor_line - 5)
         end = min(total, cursor_line + 6)
-        app.highlighter._spell_check_pass(start, end)
+        code_block_lines = app.highlighter._code_block_line_set()
+        app.highlighter._spell_check_pass(start, end, code_block_lines)
         return False
 
     # Text-changed coordination
