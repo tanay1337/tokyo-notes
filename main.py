@@ -1388,7 +1388,7 @@ class TokyoNotes(Adw.Application):
         self.toc_sidebar.set_app(self)
         self.toc_toggle.connect("toggled", self._on_toc_toggled)
         self.content_stack.connect(
-            "notify::visible-child", lambda *_: self._update_toc_visibility()
+            "notify::visible-child", self._on_content_page_changed
         )
         self.split_view.connect(
             "notify::collapsed", lambda *_: self._update_toc_visibility()
@@ -1668,6 +1668,15 @@ class TokyoNotes(Adw.Application):
         if not collapsed and in_editor and on:
             backlinks_margin += 220
         self.backlinks_container.set_margin_end(backlinks_margin)
+
+    def _on_content_page_changed(self, stack: Gtk.Stack, _param) -> None:
+        self._update_toc_visibility()
+        if self.dashboard_view is None:
+            return
+        if stack.get_visible_child_name() == "dashboard":
+            self.dashboard_view.on_show()
+        else:
+            self.dashboard_view.on_hide()
 
     def _on_toc_toggled(self, _btn: Gtk.ToggleButton) -> None:
         """Session-wide toggle — does not persist to config."""

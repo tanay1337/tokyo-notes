@@ -45,3 +45,6 @@ class WidgetBase(Gtk.Overlay):
 
     def update_periodic(self) -> None:
         pass
+
+    def stop_periodic(self) -> None:
+        pass

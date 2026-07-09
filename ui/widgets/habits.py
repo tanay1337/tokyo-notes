@@ -337,10 +337,15 @@ class HabitTrackerWidget(WidgetBase):
     def _update_graph(self) -> None:
         self._graph.set_data(self._dates, self._habit_name, self._toggle_date)
 
+    def stop_periodic(self) -> None:
+        if self._timer_id is not None:
+            GLib.source_remove(self._timer_id)
+            self._timer_id = None
+
     def _ensure_timer(self) -> None:
         if self._timer_id is not None:
             GLib.source_remove(self._timer_id)
-        self._timer_id = GLib.timeout_add(60_000, self._refresh)
+        self._timer_id = GLib.timeout_add(300_000, self._refresh)
 
     def _refresh(self) -> bool:
         if not self._note_name:

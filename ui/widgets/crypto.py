@@ -298,10 +298,15 @@ class CoinGeckoWidget(WidgetBase):
         self._status_label.set_label(tr("Failed to load prices"))
         self._status_label.set_visible(True)
 
+    def stop_periodic(self) -> None:
+        if self._timer_id is not None:
+            GLib.source_remove(self._timer_id)
+            self._timer_id = None
+
     def _start_timer(self) -> None:
         if self._timer_id is not None:
             GLib.source_remove(self._timer_id)
-        interval = max(self.settings.get("interval_min", 2), 1) * 60 * 1000
+        interval = max(self.settings.get("interval_min", 5), 1) * 60 * 1000
         self._timer_id = GLib.timeout_add(interval, self._on_timer)
 
     def _on_timer(self) -> bool:

@@ -183,6 +183,11 @@ class APIWidget(WidgetBase):
         self._status_label.set_label(message)
         self._status_label.set_visible(True)
 
+    def stop_periodic(self) -> None:
+        if self._timer_id is not None:
+            GLib.source_remove(self._timer_id)
+            self._timer_id = None
+
     def update_periodic(self) -> None:
         if self._timer_id is not None:
             GLib.source_remove(self._timer_id)

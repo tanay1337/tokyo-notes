@@ -112,6 +112,11 @@ class WorldTimeWidget(WidgetBase):
             self._update_times()
             self._start_timer()
 
+    def stop_periodic(self) -> None:
+        if self._timer_id is not None:
+            GLib.source_remove(self._timer_id)
+            self._timer_id = None
+
     def _start_timer(self) -> None:
         if self._timer_id is not None:
             GLib.source_remove(self._timer_id)

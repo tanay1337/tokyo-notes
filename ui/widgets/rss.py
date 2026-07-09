@@ -229,6 +229,11 @@ class RSSWidget(WidgetBase):
 
             self._list.append(row)
 
+    def stop_periodic(self) -> None:
+        if self._timer_id is not None:
+            GLib.source_remove(self._timer_id)
+            self._timer_id = None
+
     def update_periodic(self) -> None:
         if self._timer_id is not None:
             GLib.source_remove(self._timer_id)

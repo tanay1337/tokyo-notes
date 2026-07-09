@@ -673,3 +673,7 @@ class Dashboard(Gtk.Box):
     def on_show(self) -> None:
         for info in self._widget_infos:
             info["widget"].update_periodic()
+
+    def on_hide(self) -> None:
+        for info in self._widget_infos:
+            info["widget"].stop_periodic()

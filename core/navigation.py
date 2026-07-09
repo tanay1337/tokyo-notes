@@ -51,7 +51,6 @@ class NavigationController:
         self.update_header_ui(tr("Dashboard"), is_editor=False)
         app.sidebar.set_active_view("dashboard")
         app._set_backlinks_visible(False)
-        app.dashboard_view.on_show()
 
     def refresh_dashboard(self, filter_type: str = "today") -> None:
         """Refresh the tasks widget if present."""
