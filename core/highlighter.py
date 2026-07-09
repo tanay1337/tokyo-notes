@@ -118,6 +118,14 @@ class MarkdownHighlighter:
         # Cache for _code_block_line_set — invalidated when buffer content changes.
         self._code_block_cache: set[int] = set()
         self._code_block_stamp: int = -1
+        # O(1) lookup for "what callout type is active after line N" — avoids
+        # an unbounded backward scan in highlight_line_range() for documents
+        # with long blockquote/callout runs. Populated by both highlight()
+        # and highlight_line_range() as they naturally compute this state;
+        # cleared at the top of every full pass so staleness is bounded to
+        # "at most until the next full pass" (same guarantee as the code
+        # block cache above).
+        self._callout_type_by_line: dict[int, str | None] = {}
         self._in_fence: bool = False
         self._hanging_tag_cache: dict[int, str] = {}
 
@@ -394,6 +402,8 @@ class MarkdownHighlighter:
         is_full_pass = start_line == 0 and end_line == total_lines
         self._in_fence = False
         self._current_callout_type: str | None = None
+        if is_full_pass:
+            self._callout_type_by_line.clear()
 
         start_iter = self.get_iter_at_line(start_line)
         end_iter = (
@@ -518,6 +528,7 @@ class MarkdownHighlighter:
                 self._apply_blockquote_hanging(
                     line, line_start_offset, line_end_offset, bq
                 )
+                self._callout_type_by_line[curr_line_num] = self._current_callout_type
             else:
                 self._current_callout_type = None
 
@@ -1023,24 +1034,7 @@ class MarkdownHighlighter:
         # tokenizer correctly identifies code lines (fences may start earlier).
         if start_line in code_block_lines:
             in_block = True
-        callout_type: str | None = None
-        # Scan backward from start_line to find active callout type when
-        # the incremental pass starts in the middle of a callout block.
-        for scan_line in range(start_line - 1, -1, -1):
-            scan_it = self.get_iter_at_line(scan_line)
-            scan_end = scan_it.copy()
-            if not scan_end.ends_line():
-                scan_end.forward_to_line_end()
-            scan_text = self.buffer.get_text(scan_it, scan_end, True)
-            if self.re_blockquote.match(scan_text):
-                scan_callout = (
-                    self.re_callout.match(scan_text) if "> [!" in scan_text else None
-                )
-                if scan_callout:
-                    callout_type = resolve_callout_type(scan_callout.group(2))
-                    break
-            else:
-                break
+        callout_type: str | None = self._callout_type_by_line.get(start_line - 1)
         for line_num in range(start_line, end_line + 1):
             it = self.get_iter_at_line(line_num)
             it_end = it.copy()
@@ -1108,6 +1102,11 @@ class MarkdownHighlighter:
                         )
             else:
                 callout_type = None
+            # Keep the cache fresh for whichever line we just processed, so
+            # a subsequent incremental call starting right after this one
+            # (the common case: user keeps typing the next line) gets an
+            # up-to-date O(1) lookup instead of falling back on stale data.
+            self._callout_type_by_line[line_num] = callout_type
 
     def set_spell_checker(
         self, spell_checker: SpellChecker | None, enabled: bool = True
