@@ -86,7 +86,7 @@ def setup_shortcuts(
         controller.add_shortcut(
             Gtk.Shortcut.new(
                 Gtk.ShortcutTrigger.parse_string(trigger_str),
-                Gtk.CallbackAction.new(lambda *_, cb=callback: cb() or True),
+                Gtk.CallbackAction.new(lambda *_, cb=callback: cb()),
             )
         )
 
