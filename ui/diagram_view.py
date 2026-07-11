@@ -1030,12 +1030,16 @@ class DiagramView(Gtk.Box):
         self._update_zoom_label()
         self.canvas.queue_draw()
 
-    def _fit_once_allocated(self) -> bool:
+    def _fit_once_allocated(self, _attempt: int = 0) -> bool:
         """Call fit after canvas has been allocated its size (idle callback)."""
         if self.canvas.get_width() > 0 and self.canvas.get_height() > 0:
             self._fit_to_canvas()
             return False
-        return True  # re-schedule if not yet allocated
+        if _attempt > 300:  # ~5s of idle ticks at typical idle-source frequency
+            logger.warning("Diagram canvas never allocated; giving up on auto-fit")
+            return False
+        GLib.idle_add(self._fit_once_allocated, _attempt + 1)
+        return False
 
     def _update_zoom_label(self) -> None:
         """Refresh the zoom percentage label."""

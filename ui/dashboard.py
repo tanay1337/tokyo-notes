@@ -183,6 +183,7 @@ class Dashboard(Gtk.Box):
         info = self._find_info(widget)
         if info is None:
             return
+        widget.stop_periodic()
         self._grid.remove(widget)
         self._widget_infos.remove(info)
         snapshot = [

@@ -1842,9 +1842,10 @@ class Editor(Gtk.Box):
         """Pre-decode images referenced in the current buffer in a daemon thread.
 
         Scans the buffer for ``![...](...)`` references, identifies which paths
-        are not yet in the pixbuf cache, and decodes them in the background.
-        By the time ``update_images()`` fires (2-second debounce), the cache is
-        warm and the main-thread render costs only widget attachment, not decode.
+        are not yet in the pixbuf cache, and schedules them for decode on the
+        main thread. By the time ``update_images()`` fires (2-second debounce),
+        the cache is warm and the main-thread render costs only widget
+        attachment, not decode.
         """
         start, end = self.buffer.get_bounds()
         text = self.buffer.get_text(start, end, True)
@@ -1873,14 +1874,11 @@ class Editor(Gtk.Box):
         if not paths_to_warm:
             return
 
-        def _decode() -> None:
+        def _schedule() -> None:
             for path in paths_to_warm:
-                try:
-                    self._load_image_pixbuf(path, load_res, load_res)
-                except Exception:
-                    pass  # errors handled by the main-thread render
+                GLib.idle_add(self._load_image_pixbuf, path, load_res, load_res)
 
-        threading.Thread(target=_decode, daemon=True).start()
+        threading.Thread(target=_schedule, daemon=True).start()
 
     def _load_image_pixbuf(
         self, full_path: Path, max_w: int = 800, max_h: int = 800
