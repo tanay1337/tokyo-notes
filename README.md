@@ -1,6 +1,48 @@
-# Tokyo Notes 🌸
+<p align="center">
+  <img src="assets/tokyo_notes_icon.svg" width="100" alt="Tokyo Notes">
+</p>
+
+<h1 align="center">Tokyo Notes</h1>
 
 Tokyo Notes is a beautiful markdown note-taking app that combines interactive diagrams, flashcards, a task dashboard, knowledge graph, encrypted private notes, and git backed version history in an offline-first desktop application.
+
+## Installation
+
+<details>
+<summary>macOS</summary>
+
+Download the latest build from the [releases page](https://github.com/tanay1337/tokyo-notes/releases).
+
+Two builds are available:
+- **Tokyo-Notes-Standard-macOS-arm64.zip**: Standard build without dictation.
+- **Tokyo-Notes-Dictation-macOS-arm64.zip**: Includes offline speech-to-text dictation (larger download).
+
+**Note:** The app is not notarized, so you'll have to [allow it from the System Settings](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) the first time you run it.
+
+</details>
+
+<details>
+<summary>Arch Linux</summary>
+
+```bash
+yay -S tokyo-notes-git
+```
+
+</details>
+
+<details>
+<summary>Others</summary>
+
+Requires Python 3.12+, PyGObject, GTK4, Libadwaita, poppler, and Git.
+
+```bash
+# After installing dependencies mentioned above and from pip
+git clone https://github.com/tanay1337/tokyo-notes.git
+cd tokyo-notes
+python3 main.py
+```
+
+</details>
 
 ## Screenshots
 
@@ -50,35 +92,6 @@ Tokyo Notes is a beautiful markdown note-taking app that combines interactive di
 - **Offline Dictation**: Optional speech-to-text dictation powered by faster-whisper that runs fully offline.
 - **Telegram Bot**: Forward messages, photos, and PDFs from Telegram directly into any note via a configurable bot. Supports owner-only filtering.
 - **And Much More**: Themes, Archive System, Full-Text Search, Sakura Animations.
-
-## Installation
-
-### macOS
-
-Download the latest build from the [releases page](https://github.com/tanay1337/tokyo-notes/releases).
-
-Two builds are available:
-- **Tokyo-Notes-Standard-macOS-arm64.zip**: Standard build without dictation.
-- **Tokyo-Notes-Dictation-macOS-arm64.zip**: Includes offline speech-to-text dictation (larger download).
-
-**Note:** The app is not notarized, so you'll have to [allow it from the System Settings](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) the first time you run it.
-
-### Arch Linux
-
-```bash
-yay -S tokyo-notes-git
-```
-
-### Others
-
-Requires Python 3.12+, PyGObject, GTK4, Libadwaita, poppler, and Git.
-
-```bash
-# After installing dependencies mentioned above and from pip
-git clone https://github.com/tanay1337/tokyo-notes.git
-cd tokyo-notes
-python3 main.py
-```
 
 ## Smart Syntax
 - **Slash Commands**: Type `/` to open a command palette for inserting headings, lists, code blocks, and more.
