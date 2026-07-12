@@ -54,9 +54,9 @@ class Sidebar(Gtk.Box):
         new_btn.set_child(new_img)
 
         new_menu = Gio.Menu()
-        new_menu.append("New Note", "app.new_note")
-        new_menu.append("New Note from template", "app.new_from_template")
-        new_menu.append("New Folder", "app.new_folder")
+        new_menu.append(tr("New Note"), "app.new_note")
+        new_menu.append(tr("New Note from Template"), "app.new_from_template")
+        new_menu.append(tr("New Folder"), "app.new_folder")
         new_btn.set_menu_model(new_menu)
 
         sidebar_header.pack_start(new_btn)
@@ -216,7 +216,7 @@ class Sidebar(Gtk.Box):
         if self.main_list.get_row_at_y(int(y)) is not None:
             return  # a note/folder row handled it
         menu = Gio.Menu()
-        menu.append("New Folder", "app.new_folder")
+        menu.append(tr("New Folder"), "app.new_folder")
         popover = Gtk.PopoverMenu.new_from_model(menu)
         # Parent to the sidebar (never cleared) so _clear(main_list) doesn't break it
         popover.set_parent(self)
