@@ -32,6 +32,7 @@ class HabitGraph(Gtk.DrawingArea):
         self._accent: Gdk.RGBA | None = None
         self._fg: Gdk.RGBA | None = None
         self._on_toggle: Any = None
+        self._title_height: float = 0.0
         self.set_hexpand(True)
         self.set_vexpand(True)
         self.set_size_request(-1, 200)
@@ -114,12 +115,13 @@ class HabitGraph(Gtk.DrawingArea):
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
         cr.set_font_size(14)
         ext = cr.text_extents(self._habit_name)
+        self._title_height = ext.height
         cx = (width - ext.width) / 2
         cr.move_to(cx, PAD + ext.height)
         cr.set_source_rgba(self._accent.red, self._accent.green, self._accent.blue, 0.9)
         cr.show_text(self._habit_name)
 
-        grid_y = PAD + 20 + 6
+        grid_y = PAD + self._title_height + 6
         cell_h = CELL + GAP
         total_grid_h = 7 * cell_h
         grid_x0 = PAD + LABEL_W
@@ -194,8 +196,9 @@ class HabitGraph(Gtk.DrawingArea):
         if alloc.width <= 0:
             return
 
+        grid_y = PAD + self._title_height + 6
+
         cols = self._col_count(alloc.width)
-        grid_y = PAD + 20 + 6
         grid_x0 = PAD + LABEL_W
 
         col = int((x - grid_x0) // (CELL + GAP))
@@ -204,8 +207,7 @@ class HabitGraph(Gtk.DrawingArea):
             return
 
         d = self._cell_date(col, row, cols)
-        earliest = self._today - timedelta(days=7)
-        if not (earliest <= d <= self._today):
+        if d > self._today:
             return
 
         self._on_toggle(d.isoformat())
@@ -306,6 +308,8 @@ class HabitTrackerWidget(WidgetBase):
     def _toggle_date(self, date_str: str) -> None:
         if not self._note_name:
             return
+
+        self.app.flush_editor_pending_save(self._note_name)
         content = self.app.notes_manager.read_plain(self._note_name)
         lines = content.split("\n")
 
@@ -333,6 +337,8 @@ class HabitTrackerWidget(WidgetBase):
             self._dates.add(date_str)
 
         self._graph.set_data(self._dates, self._habit_name, self._toggle_date)
+
+        self.app.reload_editor_buffer(self._note_name)
 
     def _update_graph(self) -> None:
         self._graph.set_data(self._dates, self._habit_name, self._toggle_date)

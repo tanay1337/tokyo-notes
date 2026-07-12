@@ -3766,6 +3766,42 @@ class TokyoNotes(Adw.Application):
             else:
                 self.nav.refresh_dashboard("today")
 
+    # ── Helpers for widgets that write notes externally ──
+
+    def flush_editor_pending_save(self, note_name: str) -> None:
+        """Flush any pending debounced editor save for *note_name* if open.
+
+        Call before a widget writes to *note_name* to prevent the
+        editor's auto-save from overwriting the widget's changes.
+        """
+        if self.current_note == note_name:
+            self._flush_pending_save()
+
+    def reload_editor_buffer(self, note_name: str) -> None:
+        """Reload the editor buffer from disk if *note_name* is open.
+
+        Call after a widget writes to *note_name* so the editor
+        reflects the change and subsequent auto-saves preserve it.
+        """
+        if self.current_note == note_name:
+            fresh = self.notes_manager.read_plain(note_name)
+            cursor_offset = self.buffer.get_iter_at_mark(
+                self.buffer.get_insert()
+            ).get_offset()
+            self.buffer.handler_block(self.changed_handler_id)
+            self.buffer.set_text(fresh)
+            self._schedule_full_highlight()
+            self.buffer.handler_unblock(self.changed_handler_id)
+            self.editor._last_image_text_hash = ""
+            if (
+                self._has_images
+                and hasattr(self.editor, "_image_update_running")
+                and not self.editor._image_update_running
+            ):
+                self._reschedule("image_timeout_id", 100, self.do_delayed_images)
+            restore = min(cursor_offset, len(fresh.rstrip("\n")))
+            self.buffer.place_cursor(self.buffer.get_iter_at_offset(restore))
+
     # Quick Add
 
     def on_quick_add_task(
