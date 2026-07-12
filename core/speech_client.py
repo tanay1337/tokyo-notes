@@ -80,18 +80,26 @@ class SpeechWorkerClient:
         with self._lock:
             proc = self._proc
             self._proc = None
-        if proc is not None:
+        if proc is None:
+            return
+
+        def _wait_and_close() -> None:
             try:
                 proc.stdin.write(json.dumps({"exit": True}) + "\n")
                 proc.stdin.flush()
             except Exception:
                 pass
-            proc.wait(timeout=5)
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                proc.kill()
             for f in (proc.stdin, proc.stdout, proc.stderr):
                 try:
                     f.close()
                 except Exception:
                     pass
+
+        threading.Thread(target=_wait_and_close, daemon=True).start()
 
     def _read_worker(self) -> None:
         proc = self._proc
@@ -116,15 +124,16 @@ class SpeechWorkerClient:
     # ------------------------------------------------------------------
 
     def start_recording(self) -> None:
-
-        sd = import_sounddevice()
-
         if self._recording or self._transcribing:
             return
         self._recording = True
         self.ensure_started()
         with self._lock:
             self._audio_q = queue.Queue()
+        threading.Thread(target=self._open_stream_and_record, daemon=True).start()
+
+    def _open_stream_and_record(self) -> None:
+        sd = import_sounddevice()
         try:
             dev, sr = self._pick_input_device(self._input_device)
             self._capture_sr = sr
@@ -142,7 +151,7 @@ class SpeechWorkerClient:
             logger.error("Failed to open audio stream: %s", e)
             self._recording = False
             return
-        threading.Thread(target=self._transcribe_worker, daemon=True).start()
+        self._transcribe_worker()
 
     def stop_recording(self) -> None:
         if not self._recording:

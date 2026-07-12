@@ -361,37 +361,6 @@ class TableView(Gtk.Box):
         self._table = tbl
         self._rebuild_grid()
 
-    def _delete_row(self) -> None:
-        if self._last_focused_cell is None:
-            return
-        ri = self._last_focused_cell[0]
-        if ri == 0:
-            return
-        self._push_undo()
-        tbl = self._collect_table()
-        di = ri - 1
-        if tbl.rows and di < len(tbl.rows):
-            tbl.rows.pop(di)
-        self._table = tbl
-        self._rebuild_grid()
-
-    def _delete_column(self) -> None:
-        if self._last_focused_cell is None:
-            return
-        ci = self._last_focused_cell[1]
-        tbl = self._collect_table()
-        ncols = len(tbl.headers)
-        if ncols <= 1:
-            return
-        self._push_undo()
-        if ci < len(tbl.headers):
-            tbl.headers.pop(ci)
-            for row in tbl.rows:
-                if ci < len(row):
-                    row.pop(ci)
-        self._table = tbl
-        self._rebuild_grid()
-
     # ---- Context-menu operations ----
 
     def _insert_row_above(self) -> None:

@@ -130,7 +130,7 @@ def _add_heading_blanks(lines: list[_Line]) -> list[_Line]:
             if i + 1 < len(lines):
                 nxt = lines[i + 1]
                 if nxt.kind != "blank" and nxt.kind not in _HEADING_KINDS:
-                    if not (nxt.in_fence and nxt.kind == "code_fence_start"):
+                    if nxt.kind != "code_fence_start":
                         result.append(_Line("", "blank"))
         else:
             result.append(line)
