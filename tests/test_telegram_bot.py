@@ -234,7 +234,7 @@ class TestHandleMessage:
             bot._handle_message(msg)
         mock_append.assert_not_called()
 
-    def test_voice_is_ignored(self, bot):
+    def test_voice_downloaded_and_appended(self, bot, notes_dir):
         msg = {
             "message_id": 9,
             "from": {"id": 12345},
@@ -242,9 +242,15 @@ class TestHandleMessage:
             "voice": {"file_id": "voice_id", "duration": 5},
             "date": 1700000000,
         }
-        with patch.object(bot, "_append_to_inbox") as mock_append:
-            bot._handle_message(msg)
-        mock_append.assert_not_called()
+        with patch.object(bot, "_download_file", return_value=True) as mock_dl:
+            with patch.object(bot, "_transcribe_voice", return_value="hello world"):
+                with patch.object(bot, "_append_to_inbox") as mock_append:
+                    bot._handle_message(msg)
+        mock_dl.assert_called_once_with(
+            "voice_id", notes_dir / ".voice" / "telegram_voice_id.oga"
+        )
+        line = mock_append.call_args[0][0]
+        assert "🎤 hello world" in line
 
     def test_rejects_message_when_no_owner_id(self, bot_no_owner, mock_nm, notes_dir):
         msg = {

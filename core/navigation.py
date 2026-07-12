@@ -149,6 +149,7 @@ class NavigationController:
                     ),
                     "telegram_separator": app.cfg.get("telegram_separator", False),
                     "telegram_prefix": app.cfg.get("telegram_prefix", ""),
+                    "telegram_voice_emoji": app.cfg.get("telegram_voice_emoji", True),
                     "telegram_owner_id": app.cfg.get("telegram_owner_id", 0),
                     "all_notes": app.notes_manager.get_notes(),
                 },

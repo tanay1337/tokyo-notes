@@ -27,6 +27,17 @@ REQUIRED_PACKAGES = [
 ]
 
 
+def _speech_site_packages() -> Path | None:
+    """Return the speech venv site-packages path, or None if it doesn't exist."""
+    site_packages = (
+        SPEECH_VENV
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+    return site_packages if site_packages.is_dir() else None
+
+
 def dictation_bundled() -> bool:
     """True if faster-whisper is available in-process (macOS dictation build)."""
     return (
@@ -67,6 +78,24 @@ def import_numpy():
             sys.path.insert(0, str(site_packages))
         import numpy as np
     return np
+
+
+def import_faster_whisper():
+    """Import faster_whisper, falling back to the speech venv site-packages.
+
+    Returns the faster_whisper module, or None if it's not available.
+    """
+    try:
+        import faster_whisper as fw
+    except ModuleNotFoundError:
+        site_packages = _speech_site_packages()
+        if site_packages is not None:
+            sys.path.insert(0, str(site_packages))
+        try:
+            import faster_whisper as fw
+        except ModuleNotFoundError:
+            return None
+    return fw
 
 
 def import_huggingface_hub():

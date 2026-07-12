@@ -1,8 +1,9 @@
 """Telegram bot daemon — polls for messages and captures them into Inbox.md.
 
 Uses only the Telegram Bot REST API via urllib (stdlib).  Runs as a daemon
-thread inside the GUI application.  Text messages, photos, and PDF documents
-are appended to the Inbox note; everything else is silently ignored.
+thread inside the GUI application.  Text messages, photos, PDF documents, and
+voice notes are appended to the Inbox note; everything else is silently ignored.
+Voice notes are transcribed to text via faster-whisper when available.
 """
 
 from __future__ import annotations
@@ -16,10 +17,14 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, Callable
 
+from core.speech_paths import import_faster_whisper
 from core.translations import tr
 from core.utils import urlopen_with_fallback
 
 logger = logging.getLogger(__name__)
+
+_whisper_model = None
+"""Cached WhisperModel instance shared across voice transcriptions."""
 
 _API_BASE = "https://api.telegram.org/bot"
 _FILE_BASE = "https://api.telegram.org/file/bot"
@@ -39,6 +44,7 @@ class TelegramBot:
         separator: bool = False,
         prefix: str = "",
         owner_id: int | None = None,
+        voice_emoji: bool = True,
         on_inbox_updated: Callable[[], Any] | None = None,
     ) -> None:
         self.token = token
@@ -48,6 +54,7 @@ class TelegramBot:
         self.separator = separator
         self.prefix = prefix
         self.owner_id = owner_id
+        self.voice_emoji = voice_emoji
         self._on_inbox_updated = on_inbox_updated
         self._offset: int = 0
         self._running: bool = False
@@ -183,7 +190,12 @@ class TelegramBot:
             self._append_to_inbox(line)
             return
 
-        # Silently ignore stickers, GIFs, voice, video, commands
+        voice = msg.get("voice")
+        if voice:
+            self._handle_voice(voice)
+            return
+
+        # Silently ignore stickers, GIFs, video, commands
 
     def _append_to_inbox(self, line: str) -> None:
         """Append a line to the target note, creating it if it doesn't exist."""
@@ -201,6 +213,44 @@ class TelegramBot:
                 self._on_inbox_updated()
         except Exception:
             logger.exception("Failed to append to %s", note)
+
+    def _handle_voice(self, voice: dict) -> None:
+        """Download a voice note and append its transcription to Inbox."""
+        file_id = voice["file_id"]
+        dest = self.notes_dir / ".voice" / f"telegram_{file_id}.oga"
+
+        if not self._download_file(file_id, dest):
+            self._append_to_inbox("(voice download failed)")
+            return
+
+        text = self._transcribe_voice(dest)
+        prefix = "🎤 " if self.voice_emoji else ""
+        if text:
+            self._append_to_inbox(f"{prefix}{text}")
+        else:
+            self._append_to_inbox(
+                f"{prefix}[Voice message](.voice/telegram_{file_id}.oga)"
+            )
+
+    @staticmethod
+    def _transcribe_voice(file_path: Path) -> str | None:
+        """Transcribe an audio file via faster-whisper. Returns None on failure."""
+        global _whisper_model
+        try:
+            fw = import_faster_whisper()
+            if fw is None:
+                logger.debug("faster-whisper not available — skipping transcription")
+                return None
+            audio = fw.audio.decode_audio(str(file_path))
+            if _whisper_model is None:
+                _whisper_model = fw.WhisperModel(
+                    "base", device="cpu", compute_type="int8"
+                )
+            segments, _ = _whisper_model.transcribe(audio)
+            return " ".join(s.text.strip() for s in segments).strip()
+        except Exception:
+            logger.exception("Voice transcription failed")
+            return None
 
     # ── file download ──
 

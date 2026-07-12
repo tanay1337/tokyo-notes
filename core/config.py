@@ -44,6 +44,7 @@ _DEFAULTS: dict[str, Any] = {
     "telegram_target_note": "Inbox",
     "telegram_separator": False,
     "telegram_prefix": "",
+    "telegram_voice_emoji": True,
     "telegram_owner_id": 0,
     "widgets": [],
     "grid_cols": 4,

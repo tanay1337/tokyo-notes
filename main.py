@@ -95,6 +95,7 @@ class TokyoNotes(Adw.Application):
             separator=self.cfg.get("telegram_separator", False),
             prefix=self.cfg.get("telegram_prefix", ""),
             owner_id=self.cfg.get("telegram_owner_id") or None,
+            voice_emoji=self.cfg.get("telegram_voice_emoji", True),
             on_inbox_updated=lambda: GLib.idle_add(self._on_bot_inbox_updated),
         )
 
@@ -1771,6 +1772,9 @@ class TokyoNotes(Adw.Application):
         elif key == "telegram_prefix":
             if self.telegram_bot is not None:
                 self.telegram_bot.prefix = str(value)
+        elif key == "telegram_voice_emoji":
+            if self.telegram_bot is not None:
+                self.telegram_bot.voice_emoji = bool(value)
         elif key == "telegram_owner_id":
             if self.telegram_bot is not None:
                 self.telegram_bot.owner_id = int(value) if value else None

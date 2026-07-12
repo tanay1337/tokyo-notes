@@ -521,6 +521,15 @@ class SettingsView(Gtk.Box):
             )
         )
 
+        group.add(
+            self._make_switch_row(
+                tr("Voice Emoji"),
+                tr("Prepend 🎤 before transcribed voice notes"),
+                self._initial_values.get("telegram_voice_emoji", True),
+                "telegram_voice_emoji",
+            )
+        )
+
         prefix = self._initial_values.get("telegram_prefix", "")
         prefix_entry = Gtk.Entry()
         prefix_entry.set_text(prefix)
