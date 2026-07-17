@@ -780,7 +780,7 @@ class TokyoNotes(Adw.Application):
         self, message: str, action_label: str | None = None, action=None
     ) -> None:
         """Show an Adw.Toast with optional action button."""
-        toast = Adw.Toast(title=message, timeout=3)
+        toast = Adw.Toast(title=GLib.markup_escape_text(message), timeout=3)
         if action_label and action:
             toast.set_button_label(action_label)
             toast.connect("button-clicked", lambda *_: action())

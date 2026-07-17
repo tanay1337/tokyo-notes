@@ -90,7 +90,7 @@ class NotesManager:
 
     # Note name validation — prevents path traversal via crafted note names.
 
-    _VALID_NAME_RE = re.compile(r"^[\w][\w .\-()]*(/[\w][\w .\-()]*)*$")
+    _VALID_NAME_RE = re.compile(r"^[^\\/:*?\"<>|\]]+(/[^\\/:*?\"<>|\]]+)*$")
 
     @classmethod
     def validate_name(cls, name: str) -> str:
@@ -104,18 +104,47 @@ class NotesManager:
 
         # Prevent Windows reserved names
         base = name.split("/")[-1]
-        if base.lower() in ("con", "prn", "aux", "nul", "com1", "com2", "lpt1"):
+        if base.lower() in (
+            "con",
+            "prn",
+            "aux",
+            "nul",
+            "com1",
+            "com2",
+            "com3",
+            "com4",
+            "com5",
+            "com6",
+            "com7",
+            "com8",
+            "com9",
+            "lpt1",
+            "lpt2",
+            "lpt3",
+            "lpt4",
+            "lpt5",
+            "lpt6",
+            "lpt7",
+            "lpt8",
+            "lpt9",
+        ):
             raise ValueError(f"Reserved note name: {name!r}")
 
         if (
-            not cls._VALID_NAME_RE.match(name)
-            or ".." in name
+            ".." in name
             or "\\" in name
             or name.startswith("/")
             or name.endswith("/")
             or "//" in name
         ):
             raise ValueError(f"Invalid note name: {name!r}")
+        if not cls._VALID_NAME_RE.match(name):
+            bad = next((c for c in name if c in '\\/:*?"<>|]'), None)
+            if bad:
+                raise ValueError(f"Symbol '{bad}' is not allowed in note/folder names")
+            raise ValueError(f"Invalid note name: {name!r}")
+        if name.endswith(".") or name.endswith(" "):
+            raise ValueError("Note/folder name cannot end with '.' or space")
 
         # Null byte check
         if "\0" in name:

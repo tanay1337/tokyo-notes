@@ -141,9 +141,16 @@ class TestValidateName:
         for name in ["Hello", "My Note", "note-1", "draft.md", "test (2024)"]:
             assert NotesManager.validate_name(name) == name
 
+    def test_valid_names_with_special_chars(self) -> None:
+        for name in ["foo&bar", "a#b", "c@d", "e+f", "g=h", "hello!"]:
+            assert NotesManager.validate_name(name) == name
+
     def test_valid_folder_names(self) -> None:
         for name in ["Work/Hi", "Work/Month/Hi", "a/b/c/d"]:
             assert NotesManager.validate_name(name) == name
+
+    def test_valid_names_with_dot_start(self) -> None:
+        assert NotesManager.validate_name(".hidden") == ".hidden"
 
     def test_rejects_path_traversal(self) -> None:
         with pytest.raises(ValueError):
@@ -165,11 +172,18 @@ class TestValidateName:
         with pytest.raises(ValueError):
             NotesManager.validate_name("")
 
-    def test_rejects_only_special(self) -> None:
+    def test_rejects_windows_forbidden_chars(self) -> None:
+        for c in '\\:*?"<>|]':
+            with pytest.raises(ValueError):
+                NotesManager.validate_name(f"bad{c}name")
+
+    def test_rejects_trailing_dot(self) -> None:
         with pytest.raises(ValueError):
-            NotesManager.validate_name("???")
+            NotesManager.validate_name("folder.")
+
+    def test_rejects_trailing_space(self) -> None:
         with pytest.raises(ValueError):
-            NotesManager.validate_name("***")
+            NotesManager.validate_name("folder ")
 
 
 class TestUpdateCheckbox:
