@@ -40,10 +40,27 @@ class ActionsHandler:
         )
         if has_image:
             clipboard.read_texture_async(None, self.on_paste_texture_finish)
-            try:
-                text_view.stop_emission("paste-clipboard")
-            except TypeError:
-                pass
+        else:
+            clipboard.read_text_async(None, self.on_paste_text_finish)
+        try:
+            text_view.stop_emission("paste-clipboard")
+        except TypeError:
+            pass
+
+    def on_paste_text_finish(
+        self, clipboard: Gdk.Clipboard, result: Gio.AsyncResult
+    ) -> None:
+        try:
+            text = clipboard.read_text_finish(result)
+            if not text:
+                return
+            self.app.buffer.insert_at_cursor(text)
+            if self.app.highlight_timeout_id:
+                GLib.source_remove(self.app.highlight_timeout_id)
+                self.app.highlight_timeout_id = 0
+            self.app._do_highlight()
+        except GLib.Error as e:
+            logger.warning("Text paste skipped: %s", e.message)
 
     def _ensure_images_dir(self, note_dir: Path) -> Path:
         images_dir = note_dir / ".images"
