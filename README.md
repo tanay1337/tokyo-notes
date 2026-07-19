@@ -30,20 +30,6 @@ yay -S tokyo-notes-git
 
 </details>
 
-<details>
-<summary>Others</summary>
-
-Requires Python 3.12+, PyGObject, GTK4, Libadwaita, poppler, and Git.
-
-```bash
-# After installing dependencies mentioned above and from pip
-git clone https://github.com/tanay1337/tokyo-notes.git
-cd tokyo-notes
-python3 main.py
-```
-
-</details>
-
 ## Screenshots
 
 <table>
