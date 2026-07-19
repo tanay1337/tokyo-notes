@@ -32,6 +32,10 @@ from core.utils import (
 
 logger = logging.getLogger(__name__)
 
+# Characters that open markdown formatting constructs.
+# Used by _set_line_markers as a fast-path pre-check.
+_MARKER_CHARS = frozenset("#*_`~[!<")
+
 _DEFAULT_SYNTAX_COLORS: dict[str, str] = {
     "h1": "#7aa2f7",
     "h2": "#bb9af7",
@@ -1233,6 +1237,10 @@ class MarkdownHighlighter:
             return
 
         mt = "dim" if is_cursor else "invisible"
+
+        # Fast path: if line has no markdown marker characters, skip regex work.
+        if not any(ch in _MARKER_CHARS for ch in line):
+            return
 
         # ATX heading markers
         for m in self.re_header.finditer(line):

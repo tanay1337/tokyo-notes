@@ -321,7 +321,9 @@ class TestTextChanged:
         app = _make_app()
         app.current_note = "test-note"
         lifecycle = NoteLifecycleManager(app)
-        lifecycle.on_text_changed(MagicMock())
+        buffer = MagicMock()
+        buffer.get_text.return_value = "![image](test.png)"
+        lifecycle.on_text_changed(buffer)
         assert app._reschedule.call_count == 5
         expected_calls = [150, 100, 500, 2000, 1000]
         for call, delay in zip(app._reschedule.call_args_list, expected_calls):

@@ -607,6 +607,20 @@ class NoteLifecycleManager:
         )
         app._reschedule("highlight_timeout_id", 100, app.do_delayed_highlight)
         app._reschedule("spell_check_timeout_id", 500, self.do_delayed_spell_check)
-        if not app.editor._image_update_running:
+        if not app.editor._image_update_running and (
+            app._has_images or self._has_image_syntax(buffer)
+        ):
             app._reschedule("image_timeout_id", 2000, app.do_delayed_images)
         app._reschedule("rename_timeout_id", 1000, self.do_delayed_save)
+
+    @staticmethod
+    def _has_image_syntax(buffer: Gtk.TextBuffer) -> bool:
+        """Quick check: does the cursor line contain image syntax?"""
+        cursor = buffer.get_iter_at_mark(buffer.get_insert())
+        line_start = cursor.copy()
+        line_start.set_line_offset(0)
+        line_end = cursor.copy()
+        if not line_end.ends_line():
+            line_end.forward_to_line_end()
+        text = buffer.get_text(line_start, line_end, True)
+        return "![" in text

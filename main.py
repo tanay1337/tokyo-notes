@@ -113,6 +113,7 @@ class TokyoNotes(Adw.Application):
         self.search_timeout_id: int = 0
         self.changed_handler_id: int = 0
         self.last_cursor_line: int = -1
+        self._cursor_marker_source_id: int = 0
         self._toolbar_active_tags: set[str] = set()
         self._pending_highlight_id: int = 0
         self._has_selection: bool = False
@@ -3570,10 +3571,15 @@ class TokyoNotes(Adw.Application):
         # _on_mark_set will do a full highlight restore once selection clears.
         if not self._has_selection and not buffer.get_has_selection():
             prev_line = self.last_cursor_line
-            GLib.idle_add(self._deferred_toggle_cursor_markers, prev_line, cursor_line)
+            if self._cursor_marker_source_id > 0:
+                GLib.source_remove(self._cursor_marker_source_id)
+            self._cursor_marker_source_id = GLib.idle_add(
+                self._deferred_toggle_cursor_markers, prev_line, cursor_line
+            )
         self.last_cursor_line = cursor_line
 
     def _deferred_toggle_cursor_markers(self, prev_line: int, curr_line: int) -> bool:
+        self._cursor_marker_source_id = 0
         if not self.highlighter or self.current_note is None:
             return False
         try:
