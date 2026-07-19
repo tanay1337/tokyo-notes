@@ -811,6 +811,20 @@ class MarkdownHighlighter:
         if tag_name:
             self.apply_tag(tag_name, line_start_offset, line_end_offset)
 
+        # ATX heading markers: dim on cursor line, invisible elsewhere.
+        # This mirrors the handling in highlight() (lines 573-582) and ensures
+        # heading markers keep their dim/invisible tag after highlight_line_range
+        # calls remove_all_tags on the line.
+        if md_line.kind in ("h1", "h2", "h3", "h4", "h5", "h6"):
+            h = self.re_header.match(line)
+            if h:
+                marker_end = line_start_offset + len(h.group(1))
+                self.apply_tag(
+                    self._marker_tag(is_cursor),
+                    line_start_offset,
+                    marker_end,
+                )
+
         # Blockquote marker styling (visual accent bar at the `>` position)
         if md_line.kind == "blockquote":
             bq_match = self.re_blockquote.match(line)

@@ -113,6 +113,7 @@ class TokyoNotes(Adw.Application):
         self.search_timeout_id: int = 0
         self.changed_handler_id: int = 0
         self.last_cursor_line: int = -1
+        self._toolbar_active_tags: set[str] = set()
         self._pending_highlight_id: int = 0
         self._has_selection: bool = False
         self._has_invisible_tags: bool = (
@@ -1507,6 +1508,10 @@ class TokyoNotes(Adw.Application):
         self.buffer = self.editor.buffer
         self.text_view = self.editor.text_view
         self.toolbar = self.editor.toolbar
+        inner = self.toolbar.get_child()
+        if isinstance(inner, Gtk.Viewport):
+            inner = inner.get_child()
+        self._toolbar_tag_buttons = getattr(inner, "_tag_buttons", None)
         self.changed_handler_id = self.editor.changed_handler_id
 
         self.history_btn = getattr(self.toolbar, "_history_btn", None)
@@ -3519,11 +3524,8 @@ class TokyoNotes(Adw.Application):
     # Cursor / click
 
     def _update_toolbar_active_state(self, buffer: Gtk.TextBuffer) -> None:
-        inner = self.toolbar.get_child()
-        if isinstance(inner, Gtk.Viewport):
-            inner = inner.get_child()
-        tag_buttons = getattr(inner, "_tag_buttons", None)
-        if tag_buttons is None:
+        tag_buttons = self._toolbar_tag_buttons
+        if not tag_buttons:
             return
 
         cursor = buffer.get_iter_at_mark(buffer.get_insert())
@@ -3533,11 +3535,15 @@ class TokyoNotes(Adw.Application):
             if t.get_property("name") in tag_buttons
         }
 
+        if active == self._toolbar_active_tags:
+            return
+
         for tag_name, btn in tag_buttons.items():
             if tag_name in active:
                 btn.add_css_class("active")
             else:
                 btn.remove_css_class("active")
+        self._toolbar_active_tags = active
 
     def on_cursor_moved(self, buffer: Gtk.TextBuffer, _pspec: object) -> None:
         if (
@@ -3558,22 +3564,25 @@ class TokyoNotes(Adw.Application):
         cursor_line = cursor_iter.get_line()
         if cursor_line == self.last_cursor_line:
             return
-        # If a delayed highlight was just scheduled by on_text_changed,
-        # skip the synchronous highlight pass so fast typing stays responsive.
-        # The debounced do_delayed_highlight will catch up after 100ms.
-        if self.highlight_timeout_id:
-            self.last_cursor_line = cursor_line
-            return
         # While a selection is active, skip per-line marker passes entirely.
         # Those passes would reapply the invisible tag to heading markers mid-drag,
         # putting Pango and the btree out of sync and causing the byte-index crash.
         # _on_mark_set will do a full highlight restore once selection clears.
         if not self._has_selection and not buffer.get_has_selection():
-            self.highlighter.toggle_cursor_markers(
-                prev_line=self.last_cursor_line,
-                curr_line=cursor_line,
-            )
+            prev_line = self.last_cursor_line
+            GLib.idle_add(self._deferred_toggle_cursor_markers, prev_line, cursor_line)
         self.last_cursor_line = cursor_line
+
+    def _deferred_toggle_cursor_markers(self, prev_line: int, curr_line: int) -> bool:
+        if not self.highlighter or self.current_note is None:
+            return False
+        try:
+            self.highlighter.toggle_cursor_markers(
+                prev_line=prev_line, curr_line=curr_line
+            )
+        except Exception:
+            logger.exception("toggle_cursor_markers failed (deferred)")
+        return False
 
     def _on_mark_set(self, buffer: Gtk.TextBuffer, _loc, mark) -> None:
         """Toggle invisible marker tags based on whether a selection is active.
@@ -3584,7 +3593,7 @@ class TokyoNotes(Adw.Application):
         this by stripping the invisible tag for the duration of any active selection
         and restoring it (via a full highlight pass) the moment the selection clears.
         """
-        if not self.highlighter:
+        if not self.highlighter or self.is_loading:
             return
 
         # Only act on the selection_bound mark; ignore insert and named marks.
@@ -3602,17 +3611,22 @@ class TokyoNotes(Adw.Application):
             # btree stay in sync while the user drags. Skip entirely when no
             # invisible tags are present (plain-text lines — the common case).
             if self._has_invisible_tags:
-                buffer.begin_irreversible_action()
-                try:
-                    start, end = buffer.get_bounds()
-                    buffer.remove_tag_by_name("invisible", start, end)
-                finally:
-                    buffer.end_irreversible_action()
                 self._has_invisible_tags = False
+                GLib.idle_add(self._deferred_remove_invisible, buffer)
         else:
             # Selection cleared: restore the full render (invisible markers back).
             # _has_invisible_tags will be set again by the highlight pass if needed.
-            self._do_highlight()
+            GLib.idle_add(self._do_highlight)
+
+    def _deferred_remove_invisible(self, buffer: Gtk.TextBuffer) -> bool:
+        if not self.highlighter:
+            return False
+        try:
+            start, end = buffer.get_bounds()
+            buffer.remove_tag_by_name("invisible", start, end)
+        except Exception:
+            logger.exception("_deferred_remove_invisible failed")
+        return False
 
     def on_click_pressed(
         self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float

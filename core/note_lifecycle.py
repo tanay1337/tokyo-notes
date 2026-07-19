@@ -142,6 +142,13 @@ class NoteLifecycleManager:
                     app._load_encrypted_note(app.current_note)
                     content = app.buffer.get_text(*app.buffer.get_bounds(), True)
                     app.last_cursor_line = -1
+                    if (
+                        hasattr(app, "_toolbar_tag_buttons")
+                        and app._toolbar_tag_buttons
+                    ):
+                        for btn in app._toolbar_tag_buttons.values():
+                            btn.remove_css_class("active")
+                    app._toolbar_active_tags = set()
                     app._update_backlinks()
                     if listbox == app.sidebar.main_list:
                         app.sidebar.archive_list.unselect_all()
@@ -189,6 +196,10 @@ class NoteLifecycleManager:
                 )
 
             app.last_cursor_line = -1
+            if hasattr(app, "_toolbar_tag_buttons") and app._toolbar_tag_buttons:
+                for btn in app._toolbar_tag_buttons.values():
+                    btn.remove_css_class("active")
+            app._toolbar_active_tags = set()
             app._update_backlinks()
 
             if listbox == app.sidebar.main_list:

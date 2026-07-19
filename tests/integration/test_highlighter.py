@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+from gi.repository import GLib
 
 from core.highlighter import MarkdownHighlighter
 from main import TokyoNotes
@@ -57,10 +58,19 @@ class TestHighlighterIntegration:
                 self.highlight_called = False
                 self.content_stack = MagicMock()
                 self.content_stack.get_visible_child_name.return_value = "editor"
+                self.is_loading = False
 
             def _do_highlight(self):
                 self.highlight_called = True
                 self.highlighter.highlight()
+                return False
+
+            def _deferred_remove_invisible(self, buffer):
+                highlighter = self.highlighter
+                if not highlighter:
+                    return False
+                start, end = buffer.get_bounds()
+                highlighter.buffer.remove_tag_by_name("invisible", start, end)
                 return False
 
         app = MockApp()
@@ -87,6 +97,10 @@ class TestHighlighterIntegration:
         # 2. Start selection
         # select_range triggers mark-set for 'insert' and 'selection_bound'
         buffer.select_range(buffer.get_start_iter(), buffer.get_end_iter())
+        # Flush deferred idle callbacks (remove invisible, etc.)
+        ctx = GLib.main_context_default()
+        while ctx.iteration(False):
+            pass
 
         # 3. Verify 'invisible' tag is REMOVED to prevent Pango crash
         assert not start.has_tag(invisible_tag)
@@ -94,6 +108,9 @@ class TestHighlighterIntegration:
 
         # 4. Clear selection
         buffer.place_cursor(buffer.get_start_iter())
+        # Flush deferred idle callbacks (_do_highlight)
+        while ctx.iteration(False):
+            pass
 
         # 5. Verify tag is RESTORED via _do_highlight call
         assert app.highlight_called is True
