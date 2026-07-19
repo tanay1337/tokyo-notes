@@ -1449,6 +1449,7 @@ class TokyoNotes(Adw.Application):
             on_sidebar_search=self.on_sidebar_search_shortcut,
             on_bold=self.on_bold_shortcut,
             on_italic=self.on_italic_shortcut,
+            on_underline=self.on_underline_shortcut,
         )
         if self.telegram_bot is not None:
             self.telegram_bot.start()
@@ -3413,6 +3414,10 @@ class TokyoNotes(Adw.Application):
 
     def on_italic_shortcut(self) -> bool:
         self.apply_format(type("_", (), {"_tag_name": "italic"})(), "_", "_")
+        return True
+
+    def on_underline_shortcut(self) -> bool:
+        self.apply_format(type("_", (), {"_tag_name": "underline"})(), "<u>", "</u>")
         return True
 
     def show_shortcuts_dialog(self) -> bool:

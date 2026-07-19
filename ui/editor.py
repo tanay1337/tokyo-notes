@@ -761,6 +761,7 @@ class Editor(Gtk.Box):
             Gdk.KEY_underscore: ("_", "_"),
             Gdk.KEY_grave: ("`", "`"),
             Gdk.KEY_asciitilde: ("~~", "~~"),
+            Gdk.KEY_equal: ("==", "=="),
             Gdk.KEY_parenleft: ("(", ")"),
             Gdk.KEY_bracketleft: ("[", "]"),
             Gdk.KEY_quotedbl: ('"', '"'),
@@ -836,12 +837,32 @@ class Editor(Gtk.Box):
             Gdk.KEY_underscore,
             Gdk.KEY_grave,
             Gdk.KEY_asciitilde,
+            Gdk.KEY_equal,
             Gdk.KEY_parenleft,
             Gdk.KEY_bracketleft,
             Gdk.KEY_quotedbl,
         ):
             if self._auto_pair_delimiter(buffer, keyval):
                 return True
+
+        # <u> auto-close
+        if keyval == Gdk.KEY_u and not ctrl:
+            if buffer.get_has_selection():
+                start, end = buffer.get_selection_bounds()
+                text = buffer.get_text(start, end, True)
+                buffer.delete(start, end)
+                buffer.insert_at_cursor(f"<u>{text}</u>")
+                return True
+            cursor = buffer.get_iter_at_mark(buffer.get_insert())
+            if cursor.get_offset() > 0:
+                prev = cursor.copy()
+                prev.backward_char()
+                if prev.get_char() == "<":
+                    buffer.insert_at_cursor("u></u>")
+                    cursor = buffer.get_iter_at_mark(buffer.get_insert())
+                    cursor.backward_chars(4)
+                    buffer.place_cursor(cursor)
+                    return True
 
         if keyval == Gdk.KEY_Tab:
             return self._on_tab_key(buffer)

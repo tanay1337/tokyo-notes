@@ -36,6 +36,7 @@ def setup_shortcuts(
     on_sidebar_search: Callable[[], None] | None = None,
     on_bold: Callable[[], None] | None = None,
     on_italic: Callable[[], None] | None = None,
+    on_underline: Callable[[], None] | None = None,
 ) -> None:
     # F1     help               Ctrl+N  new note          Ctrl+D  dashboard
     # Ctrl+G graph              Ctrl+F  find in editor    Ctrl+H  find & replace
@@ -81,6 +82,8 @@ def setup_shortcuts(
         bindings.append((get_accel("b"), on_bold))
     if on_italic:
         bindings.append((get_accel("i"), on_italic))
+    if on_underline:
+        bindings.append((get_accel("u"), on_underline))
 
     for trigger_str, callback in bindings:
         controller.add_shortcut(

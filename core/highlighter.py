@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Characters that open markdown formatting constructs.
 # Used by _set_line_markers as a fast-path pre-check.
-_MARKER_CHARS = frozenset("#*_`~[!<")
+_MARKER_CHARS = frozenset("#*_`~[!<=<")
 
 _DEFAULT_SYNTAX_COLORS: dict[str, str] = {
     "h1": "#7aa2f7",
@@ -59,6 +59,7 @@ _DEFAULT_SYNTAX_COLORS: dict[str, str] = {
     "number": "#bb9af7",
     "table": "#bb9af7",
     "blockquote": "#9ece6a",
+    "highlight": "#e1c78f",
     "dim": "#565f89",
     "front_matter_key": "#bb9af7",
     "front_matter_value": "#e0af68",
@@ -118,6 +119,8 @@ class MarkdownHighlighter:
         self.re_italic2 = re.compile(r"(?<!_)_([^_]+)_(?!_)")
         self.re_code = re.compile(r"(`)([^`]+)(`)")
         self.re_strikethrough = re.compile(r"(~~)([^~]+)(~~)")
+        self.re_underline = re.compile(r"(<u>)(.*?)(</u>)")
+        self.re_highlight = re.compile(r"(==)(.*?)(==)")
 
         # Cache for _code_block_line_set — invalidated when buffer content changes.
         self._code_block_cache: set[int] = set()
@@ -224,6 +227,11 @@ class MarkdownHighlighter:
         tag("image", foreground=c["image"], style=Pango.Style.ITALIC)
         tag("tag", foreground=c["tag"], weight=Pango.Weight.BOLD)
         tag("strikethrough", strikethrough=True)
+        tag("underline", underline=Pango.Underline.SINGLE)
+        hl = Gdk.RGBA()
+        hl.parse(c["highlight"])
+        hl.alpha = 0.35
+        tag("highlight", background_rgba=hl)
         tag("deadline", foreground=c["deadline"], style=Pango.Style.ITALIC)
         tag("hr", foreground=c["hr"], weight=Pango.Weight.BOLD)
         tag("list_bullet", foreground=c["bullet"], weight=Pango.Weight.BOLD)
@@ -883,6 +891,9 @@ class MarkdownHighlighter:
                 )
             )
         for m in self.re_autolink.finditer(line):
+            content = m.group(0)
+            if content in ("<u>", "</u>"):
+                continue
             ranges.add(
                 (
                     line_start_offset + m.start(),
@@ -965,6 +976,36 @@ class MarkdownHighlighter:
             is_cursor,
             exclude_ranges=link_ranges,
         )
+        for m in self.re_underline.finditer(line):
+            ms = line_start_offset + m.start()
+            me = line_start_offset + m.end()
+            self.apply_tag("underline", ms, me)
+            if not is_cursor:
+                self.apply_tag(
+                    "invisible",
+                    line_start_offset + m.start(1),
+                    line_start_offset + m.end(1),
+                )
+                self.apply_tag(
+                    "invisible",
+                    line_start_offset + m.start(3),
+                    line_start_offset + m.end(3),
+                )
+        for m in self.re_highlight.finditer(line):
+            ms = line_start_offset + m.start()
+            me = line_start_offset + m.end()
+            self.apply_tag("highlight", ms, me)
+            if not is_cursor:
+                self.apply_tag(
+                    "invisible",
+                    line_start_offset + m.start(1),
+                    line_start_offset + m.end(1),
+                )
+                self.apply_tag(
+                    "invisible",
+                    line_start_offset + m.start(3),
+                    line_start_offset + m.end(3),
+                )
 
         # Links and images
         for m in self.re_links.finditer(line):
@@ -1009,6 +1050,9 @@ class MarkdownHighlighter:
 
         # Autolinks
         for m in self.re_autolink.finditer(line):
+            content = m.group(0)
+            if content in ("<u>", "</u>"):
+                continue
             self.apply_tag(
                 "autolink", line_start_offset + m.start(), line_start_offset + m.end()
             )
@@ -1025,6 +1069,9 @@ class MarkdownHighlighter:
             content = m.group(0)
             is_autolink = "http" in content or ("@" in content and "<" in content)
             if not is_autolink and not content.startswith(("<!", "<?")):
+                # Skip HTML formatting tags handled by dedicated patterns
+                if content.lower() in ("<u>", "</u>"):
+                    continue
                 self.apply_tag(
                     "inline_html",
                     line_start_offset + m.start(),
@@ -1265,6 +1312,31 @@ class MarkdownHighlighter:
                     self.apply_tag(mt, line_start + m.start(1), line_start + m.end(1))
                     self.apply_tag(mt, line_start + m.start(3), line_start + m.end(3))
 
+        # Underline/highlight markers — invisible when away, visible on cursor line
+        if not is_cursor:
+            for m in self.re_underline.finditer(line):
+                self.apply_tag(
+                    "invisible",
+                    line_start + m.start(1),
+                    line_start + m.end(1),
+                )
+                self.apply_tag(
+                    "invisible",
+                    line_start + m.start(3),
+                    line_start + m.end(3),
+                )
+            for m in self.re_highlight.finditer(line):
+                self.apply_tag(
+                    "invisible",
+                    line_start + m.start(1),
+                    line_start + m.end(1),
+                )
+                self.apply_tag(
+                    "invisible",
+                    line_start + m.start(3),
+                    line_start + m.end(3),
+                )
+
         # Links and images
         for m in self.re_links.finditer(line):
             ms = line_start + m.start()
@@ -1290,6 +1362,9 @@ class MarkdownHighlighter:
 
         # Autolinks: brackets always invisible
         for m in self.re_autolink.finditer(line):
+            content = m.group(0)
+            if content in ("<u>", "</u>"):
+                continue
             self.apply_tag(
                 "invisible", line_start + m.start(), line_start + m.start() + 1
             )

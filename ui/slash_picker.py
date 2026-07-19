@@ -29,6 +29,8 @@ def get_commands() -> list[tuple[str, str, str, str | None, str]]:
         (tr("Bold"), "**bold**", inline, None, "bold"),
         (tr("Italic"), "*italic*", inline, None, "italic"),
         (tr("Strikethrough"), "~~text~~", inline, None, "strikethrough"),
+        (tr("Underline"), "<u>text</u>", inline, None, "underline"),
+        (tr("Highlight"), "==text==", inline, None, "highlight"),
         (tr("Inline Code"), "`code`", inline, None, "inline-code"),
         (tr("Code Block"), "```\n\n```", blocks, None, "code-block"),
         (tr("Bullet List"), "- ", blocks, None, "bullet-list"),
