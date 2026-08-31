@@ -286,6 +286,9 @@ class TestFinishSave:
             lifecycle._finish_save("old-title", "# New Title\ncontent")
             assert app.current_note == "new-title"
             app.nav.update_header_ui.assert_called_with("new-title", is_editor=True)
+            app.cfg.rename_note_in_config.assert_called_once_with(
+                "old-title", "new-title"
+            )
             app.refresh_list.assert_called_once()
 
     def test_does_not_rename_when_title_same(self) -> None:

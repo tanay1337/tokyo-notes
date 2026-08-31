@@ -297,6 +297,8 @@ class Editor(Gtk.Box):
         self._image_update_pending: bool = False
         self._pending_notes_dir: Path = Path()
         self._notes_dir: Path = Path()
+        self._config_manager: Any | None = None
+        self._get_current_note: Callable[[], str | None] = lambda: None
         self._image_pixbuf_cache: OrderedDict[str, tuple[float, GdkPixbuf.Pixbuf]] = (
             OrderedDict()
         )
@@ -1740,6 +1742,37 @@ class Editor(Gtk.Box):
             display_h = int(ph * display_w / pw) if pw > 0 else ph
             picture.set_size_request(display_w, display_h)
 
+    def _pdf_state_key(self, img_path: str) -> str | None:
+        note_name = self._get_current_note()
+        if not note_name:
+            return None
+        return f"{note_name}::{img_path}"
+
+    def _get_pdf_page_state(self, img_path: str, n_pages: int) -> int:
+        cfg = self._config_manager
+        key = self._pdf_state_key(img_path)
+        if cfg is None or key is None or not hasattr(cfg, "get_pdf_state"):
+            return 0
+        state = cfg.get_pdf_state(key)
+        page = state.get("page", 0)
+        if not isinstance(page, int):
+            return 0
+        return max(0, min(n_pages - 1, page))
+
+    def _save_pdf_page_state(self, img_path: str, page: int, n_pages: int) -> None:
+        cfg = self._config_manager
+        key = self._pdf_state_key(img_path)
+        if cfg is None or key is None or not hasattr(cfg, "set_pdf_state"):
+            return
+        cfg.set_pdf_state(
+            key,
+            {
+                "page": max(0, min(n_pages - 1, page)),
+                "total_pages": n_pages,
+                "pdf": img_path,
+            },
+        )
+
     def _build_pdf_placeholder(self, path_or_url: str) -> Gtk.Widget:
         if path_or_url.startswith(("http://", "https://")):
             display = os.path.basename(urllib.parse.urlparse(path_or_url).path)
@@ -1784,8 +1817,10 @@ class Editor(Gtk.Box):
         if n_pages == 0:
             return self._build_pdf_placeholder(str(pdf_path))
 
-        # Try to render first page; fall back to placeholder on failure
-        pixbuf = self._render_pdf_pixbuf(pdf_path, load_res, load_res, 0)
+        initial_page = self._get_pdf_page_state(img_path, n_pages)
+
+        # Try to render the saved page; fall back to placeholder on failure.
+        pixbuf = self._render_pdf_pixbuf(pdf_path, load_res, load_res, initial_page)
         if pixbuf is None:
             return self._build_pdf_placeholder(str(pdf_path))
 
@@ -1801,14 +1836,14 @@ class Editor(Gtk.Box):
         picture.set_size_request(display_w, display_h)
         outer.append(picture)
 
-        state = {"page": 0}
+        state = {"page": initial_page}
 
         if n_pages > 1:
             bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             bottom.set_halign(Gtk.Align.CENTER)
 
             page_label = Gtk.Label(
-                label=tr("Page {n} / {total}").format(n=1, total=n_pages)
+                label=tr("Page {n} / {total}").format(n=initial_page + 1, total=n_pages)
             )
             page_label.add_css_class("dim-label")
             bottom.append(page_label)
@@ -1828,6 +1863,7 @@ class Editor(Gtk.Box):
                     if new_page != state["page"]:
                         state["page"] = new_page
                         self._set_pdf_page(picture, pdf_path, load_res, new_page)
+                        self._save_pdf_page_state(img_path, new_page, n_pages)
                         page_label.set_text(
                             tr("Page {n} / {total}").format(
                                 n=new_page + 1, total=n_pages

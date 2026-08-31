@@ -536,6 +536,7 @@ class NoteLifecycleManager:
         )
 
         if did_rename:
+            app.cfg.rename_note_in_config(old_name, new_name)
             app.current_note = new_name
             app.nav.update_header_ui(new_name, is_editor=True)
             if app.notes_manager.is_encrypted(new_name):

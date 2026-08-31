@@ -94,6 +94,40 @@ class TestConfigFlush:
         assert not cfg._dirty
 
 
+class TestConfigPdfState:
+    def test_pdf_state_persists_to_separate_file(self, tmp_path):
+        cfg = _cfg(tmp_path)
+
+        cfg.set_pdf_state("Note::doc.pdf", {"page": 3, "total_pages": 8})
+
+        assert cfg.pdf_state_path.name == "pdf_state.json"
+        assert cfg.get_pdf_state("Note::doc.pdf") == {"page": 3, "total_pages": 8}
+        assert "Note::doc.pdf" in cfg.pdf_state_path.read_text(encoding="utf-8")
+
+        cfg2 = _cfg(tmp_path)
+        assert cfg2.get_pdf_state("Note::doc.pdf") == {"page": 3, "total_pages": 8}
+
+    def test_pdf_state_missing_key_returns_empty_dict(self, tmp_path):
+        cfg = _cfg(tmp_path)
+
+        assert cfg.get_pdf_state("missing") == {}
+
+    def test_rename_note_migrates_pdf_state_keys(self, tmp_path):
+        cfg = _cfg(tmp_path)
+        cfg.set_pdf_state("Old Note::docs/paper.pdf", {"page": 4})
+        cfg.set_pdf_state("Other Note::docs/paper.pdf", {"page": 1})
+
+        cfg.rename_note_in_config("Old Note", "New Note")
+
+        assert cfg.get_pdf_state("Old Note::docs/paper.pdf") == {}
+        assert cfg.get_pdf_state("New Note::docs/paper.pdf") == {"page": 4}
+        assert cfg.get_pdf_state("Other Note::docs/paper.pdf") == {"page": 1}
+
+        cfg2 = _cfg(tmp_path)
+        assert cfg2.get_pdf_state("Old Note::docs/paper.pdf") == {}
+        assert cfg2.get_pdf_state("New Note::docs/paper.pdf") == {"page": 4}
+
+
 class TestConfigPinUnpin:
     def test_pin(self, tmp_path):
         cfg = _cfg(tmp_path)

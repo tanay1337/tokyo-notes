@@ -97,6 +97,8 @@ class SplitEditor(Gtk.Box):
             toolbar=None,
             get_notes_callback=app.notes_manager.get_notes,
         )
+        editor._config_manager = app.cfg
+        editor._get_current_note = lambda info=info: info.note_name
         container.append(editor)
         info.editor = editor
 
@@ -242,6 +244,8 @@ class SplitEditor(Gtk.Box):
         app.text_view = restored.text_view
         app.changed_handler_id = restored.changed_handler_id
         app.editor = restored
+        app.editor._config_manager = app.cfg
+        app.editor._get_current_note = lambda: app.current_note
         app.highlighter = MarkdownHighlighter(
             app.buffer, app.theme_manager, app.cfg.get("theme")
         )

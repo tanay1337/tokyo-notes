@@ -818,12 +818,14 @@ class TokyoNotes(Adw.Application):
             self.notes_manager.save_note(self.current_note, substituted)
             from core.services import update_note_title
 
+            old_name = self.current_note
             new_name, did_rename = update_note_title(
                 old_name=self.current_note,
                 content=substituted,
                 notes_manager=self.notes_manager,
             )
             if did_rename:
+                self.cfg.rename_note_in_config(old_name, new_name)
                 self.current_note = new_name
                 self.nav.update_header_ui(new_name, is_editor=True)
             self.refresh_list()
@@ -1509,6 +1511,8 @@ class TokyoNotes(Adw.Application):
         )
         self.buffer = self.editor.buffer
         self.text_view = self.editor.text_view
+        self.editor._config_manager = self.cfg
+        self.editor._get_current_note = lambda: self.current_note
         self.toolbar = self.editor.toolbar
         inner = self.toolbar.get_child()
         if isinstance(inner, Gtk.Viewport):

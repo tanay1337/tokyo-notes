@@ -83,6 +83,7 @@ class ConfigManager:
         self.encrypted_path: Path = self.config_dir / "encrypted.json"
         self.folder_order_path: Path = self.config_dir / "folder_order.json"
         self.pinned_folders_path: Path = self.config_dir / "pinned_folders.json"
+        self.pdf_state_path: Path = self.config_dir / "pdf_state.json"
 
         self.data: dict[str, Any] = self._load_json(self.config_path, dict(_DEFAULTS))
         # Resolve the notes folder default here, not at module level.
@@ -96,6 +97,7 @@ class ConfigManager:
         self.pinned_folders: set[str] = set(
             self._load_json(self.pinned_folders_path, [])
         )
+        self.pdf_state: dict[str, Any] = dict(self._load_json(self.pdf_state_path, {}))
 
         # Debounce state — managed exclusively by set() and _flush().
         self._dirty: bool = False
@@ -179,6 +181,18 @@ class ConfigManager:
             self._dirty = False
             logger.debug("Config flushed immediately (shutdown)")
 
+    # PDF reading state — immediate writes
+
+    def get_pdf_state(self, key: str) -> dict[str, Any]:
+        """Return persisted reader state for a PDF embed key."""
+        state = self.pdf_state.get(key)
+        return dict(state) if isinstance(state, dict) else {}
+
+    def set_pdf_state(self, key: str, state: dict[str, Any]) -> None:
+        """Persist reader state for a PDF embed key."""
+        self.pdf_state[key] = state
+        self._save_json(self.pdf_state_path, self.pdf_state)
+
     # Pinned notes — immediate writes
 
     def pin(self, note_name: str) -> None:
@@ -223,12 +237,24 @@ class ConfigManager:
             self._save_json(self.encrypted_path, self.encrypted)
 
     def rename_note_in_config(self, old_name: str, new_name: str) -> None:
-        """Migrate a note's keys in pinned, archived, and encrypted sets."""
+        """Migrate a note's keys in pinned, archived, encrypted, and UI state."""
         for s_attr in ("pinned", "archived", "encrypted"):
             s: set[str] = getattr(self, s_attr)
             if old_name in s:
                 s.discard(old_name)
                 s.add(new_name)
+        old_pdf_prefix = f"{old_name}::"
+        renamed_pdf_state: dict[str, Any] = {}
+        pdf_state_changed = False
+        for key, state in self.pdf_state.items():
+            if key.startswith(old_pdf_prefix):
+                renamed_pdf_state[f"{new_name}::{key[len(old_pdf_prefix) :]}"] = state
+                pdf_state_changed = True
+            else:
+                renamed_pdf_state[key] = state
+        if pdf_state_changed:
+            self.pdf_state = renamed_pdf_state
+            self._save_json(self.pdf_state_path, self.pdf_state)
         self._save_json(self.pinned_path, self.pinned)
         self._save_json(self.archive_path, self.archived)
         self._save_json(self.encrypted_path, self.encrypted)
