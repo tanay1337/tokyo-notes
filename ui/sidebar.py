@@ -33,6 +33,7 @@ class Sidebar(Gtk.Box):
         on_archive_clicked: Callable[..., Any],
         on_graph_clicked: Callable[..., Any],
         on_flashcard_clicked: Callable[..., Any],
+        on_media_clicked: Callable[..., Any],
         on_settings_clicked: Callable[..., Any],
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
@@ -106,9 +107,12 @@ class Sidebar(Gtk.Box):
 
         def _make_nav_icon_btn(svg_name: str, tooltip: str, callback) -> Gtk.Button:
             btn = Gtk.Button(tooltip_text=tooltip)
-            img = Gtk.Image.new_from_file(
-                str(self.app.base_dir / "assets" / "sidebar" / svg_name)
-            )
+            if svg_name.startswith("icon:"):
+                img = Gtk.Image.new_from_icon_name(svg_name.removeprefix("icon:"))
+            else:
+                img = Gtk.Image.new_from_file(
+                    str(self.app.base_dir / "assets" / "sidebar" / svg_name)
+                )
             img.set_pixel_size(16)
             btn.set_child(img)
             btn.add_css_class("sidebar-icon-btn")
@@ -126,6 +130,7 @@ class Sidebar(Gtk.Box):
         self._flashcard_btn = _make_nav_icon_btn(
             "flashcard.svg", tr("Flashcards"), on_flashcard_clicked
         )
+        self._media_btn = _make_nav_icon_btn("media.svg", tr("Media"), on_media_clicked)
         self._settings_btn = _make_nav_icon_btn(
             "settings.svg", tr("Settings"), on_settings_clicked
         )
@@ -137,6 +142,7 @@ class Sidebar(Gtk.Box):
             "dashboard": self._dashboard_btn,
             "graph": self._graph_btn,
             "flashcard": self._flashcard_btn,
+            "media": self._media_btn,
             "settings": self._settings_btn,
         }
 

@@ -60,6 +60,7 @@ class PdfReaderView(Gtk.Box):
         self._loading_source: str | None = None
         self._message_action_callback: Any | None = None
         self._updating_controls: bool = False
+        self._render_generation: int = 0
 
         self._build_ui()
 
@@ -387,33 +388,21 @@ class PdfReaderView(Gtk.Box):
         if self._pdf_path is None or self._page_count <= 0:
             return
 
+        pdf_path = self._pdf_path
+        page_count = self._page_count
         render_w = self._render_width()
         render_h = max(render_w * 4, 1200)
         self._clear_rendered_pages()
+        self._render_generation += 1
+        generation = self._render_generation
 
-        for page in range(self._page_count):
-            pixbuf = self.app.editor._render_pdf_pixbuf(
-                self._pdf_path, render_w, render_h, page
-            )
-            if pixbuf is None:
-                self._clear_rendered_pages()
-                self._show_message(
-                    tr("Could not render PDF"),
-                    action_label=tr("Open externally"),
-                    action=self._open_external,
-                )
-                return
-
+        # Reserve page space immediately. Rendering every page synchronously
+        # made large PDFs block the GTK main loop and delayed the back button.
+        for _page in range(page_count):
             page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
             page_box.set_halign(Gtk.Align.CENTER)
             page_box.add_css_class("pdf-reader-page")
-
-            picture = Gtk.Picture.new_for_pixbuf(pixbuf)
-            picture.set_halign(Gtk.Align.CENTER)
-            picture.set_valign(Gtk.Align.START)
-            picture.set_size_request(pixbuf.get_width(), pixbuf.get_height())
-            page_box.append(picture)
-
+            page_box.set_size_request(render_w, render_h)
             self._document_box.append(page_box)
             self._page_widgets.append(page_box)
 
@@ -421,6 +410,33 @@ class PdfReaderView(Gtk.Box):
         self._update_title()
         self._update_controls()
         GLib.idle_add(self._scroll_to_page, self._page)
+
+        def render_pages() -> None:
+            for page in range(page_count):
+                pixbuf = self.app.editor._render_pdf_pixbuf(
+                    pdf_path, render_w, render_h, page
+                )
+                GLib.idle_add(self._replace_rendered_page, generation, page, pixbuf)
+
+        threading.Thread(target=render_pages, daemon=True).start()
+
+    def _replace_rendered_page(self, generation: int, page: int, pixbuf) -> bool:
+        if generation != self._render_generation:
+            return False
+        page_box = self._page_widget(page)
+        if page_box is None:
+            return False
+        if pixbuf is None:
+            return False
+        while child := page_box.get_first_child():
+            page_box.remove(child)
+        picture = Gtk.Picture.new_for_pixbuf(pixbuf)
+        picture.set_halign(Gtk.Align.CENTER)
+        picture.set_valign(Gtk.Align.START)
+        picture.set_size_request(pixbuf.get_width(), pixbuf.get_height())
+        page_box.set_size_request(pixbuf.get_width(), pixbuf.get_height())
+        page_box.append(picture)
+        return False
 
     def _show_loading(self, text: str) -> None:
         self._loading_label.set_label(text)

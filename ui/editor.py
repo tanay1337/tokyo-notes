@@ -300,6 +300,7 @@ class Editor(Gtk.Box):
         self._config_manager: Any | None = None
         self._get_current_note: Callable[[], str | None] = lambda: None
         self._on_open_pdf_viewer: Callable[[str], None] | None = None
+        self._on_open_image_viewer: Callable[[str], None] | None = None
         self._image_pixbuf_cache: OrderedDict[str, tuple[float, GdkPixbuf.Pixbuf]] = (
             OrderedDict()
         )
@@ -1932,6 +1933,32 @@ class Editor(Gtk.Box):
         except Exception as exc:
             logger.warning("Failed to open PDF: %s", exc)
 
+    def _open_image_view(self, path_or_url: str) -> None:
+        callback = self._on_open_image_viewer
+        if callable(callback):
+            callback(path_or_url)
+            return
+        try:
+            if path_or_url.startswith(("http://", "https://")):
+                uri = path_or_url
+            else:
+                resolved = resolve_image_path(self._notes_dir, path_or_url)
+                if resolved is None:
+                    return
+                uri = resolved.as_uri()
+            root = self.text_view.get_root()
+            if root:
+                Gtk.show_uri(root, uri, Gdk.CURRENT_TIME)
+        except Exception as exc:
+            logger.warning("Failed to open image: %s", exc)
+
+    def _build_image_open_button(self, path_or_url: str) -> Gtk.Button:
+        open_btn = Gtk.Button(label=tr("Open"))
+        open_btn.add_css_class("pill")
+        open_btn.add_css_class("media-open-btn")
+        open_btn.connect("clicked", lambda *_: self._open_image_view(path_or_url))
+        return open_btn
+
     # Image rendering
 
     def _evict_image_cache_if_needed(self, new_bytes: int) -> None:
@@ -2201,8 +2228,19 @@ class Editor(Gtk.Box):
                         img_widget = Gtk.Picture()
                         img_widget.set_halign(Gtk.Align.START)
 
-                    self.text_view.add_child_at_anchor(img_widget, anchor)
-                    self.image_widgets.append(img_widget)
+                    image_embed = Gtk.Box(
+                        orientation=Gtk.Orientation.VERTICAL, spacing=2
+                    )
+                    image_embed.set_halign(Gtk.Align.START)
+                    image_embed.append(img_widget)
+                    image_actions = Gtk.Box(
+                        orientation=Gtk.Orientation.HORIZONTAL, spacing=6
+                    )
+                    image_actions.set_halign(Gtk.Align.CENTER)
+                    image_actions.append(self._build_image_open_button(img_path))
+                    image_embed.append(image_actions)
+                    self.text_view.add_child_at_anchor(image_embed, anchor)
+                    self.image_widgets.append(image_embed)
             finally:
                 self.buffer.end_user_action()
                 if hasattr(self, "cursor_handler_id"):

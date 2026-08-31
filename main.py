@@ -21,6 +21,7 @@ from core.diagram_manager import DiagramManager
 from core.highlighter import MarkdownHighlighter
 from core.instance_lock import InstanceLock
 from core.logging_setup import set_note_names
+from core.media_index import find_media_reference_line
 from core.navigation import NavigationController
 from core.note_lifecycle import NoteLifecycleManager
 from core.search import SearchController
@@ -102,6 +103,7 @@ class TokyoNotes(Adw.Application):
         # Runtime state — all timeout IDs kept together for easy auditing
         self.current_note: str | None = None
         self.current_open_diagram: Diagram | None = None
+        self._diagram_return_view = "editor"
         self.is_loading: bool = False
         self.highlighter: MarkdownHighlighter | None = None
         self.spell_checker: SpellChecker | None = None
@@ -397,6 +399,7 @@ class TokyoNotes(Adw.Application):
         self._wrong_unlock_attempts = 0
         self._cancel_unlock_cooldown()
         self._update_sidebar_lock_state()
+        self._refresh_media_gallery()
         self._reset_lock_timer()
         self._show_toast(tr("Private notes unlocked"))
         self.editor.set_editable(True)
@@ -510,6 +513,7 @@ class TokyoNotes(Adw.Application):
         self._encryption_key_cache.clear()
         self._is_session_locked = True
         self._update_sidebar_lock_state()
+        self._refresh_media_gallery()
         # Re-highlight plain note buffer — GTK may drop tag visuals after
         # set_editable(False) and sidebar layout changes.
         if self.current_note and not self.notes_manager.is_encrypted(self.current_note):
@@ -1351,6 +1355,7 @@ class TokyoNotes(Adw.Application):
             self.nav.on_archived_clicked,
             self.nav.on_graph_clicked,
             self.nav.on_flashcard_clicked,
+            self.nav.on_media_clicked,
             self.nav.on_settings_clicked,
         )
         self.sidebar_toggle_handler = self.sidebar_toggle.connect(
@@ -1385,6 +1390,7 @@ class TokyoNotes(Adw.Application):
         self.graph_manager = None
         self.dashboard_view = None
         self.flashcard_view = None
+        self.media_gallery_view = None
         self.pdf_reader_view = None
         self.split_editor = None
         self._single_editor_ref = None
@@ -1449,6 +1455,7 @@ class TokyoNotes(Adw.Application):
             on_find_replace=self.on_find_replace_shortcut,
             on_archive=self.on_archive_shortcut,
             on_settings=self.nav.on_settings_clicked,
+            on_media=self.nav.on_media_clicked,
             on_lock=self.lock_session,
             on_new_from_template=self._on_new_from_template,
             on_quick_add=self._on_quick_add_shortcut,
@@ -1519,6 +1526,7 @@ class TokyoNotes(Adw.Application):
         self.editor._config_manager = self.cfg
         self.editor._get_current_note = lambda: self.current_note
         self.editor._on_open_pdf_viewer = self.nav.on_pdf_reader_clicked
+        self.editor._on_open_image_viewer = self._open_image_viewer
         self.toolbar = self.editor.toolbar
         inner = self.toolbar.get_child()
         if isinstance(inner, Gtk.Viewport):
@@ -2356,6 +2364,10 @@ class TokyoNotes(Adw.Application):
 
     def _on_open_diagram_action(self, diagram_id: str) -> None:
         """Open an existing diagram by ID for editing."""
+        if self.content_stack.get_visible_child_name() == "media":
+            self._diagram_return_view = "media"
+        else:
+            self._diagram_return_view = "editor"
         diagram = self.diagram_manager.load(diagram_id)
         if diagram is None:
             self._show_toast(tr("Diagram not found"))
@@ -2370,7 +2382,6 @@ class TokyoNotes(Adw.Application):
                 on_save_and_insert=self._on_diagram_save_and_insert,
                 on_close=self._on_diagram_close,
                 on_save_only=self._on_diagram_save_only,
-                on_diagram_delete=self._on_diagram_delete,
                 on_title_changed=lambda t: self.nav.update_header_ui(
                     t, is_editor=False
                 ),
@@ -2410,20 +2421,21 @@ class TokyoNotes(Adw.Application):
         """Close the diagram editor and return to the previous note."""
         if self.diagram_view:
             self.diagram_view.save_if_dirty()
-        target = "split_editor" if self.split_editor is not None else "editor"
+        target = self._diagram_return_view
+        if target not in ("media", "editor", "split_editor"):
+            target = "editor"
         self.content_stack.set_visible_child_name(target)
-        title = self.current_note if self.current_note else tr("Tokyo Notes")
-        self.nav.update_header_ui(title, is_editor=True)
-        self._set_backlinks_visible(True)
+        if target == "media":
+            self.nav.update_header_ui(tr("Media"), is_editor=False)
+            self.sidebar.set_active_view("media")
+            self._set_backlinks_visible(False)
+        else:
+            title = self.current_note if self.current_note else tr("Tokyo Notes")
+            self.nav.update_header_ui(title, is_editor=True)
+            self._set_backlinks_visible(True)
         self.current_open_diagram = None
         self._has_images = True
         self._reschedule("image_timeout_id", 200, self.do_delayed_images)
-
-    def _on_diagram_delete(self, diagram_id: str) -> None:
-        """Delete a diagram by ID and return to editor."""
-        self._show_toast(tr("Diagram deleted"))
-        self.diagram_manager.delete(diagram_id)
-        self._on_diagram_close()
 
     # Note list / sidebar
 
@@ -2442,6 +2454,64 @@ class TokyoNotes(Adw.Application):
             filter_text=filter_text,
         )
         self._apply_search_highlights()
+        self._refresh_media_gallery()
+
+    def _media_readable_notes(self) -> set[str]:
+        """Return notes whose attachment references may be indexed."""
+        names = set(self.notes_manager.get_notes())
+        if not self._is_session_locked:
+            return names
+        return {name for name in names if not self.notes_manager.is_encrypted(name)}
+
+    def _refresh_media_gallery(self) -> None:
+        if self.media_gallery_view is not None:
+            self.media_gallery_view.set_notes_dir(self.notes_manager.notes_dir)
+            self.media_gallery_view.refresh()
+
+    def _open_image_viewer(self, path_or_url: str) -> None:
+        """Open an inline image in the media gallery viewer."""
+        self.nav.on_media_clicked()
+        if self.media_gallery_view is not None:
+            self.media_gallery_view.open_image(path_or_url, return_to_note=True)
+
+    def _open_note_from_media(self, note_name: str, source_ref: str) -> None:
+        """Open a media source note and scroll to its embed."""
+        self.content_stack.set_visible_child_name("editor")
+        self.nav.update_header_ui(note_name, is_editor=True)
+        self.sidebar.set_active_view("editor")
+        self._set_backlinks_visible(True)
+        self.lifecycle.on_link_clicked(note_name)
+        GLib.timeout_add(100, self._scroll_to_media_reference, note_name, source_ref, 0)
+
+    def _scroll_to_media_reference(
+        self, note_name: str, source_ref: str, attempt: int
+    ) -> bool:
+        if self.current_note != note_name:
+            return False
+        content = self.buffer.get_text(*self.buffer.get_bounds(), True)
+        line = find_media_reference_line(content, source_ref)
+        if line is not None:
+            # Loading a note and attaching inline media both schedule their
+            # own viewport restoration. Repeat the jump briefly so those
+            # callbacks cannot move the view back to the note's end.
+            if not self.is_loading:
+                self.lifecycle.scroll_to_line(line)
+
+        editor = self.editor
+        layout_pending = (
+            self.is_loading
+            or self.image_timeout_id > 0
+            or getattr(editor, "_image_update_running", False)
+        )
+        if attempt < 25 and (layout_pending or line is not None):
+            GLib.timeout_add(
+                100,
+                self._scroll_to_media_reference,
+                note_name,
+                source_ref,
+                attempt + 1,
+            )
+        return False
 
     def _apply_search_highlights(self, *, full_reset: bool = True) -> None:
         tag = self.buffer.get_tag_table().lookup("search-highlight")
@@ -3472,6 +3542,7 @@ class TokyoNotes(Adw.Application):
                     ("<Primary><Shift>f", tr("Search notes")),
                     ("<Primary>f", tr("Find in editor")),
                     ("<Primary>h", tr("Find and replace in editor")),
+                    ("<Primary>m", tr("Media gallery")),
                     ("F1", tr("This shortcuts window")),
                     ("<Primary><Shift>s", tr("Settings")),
                     ("Escape", tr("Back to editor / clear search")),

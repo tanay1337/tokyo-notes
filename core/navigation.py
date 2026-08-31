@@ -19,6 +19,7 @@ from core.utils import is_entry_focused
 from ui.dashboard import Dashboard
 from ui.flashcard_review import FlashcardReview
 from ui.graph_view import GraphView
+from ui.media_gallery import MediaGalleryView
 from ui.pdf_reader import PdfReaderView
 from ui.settings import SettingsView
 
@@ -200,6 +201,30 @@ class NavigationController:
         app.sidebar.set_active_view("flashcard")
         app._set_backlinks_visible(False)
 
+    # Media gallery
+
+    def on_media_clicked(self) -> None:
+        app = self.app
+        app._save_current_cursor()
+        if app.media_gallery_view is None:
+            app.media_gallery_view = MediaGalleryView(
+                notes_dir=app.notes_manager.notes_dir,
+                get_notes=app.notes_manager.get_notes,
+                read_note=app.notes_manager.read_plain,
+                readable_notes=app._media_readable_notes,
+                on_open_pdf=self.on_pdf_reader_clicked,
+                on_open_diagram=app._on_open_diagram_action,
+                on_go_to_note=app._open_note_from_media,
+                on_return_to_note=self.on_escape_shortcut,
+                on_refresh=app.refresh_list,
+            )
+            app.content_stack.add_named(app.media_gallery_view, "media")
+        app.media_gallery_view.refresh()
+        app.content_stack.set_visible_child_name("media")
+        self.update_header_ui(tr("Media"), is_editor=False)
+        app.sidebar.set_active_view("media")
+        app._set_backlinks_visible(False)
+
     # PDF reader
 
     def on_pdf_reader_clicked(
@@ -230,6 +255,7 @@ class NavigationController:
             "graph",
             "settings",
             "flashcard",
+            "media",
             "pdf_reader",
             "diagram",
             "table",
@@ -250,9 +276,14 @@ class NavigationController:
                             app_width=app.cfg.get("embed_width", 0)
                         )
                     title = app.current_note if app.current_note else tr("Tokyo Notes")
-                    self.update_header_ui(title, is_editor=True)
-                    app.sidebar.set_active_view("editor")
-                    app._set_backlinks_visible(True)
+                    if target == "media":
+                        self.update_header_ui(tr("Media"), is_editor=False)
+                        app.sidebar.set_active_view("media")
+                        app._set_backlinks_visible(False)
+                    else:
+                        self.update_header_ui(title, is_editor=True)
+                        app.sidebar.set_active_view("editor")
+                        app._set_backlinks_visible(True)
                     return True
             target = "split_editor" if app.split_editor is not None else "editor"
             app.content_stack.set_visible_child_name(target)

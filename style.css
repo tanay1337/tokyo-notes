@@ -998,3 +998,19 @@ shortcuts-shortcut {
     min-width: 64px;
     min-height: 22px;
 }
+
+/* ── Media gallery ── */
+
+.media-card {
+    min-width: 120px;
+    min-height: 165px;
+    padding: 0;
+    border: 1px solid @border_color;
+    border-radius: 6px;
+    background-color: @bg_color;
+}
+
+.media-card:hover {
+    border-color: @accent_color;
+    background-color: alpha(@accent_color, 0.08);
+}

@@ -28,6 +28,7 @@ def setup_shortcuts(
     on_pin: Callable[[], None] | None = None,
     on_archive: Callable[[], None] | None = None,
     on_settings: Callable[[], None] | None = None,
+    on_media: Callable[[], None] | None = None,
     on_lock: Callable[[], None] | None = None,
     on_new_from_template: Callable[[], None] | None = None,
     on_quick_add: Callable[[], None] | None = None,
@@ -43,7 +44,7 @@ def setup_shortcuts(
     # Ctrl+Shift+F  search notes
     # Ctrl+L lock notes         Ctrl+Shift+T  timestamp   Ctrl+Shift+Z  zen mode
     # Ctrl+T quick add task     Ctrl+Shift+P  pin note    Ctrl+Shift+A  archive note
-    # Ctrl+Shift+S  settings    Ctrl+Q  quit
+    # Ctrl+Shift+S  settings    Ctrl+M  media gallery    Ctrl+Q  quit
     # Escape back / clear       Delete  delete note
     controller = Gtk.ShortcutController()
     controller.set_scope(Gtk.ShortcutScope.GLOBAL)
@@ -70,6 +71,8 @@ def setup_shortcuts(
         bindings.append((get_accel("<Shift>a"), on_archive))
     if on_settings:
         bindings.append((get_accel("<Shift>s"), on_settings))
+    if on_media:
+        bindings.append((get_accel("m"), on_media))
     if on_lock:
         bindings.append((get_accel("l"), on_lock))
     if on_new_from_template:

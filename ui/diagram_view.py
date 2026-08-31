@@ -424,7 +424,6 @@ class DiagramView(Gtk.Box):
         on_save_and_insert: Callable[[Diagram], None],
         on_close: Callable[[], None],
         on_save_only: Callable[[Diagram], None] | None = None,
-        on_diagram_delete: Callable[[str], None] | None = None,
         on_title_changed: Callable[[str], None] | None = None,
         transient_for: Gtk.Window | None = None,
     ) -> None:
@@ -434,7 +433,6 @@ class DiagramView(Gtk.Box):
         self._on_save_and_insert = on_save_and_insert
         self._on_close = on_close
         self._on_save_only = on_save_only
-        self._on_diagram_delete = on_diagram_delete
         self._on_title_changed = on_title_changed
         self._transient_for = transient_for
 
@@ -486,13 +484,6 @@ class DiagramView(Gtk.Box):
         toolbar.set_margin_bottom(4)
         toolbar.set_margin_start(6)
         toolbar.set_margin_end(6)
-
-        self.diagrams_btn = Gtk.Button(label=tr("Diagrams"))
-        self.diagrams_btn.add_css_class("pill")
-        self.diagrams_btn.connect("clicked", self._show_diagram_list)
-        toolbar.append(self.diagrams_btn)
-
-        toolbar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
 
         # Undo / Redo
         self.undo_btn = Gtk.Button(label=tr("Undo"))
@@ -1931,135 +1922,6 @@ class DiagramView(Gtk.Box):
             btn.set_active(False)
         for btn in self._shape_group:
             btn.set_active(False)
-
-    # ── Diagram list & delete ────────────────────────────────────────
-
-    def _show_diagram_list(self, _btn: object) -> None:
-        """Show a popover listing all diagrams for open/delete."""
-        titles = self._diagram_manager.list_titles()
-        popover = Gtk.Popover()
-        popover.set_autohide(True)
-        popover.set_position(Gtk.PositionType.BOTTOM)
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        vbox.set_margin_top(4)
-        vbox.set_margin_bottom(4)
-
-        if not titles:
-            lbl = Gtk.Label(label=tr("No diagrams yet"))
-            lbl.set_margin_start(12)
-            lbl.set_margin_end(12)
-            lbl.add_css_class("dim-label")
-            vbox.append(lbl)
-        else:
-            for did, dtitle in titles:
-                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-                row.set_margin_start(6)
-                row.set_margin_end(6)
-                row.set_margin_top(2)
-                row.set_margin_bottom(2)
-                lbl = Gtk.Label(label=dtitle)
-                lbl.set_hexpand(True)
-                lbl.set_halign(Gtk.Align.START)
-                row.append(lbl)
-
-                open_btn = Gtk.Button(label=tr("Open"))
-                open_btn.add_css_class("pill")
-                open_btn.connect(
-                    "clicked",
-                    lambda *_, d=did: (
-                        self._open_diagram(d),
-                        popover.popdown(),
-                    ),
-                )
-                row.append(open_btn)
-
-                rename_btn = Gtk.Button(label=tr("Rename"))
-                rename_btn.add_css_class("pill")
-                rename_btn.connect(
-                    "clicked",
-                    lambda *_, d=did: (
-                        self._rename_diagram(d),
-                        popover.popdown(),
-                    ),
-                )
-                row.append(rename_btn)
-
-                del_btn = Gtk.Button(label=tr("Delete"))
-                del_btn.add_css_class("pill")
-                del_btn.add_css_class("destructive-action")
-                del_btn.connect(
-                    "clicked",
-                    lambda *_, d=did: (
-                        self._delete_diagram(d),
-                        popover.popdown(),
-                    ),
-                )
-                row.append(del_btn)
-
-                vbox.append(row)
-
-        popover.set_child(vbox)
-        popover.set_parent(self.diagrams_btn)
-        popover.connect("closed", lambda p, *_: GLib.idle_add(p.unparent))
-        popover.popup()
-
-    def _open_diagram(self, diagram_id: str) -> None:
-        diagram = self._diagram_manager.load(diagram_id)
-        if diagram:
-            self.set_diagram(diagram)
-
-    def _rename_diagram(self, diagram_id: str) -> None:
-        diagram = self._diagram_manager.load(diagram_id)
-        if not diagram:
-            return
-        self._show_text_dialog(
-            tr("Rename Diagram"),
-            diagram.title,
-            lambda new_title: self._apply_rename_diagram(diagram_id, new_title),
-        )
-
-    def _apply_rename_diagram(self, diagram_id: str, new_title: str) -> None:
-        if not self._diagram_manager:
-            return
-        diagram = self._diagram_manager.load(diagram_id)
-        if not diagram:
-            return
-        diagram.title = new_title
-        self._diagram_manager.save(diagram)
-        if self._diagram and self._diagram.id == diagram_id and self._on_title_changed:
-            self._on_title_changed(new_title)
-
-    def _delete_diagram(self, diagram_id: str) -> None:
-        diagram = (
-            self._diagram_manager.load(diagram_id) if self._diagram_manager else None
-        )
-        title = diagram.title if diagram else tr("Untitled")
-        dialog = Adw.MessageDialog(
-            transient_for=self._transient_for,
-            heading=tr("Delete diagram?"),
-            body=tr('Delete "%s"? This cannot be undone.') % title,
-        )
-        dialog.add_response("cancel", tr("Cancel"))
-        dialog.add_response("delete", tr("Delete"))
-        dialog.set_default_response("cancel")
-        dialog.set_close_response("cancel")
-        dialog.add_css_class("destructive-action")
-
-        def on_response(d: Adw.MessageDialog, response: str) -> None:
-            if response == "delete":
-                self._do_delete_diagram(diagram_id)
-            d.close()
-
-        dialog.connect("response", on_response)
-        dialog.present()
-
-    def _do_delete_diagram(self, diagram_id: str) -> None:
-        if self._on_diagram_delete:
-            self._on_diagram_delete(diagram_id)
-        elif self._diagram_manager:
-            self._diagram_manager.delete(diagram_id)
-        if self._diagram and self._diagram.id == diagram_id:
-            self._on_close()
 
     # ── Export ───────────────────────────────────────────────────────
 

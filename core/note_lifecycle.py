@@ -330,7 +330,9 @@ class NoteLifecycleManager:
         except (TypeError, IndexError):
             return False
         mark = app.buffer.create_mark(None, it, True)
-        app.text_view.scroll_to_mark(mark, 0.0, True, 0.5, 0.1)
+        # Keep linked content at eye level instead of placing it against the
+        # top edge of the editor viewport.
+        app.text_view.scroll_to_mark(mark, 0.0, True, 0.5, 0.5)
         app.buffer.delete_mark(mark)
         return False
 

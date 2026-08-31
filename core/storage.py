@@ -13,7 +13,6 @@ for up to _MTIME_TRUST_SECS seconds before re-validating externally-modified fil
 from __future__ import annotations
 
 import concurrent.futures
-import hashlib
 import logging
 import os
 import re
@@ -26,7 +25,6 @@ from typing import Any
 from core.utils import (
     CB_EXTRACT_RE,
     CB_UPDATE_RE,
-    MD_URL_BALANCED,
     get_snippet,
 )
 
@@ -564,70 +562,6 @@ class NotesManager:
         self._update_link_index(name, content)
         self._backlink_cache.clear()
 
-        threading.Thread(
-            target=self._cleanup_orphan_images,
-            args=(name, content),
-            daemon=True,
-        ).start()
-
-    def _cleanup_orphan_images(self, note_name: str, current_content: str) -> None:
-        """Remove .images/ and .documents/ files not referenced in content."""
-        referenced = self._extract_image_paths(current_content)
-
-        for subdir in (".images", ".documents"):
-            attach_dir = self.notes_dir / subdir
-            if not attach_dir.exists():
-                continue
-            for f in list(attach_dir.iterdir()):
-                if not f.is_file():
-                    continue
-                # Preserve remote cache files — they're managed by the
-                # download system and referenced via URL in the markdown,
-                # not by a literal path.
-                if f.name.startswith("remote_"):
-                    continue
-                rel = f"{subdir}/{f.name}"
-                if rel in referenced:
-                    continue
-                if self._is_image_used_by_other_notes(rel, note_name):
-                    continue
-                try:
-                    f.unlink()
-                    logger.info("Removed orphan %s: %s", subdir, rel)
-                except OSError as exc:
-                    logger.warning(
-                        "Failed to remove orphan %s %s: %s", subdir, rel, exc
-                    )
-
-        # Remote PDF cleanup: collect all PDF URL hashes across notes
-        docs_dir = self.notes_dir / ".documents"
-        if docs_dir.exists():
-            active_hashes: set[str] = set()
-            for other in self.get_notes():
-                if other == note_name:
-                    content = current_content
-                elif not self.is_encrypted(other):
-                    try:
-                        content = self.read_plain(other)
-                    except Exception:
-                        continue
-                else:
-                    continue
-                active_hashes.update(self._extract_remote_pdf_hashes(content))
-
-            for f in list(docs_dir.iterdir()):
-                if not f.name.startswith("remote_"):
-                    continue
-                file_hash = f.name.removeprefix("remote_").removesuffix(".pdf")
-                if file_hash and file_hash not in active_hashes:
-                    try:
-                        f.unlink()
-                        logger.info("Removed orphan remote PDF: %s", f.name)
-                    except OSError as exc:
-                        logger.warning(
-                            "Failed to remove remote PDF %s: %s", f.name, exc
-                        )
-
     def save_encrypted(self, name: str, ciphertext: bytes) -> None:
         """Write encrypted *ciphertext* to disk for *name*."""
         self.validate_name(name)
@@ -703,49 +637,6 @@ class NotesManager:
         self._backlink_index.pop(name, None)
         self._backlink_cache.clear()
 
-    def _extract_image_paths(self, content: str) -> set[str]:
-        """Extract .images/ and .documents/ paths from markdown image syntax."""
-        img_re = re.compile(r"!\[([^\]]*)\]\((" + MD_URL_BALANCED + r")\)")
-        paths: set[str] = set()
-        for m in img_re.finditer(content):
-            path = m.group(2)
-            clean = path[2:] if path.startswith("./") else path
-            if clean.startswith((".images/", ".documents/")):
-                paths.add(clean)
-        return paths
-
-    @staticmethod
-    def _extract_remote_pdf_hashes(content: str) -> set[str]:
-        """Extract MD5 hashes of remote PDF URLs referenced in markdown."""
-        pdf_re = re.compile(
-            r"!\[([^\]]*)\]\((https?://[^\s)]+\.pdf(?:\#[^\s)]*)?)\)",
-            re.IGNORECASE,
-        )
-        hashes: set[str] = set()
-        for m in pdf_re.finditer(content):
-            url = m.group(2).split("#")[0].split("?")[0]
-            h = hashlib.md5(url.encode()).hexdigest()
-            hashes.add(h)
-        return hashes
-
-    def _is_image_used_by_other_notes(
-        self, image_rel_path: str, exclude_note: str
-    ) -> bool:
-        """Check if *image_rel_path* is referenced by other notes."""
-        for other in self.get_notes():
-            if other == exclude_note:
-                continue
-            if self.is_encrypted(other):
-                # Can't check encrypted notes; keep the image to be safe
-                return True
-            try:
-                content = self.read_plain(other)
-                if f"({image_rel_path})" in content:
-                    return True
-            except Exception:
-                return True
-        return False
-
     def delete_note(self, name: str) -> None:
         self._sync_delete_note(name)
         self._backlink_cache.clear()
@@ -754,33 +645,12 @@ class NotesManager:
         note_path = self.notes_dir / f"{name}.md"
         enc_path = self.notes_dir / f"{name}.md.enc"
 
-        # Read content before deletion to find referenced images
-        content: str | None = None
-        try:
-            if note_path.exists():
-                content = note_path.read_text(encoding="utf-8")
-        except OSError:
-            content = None
-
         if enc_path.exists():
             from core.encryption import best_effort_overwrite
 
             best_effort_overwrite(enc_path)
         if note_path.exists():
             note_path.unlink()
-
-        # Clean up orphaned images if we could read the content
-        if content is not None:
-            image_paths = self._extract_image_paths(content)
-            for img_rel in image_paths:
-                img_abs = (self.notes_dir / img_rel).resolve()
-                if img_abs.exists() and not self._is_image_used_by_other_notes(
-                    img_rel, name
-                ):
-                    try:
-                        img_abs.unlink()
-                    except OSError:
-                        pass
 
         # Clean up empty parent directories up to notes_dir
         parent = note_path.parent
