@@ -73,6 +73,25 @@ class TestHighlighterIntegration:
         )
         assert buffer.get_iter_at_offset(italic_marker).has_tag(invisible_tag)
 
+    def test_completed_task_text_is_dimmed_without_dimming_checkbox(self):
+        from gi.repository import Gtk
+
+        text = "- [x] Done item\n- [ ] Open item"
+        buffer = Gtk.TextBuffer()
+        highlighter = MarkdownHighlighter(buffer, _make_tm())
+        buffer.set_text(text)
+
+        highlighter.highlight()
+
+        dim_tag = buffer.get_tag_table().lookup("task_done_dim")
+        checked_tag = buffer.get_tag_table().lookup("checkbox_checked")
+        unchecked_text_offset = text.index("Open item")
+
+        assert buffer.get_iter_at_offset(text.index("Done item")).has_tag(dim_tag)
+        assert not buffer.get_iter_at_offset(text.index("[x]")).has_tag(dim_tag)
+        assert buffer.get_iter_at_offset(text.index("[x]")).has_tag(checked_tag)
+        assert not buffer.get_iter_at_offset(unchecked_text_offset).has_tag(dim_tag)
+
     def test_invisible_tags_managed_by_selection(self, monkeypatch):
         from gi.repository import Gtk
         # We simulate the TokyoNotes environment enough to test the workaround logic.

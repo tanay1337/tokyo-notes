@@ -321,6 +321,7 @@ class MarkdownHighlighter:
         tag("invisible", invisible=True)
         tag("transparent", foreground_rgba=Gdk.RGBA(0, 0, 0, 0))
         tag("dim", foreground=c["dim"])
+        tag("task_done_dim", foreground=c["dim"])
         tag("front_matter_key", foreground=c["front_matter_key"])
         tag("front_matter_value", foreground=c["front_matter_value"])
         tag("misspelled", underline=Pango.Underline.ERROR)
@@ -601,6 +602,7 @@ class MarkdownHighlighter:
             self.apply_tag("body", line_start_offset, line_end_offset)
 
             self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
+            self._apply_checked_task_dim(line, line_start_offset, line_end_offset)
 
         # Spell check is intentionally NOT called here. Running a full
         # _spell_check_pass(0, total_lines) inside highlight() costs 200+ ms
@@ -877,6 +879,7 @@ class MarkdownHighlighter:
             )
 
         self._apply_inline_tags(line, line_start_offset, line_end_offset, is_cursor)
+        self._apply_checked_task_dim(line, line_start_offset, line_end_offset)
         self._apply_list_hanging(line, line_start_offset, line_end_offset)
         self._apply_indent_hanging(line, line_start_offset, line_end_offset)
 
@@ -1100,6 +1103,22 @@ class MarkdownHighlighter:
         if line.rstrip().endswith("\\"):
             self.apply_tag(
                 "line_break", line_start_offset + len(line.rstrip()), line_end_offset
+            )
+
+    def _apply_checked_task_dim(
+        self, line: str, line_start_offset: int, line_end_offset: int
+    ) -> None:
+        match = self.re_checkbox_checked.search(line)
+        if not match:
+            return
+        content_start = match.end()
+        while content_start < len(line) and line[content_start] == " ":
+            content_start += 1
+        if line_start_offset + content_start < line_end_offset:
+            self.apply_tag(
+                "task_done_dim",
+                line_start_offset + content_start,
+                line_end_offset,
             )
 
     # Incremental highlighter: only re-tag a single line range
