@@ -48,6 +48,7 @@ select = ["E", "F", "I", "W"]
 "ui/*.py" = ["E402"]
 "main.py" = ["E402"]
 "tests/test_encryption.py" = ["E402"]
+"tests/test_auto_pair.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

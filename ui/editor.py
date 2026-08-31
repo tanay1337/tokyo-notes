@@ -760,12 +760,45 @@ class Editor(Gtk.Box):
             Gdk.KEY_asterisk: ("*", "*"),
             Gdk.KEY_underscore: ("_", "_"),
             Gdk.KEY_grave: ("`", "`"),
-            Gdk.KEY_asciitilde: ("~~", "~~"),
-            Gdk.KEY_equal: ("==", "=="),
             Gdk.KEY_parenleft: ("(", ")"),
             Gdk.KEY_bracketleft: ("[", "]"),
             Gdk.KEY_quotedbl: ('"', '"'),
         }
+        # Double-char markers (`==` highlight, `~~` strikethrough) only
+        # auto-close on the SECOND consecutive keystroke. Pressing the key
+        # once inserts a single character with no closing pair.
+        double_markers = {
+            Gdk.KEY_equal: "=",
+            Gdk.KEY_asciitilde: "~",
+        }
+
+        if keyval in double_markers:
+            marker = double_markers[keyval]
+
+            if buffer.get_has_selection():
+                start, end = buffer.get_selection_bounds()
+                text = buffer.get_text(start, end, True)
+                buffer.delete(start, end)
+                buffer.insert_at_cursor(f"{marker}{marker}{text}{marker}{marker}")
+                return True
+
+            cursor = buffer.get_iter_at_mark(buffer.get_insert())
+            if cursor.get_offset() > 0:
+                prev = cursor.copy()
+                prev.backward_char()
+                if prev.get_char() == marker:
+                    # Second consecutive press: collapse the single marker
+                    # that was just inserted into a full open/close pair.
+                    buffer.delete(prev, cursor)
+                    buffer.insert_at_cursor(f"{marker}{marker}{marker}{marker}")
+                    end = buffer.get_iter_at_mark(buffer.get_insert())
+                    end.backward_chars(2)
+                    buffer.place_cursor(end)
+                    return True
+
+            buffer.insert_at_cursor(marker)
+            return True
+
         if keyval not in pairs:
             return False
 
