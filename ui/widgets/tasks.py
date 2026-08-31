@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import datetime
+import html
+import urllib.parse
+import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -12,13 +15,74 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from core.services import get_week_boundaries
 from core.translations import tr
-from core.utils import clear_listbox
+from core.utils import MD_LINK_CLICK_RE, URL_RE, WIKI_CLICK_RE, clear_listbox
+from ui.click_dispatcher import _is_safe_url
 from ui.deadline_picker import DeadlinePicker
 from ui.progress_ring import ProgressRing
 from ui.widgets.base import WidgetBase
 
 if TYPE_CHECKING:
     from main import TokyoNotes
+
+_NOTE_HREF_PREFIX = "note:"
+
+
+def _note_href(note_name: str) -> str:
+    return _NOTE_HREF_PREFIX + urllib.parse.quote(note_name, safe="")
+
+
+def _task_link_markup(href: str, label: str) -> str:
+    return '<a href="{href}">{label}</a>'.format(
+        href=html.escape(href, quote=True),
+        label=html.escape(label),
+    )
+
+
+def task_text_to_markup(text: str) -> str:
+    """Render task text as safe Pango markup with clickable note/URL links."""
+    parts: list[str] = []
+    pos = 0
+    patterns = (
+        ("wiki", WIKI_CLICK_RE),
+        ("mdlink", MD_LINK_CLICK_RE),
+        ("url", URL_RE),
+    )
+
+    while pos < len(text):
+        best: tuple[int, int, str, Any] | None = None
+        for kind, pattern in patterns:
+            match = pattern.search(text, pos)
+            if match is None:
+                continue
+            candidate = (match.start(), match.end(), kind, match)
+            if best is None or candidate[:2] < best[:2]:
+                best = candidate
+
+        if best is None:
+            parts.append(html.escape(text[pos:]))
+            break
+
+        start, end, kind, match = best
+        parts.append(html.escape(text[pos:start]))
+
+        if kind == "wiki":
+            note_name = match.group(1)
+            parts.append(_task_link_markup(_note_href(note_name), note_name))
+        elif kind == "mdlink":
+            if match.group(1) == "!":
+                parts.append(html.escape(match.group(0)))
+            else:
+                label = match.group(2)
+                target = match.group(3)
+                href = target if _is_safe_url(target) else _note_href(target)
+                parts.append(_task_link_markup(href, label))
+        else:
+            url = match.group(0)
+            parts.append(_task_link_markup(url, url))
+
+        pos = end
+
+    return "".join(parts)
 
 
 class TasksWidget(WidgetBase):
@@ -802,9 +866,11 @@ class TasksWidget(WidgetBase):
         box.append(checkbox)
         row._checkbox = checkbox
 
-        text_label = Gtk.Label(label=cb["text"], xalign=0)
+        text_label = Gtk.Label(xalign=0)
+        text_label.set_markup(task_text_to_markup(cb["text"]))
         text_label.set_hexpand(True)
         text_label.set_ellipsize(Pango.EllipsizeMode.END)
+        text_label.connect("activate-link", self._on_task_link_activated)
         if cb["checked"]:
             text_label.add_css_class("task-completed")
             attrs = Pango.AttrList()
@@ -861,6 +927,18 @@ class TasksWidget(WidgetBase):
         if app is None:
             return
         app.lifecycle.handle_row_click(gesture, n_press, x, y, cb)
+
+    def _on_task_link_activated(self, _label: Gtk.Label, uri: str) -> bool:
+        app = self.app
+        if uri.startswith(_NOTE_HREF_PREFIX):
+            if app is not None:
+                note_name = urllib.parse.unquote(uri[len(_NOTE_HREF_PREFIX) :])
+                app.lifecycle.on_link_clicked(note_name)
+            return True
+        if _is_safe_url(uri):
+            webbrowser.open_new_tab(uri)
+            return True
+        return True
 
     # ── Snooze ──
 
