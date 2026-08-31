@@ -1277,6 +1277,10 @@ class TokyoNotes(Adw.Application):
             self.content_stack.remove(self.dashboard_view)
         self.dashboard_view = None
 
+        if self.pdf_reader_view:
+            self.content_stack.remove(self.pdf_reader_view)
+        self.pdf_reader_view = None
+
         if self.diagram_view:
             self.content_stack.remove(self.diagram_view)
         self.diagram_view = None
@@ -1381,6 +1385,7 @@ class TokyoNotes(Adw.Application):
         self.graph_manager = None
         self.dashboard_view = None
         self.flashcard_view = None
+        self.pdf_reader_view = None
         self.split_editor = None
         self._single_editor_ref = None
         self.diagram_view = None
@@ -1513,6 +1518,7 @@ class TokyoNotes(Adw.Application):
         self.text_view = self.editor.text_view
         self.editor._config_manager = self.cfg
         self.editor._get_current_note = lambda: self.current_note
+        self.editor._on_open_pdf_viewer = self.nav.on_pdf_reader_clicked
         self.toolbar = self.editor.toolbar
         inner = self.toolbar.get_child()
         if isinstance(inner, Gtk.Viewport):

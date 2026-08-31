@@ -456,6 +456,23 @@ button.pill {
     font-size: 9pt;
 }
 
+button.pdf-open-btn {
+    min-width: 0;
+    min-height: 0;
+    padding: 2px 9px;
+    border-radius: 5px;
+    border: 1px solid alpha(@accent_color, 0.28);
+    background-color: alpha(@accent_color, 0.08);
+    color: @accent_color;
+    font-size: 8pt;
+    font-weight: 600;
+}
+
+button.pdf-open-btn:hover {
+    border-color: alpha(@accent_color, 0.45);
+    background-color: alpha(@accent_color, 0.14);
+}
+
 /* Private notes — sidebar row styling */
 .private-note-locked .sidebar-label {
     opacity: 0.75;
@@ -566,6 +583,17 @@ button.pill {
 /* Inline images in editor */
 .inline-image {
     margin: 8px 0;
+}
+
+/* PDF reader */
+.pdf-reader-scroll {
+    background-color: @bg_color;
+}
+
+.pdf-reader-page {
+    background-color: @editor_bg;
+    border: 1px solid @border_color;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
 }
 
 /* Advanced filter funnel button */

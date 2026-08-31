@@ -19,6 +19,7 @@ from core.utils import is_entry_focused
 from ui.dashboard import Dashboard
 from ui.flashcard_review import FlashcardReview
 from ui.graph_view import GraphView
+from ui.pdf_reader import PdfReaderView
 from ui.settings import SettingsView
 
 if TYPE_CHECKING:
@@ -199,6 +200,25 @@ class NavigationController:
         app.sidebar.set_active_view("flashcard")
         app._set_backlinks_visible(False)
 
+    # PDF reader
+
+    def on_pdf_reader_clicked(
+        self, path_or_url: str, note_name: str | None = None
+    ) -> None:
+        """Open the dedicated PDF reader for the given source."""
+        app = self.app
+        app._save_current_cursor()
+        if app.pdf_reader_view is None:
+            app.pdf_reader_view = PdfReaderView(app)
+            app.content_stack.add_named(app.pdf_reader_view, "pdf_reader")
+        source_note = note_name or app.current_note
+        return_view = app.content_stack.get_visible_child_name() or "editor"
+        app.pdf_reader_view.open_document(path_or_url, source_note, return_view)
+        app.content_stack.set_visible_child_name("pdf_reader")
+        self.update_header_ui(app.pdf_reader_view.get_title(), is_editor=False)
+        app.sidebar.set_active_view("editor")
+        app._set_backlinks_visible(False)
+
     # Escape / back
 
     def on_escape_shortcut(self) -> bool:
@@ -210,6 +230,7 @@ class NavigationController:
             "graph",
             "settings",
             "flashcard",
+            "pdf_reader",
             "diagram",
             "table",
         ):
@@ -219,6 +240,20 @@ class NavigationController:
             if current_page == "table":
                 app._on_table_close()
                 return True
+            if current_page == "pdf_reader":
+                if app.pdf_reader_view is not None:
+                    target = app.pdf_reader_view._return_view
+                    app.pdf_reader_view._flush_state()
+                    app.content_stack.set_visible_child_name(target)
+                    if hasattr(app.editor, "refresh_embeds"):
+                        app.editor.refresh_embeds(
+                            app_width=app.cfg.get("embed_width", 0)
+                        )
+                    title = app.current_note if app.current_note else tr("Tokyo Notes")
+                    self.update_header_ui(title, is_editor=True)
+                    app.sidebar.set_active_view("editor")
+                    app._set_backlinks_visible(True)
+                    return True
             target = "split_editor" if app.split_editor is not None else "editor"
             app.content_stack.set_visible_child_name(target)
             title = app.current_note if app.current_note else tr("Tokyo Notes")

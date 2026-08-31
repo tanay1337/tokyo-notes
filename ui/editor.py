@@ -299,6 +299,7 @@ class Editor(Gtk.Box):
         self._notes_dir: Path = Path()
         self._config_manager: Any | None = None
         self._get_current_note: Callable[[], str | None] = lambda: None
+        self._on_open_pdf_viewer: Callable[[str], None] | None = None
         self._image_pixbuf_cache: OrderedDict[str, tuple[float, GdkPixbuf.Pixbuf]] = (
             OrderedDict()
         )
@@ -1784,12 +1785,37 @@ class Editor(Gtk.Box):
         label = Gtk.Label(label=tr("PDF: {name}").format(name=display))
         label.set_hexpand(True)
         box.append(label)
+        box.append(self._build_pdf_open_button(path_or_url))
+        return box
+
+    def _open_pdf_view(self, path_or_url: str) -> None:
+        callback = self._on_open_pdf_viewer
+        if callable(callback):
+            callback(path_or_url)
+            return
+        self._open_pdf_external(path_or_url)
+
+    def refresh_embeds(self, notes_dir: Path | None = None, app_width: int = 0) -> None:
+        self._last_image_text_hash = ""
+        self.update_images(notes_dir or self._notes_dir, app_width=app_width)
+
+    def _build_pdf_open_button(self, path_or_url: str) -> Gtk.Button:
         open_btn = Gtk.Button(label=tr("Open"))
         open_btn.add_css_class("pill")
-        open_btn.add_css_class("suggested-action")
-        open_btn.connect("clicked", lambda *_: self._open_pdf_external(path_or_url))
-        box.append(open_btn)
-        return box
+        open_btn.add_css_class("pdf-open-btn")
+        open_btn.connect("clicked", lambda *_: self._open_pdf_view(path_or_url))
+        return open_btn
+
+    def _add_pdf_open_gesture(self, widget: Gtk.Widget, path_or_url: str) -> None:
+        gesture = Gtk.GestureClick.new()
+        gesture.set_button(0)
+        gesture.connect(
+            "pressed",
+            lambda _g, n_press, _x, _y: (
+                self._open_pdf_view(path_or_url) if n_press >= 2 else None
+            ),
+        )
+        widget.add_controller(gesture)
 
     def _build_pdf_embed(
         self, img_path: str, notes_dir: Path, embed_width: int
@@ -1835,19 +1861,20 @@ class Editor(Gtk.Box):
         display_h = int(ph * display_w / pw) if pw > 0 else ph
         picture.set_size_request(display_w, display_h)
         outer.append(picture)
+        self._add_pdf_open_gesture(picture, img_path)
 
         state = {"page": initial_page}
 
-        if n_pages > 1:
-            bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            bottom.set_halign(Gtk.Align.CENTER)
+        bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        bottom.set_halign(Gtk.Align.CENTER)
+        open_btn = self._build_pdf_open_button(img_path)
 
+        if n_pages > 1:
             page_label = Gtk.Label(
                 label=tr("Page {n} / {total}").format(n=initial_page + 1, total=n_pages)
             )
             page_label.add_css_class("dim-label")
             bottom.append(page_label)
-            outer.append(bottom)
 
             accum = [0.0]
             last_turn = [0.0]
@@ -1880,14 +1907,10 @@ class Editor(Gtk.Box):
             scroll.connect("scroll", _on_scroll)
             outer.add_controller(scroll)
 
-        gesture = Gtk.GestureClick.new()
-        gesture.connect(
-            "pressed",
-            lambda g, np, _x, _y: (
-                self._open_pdf_external(str(pdf_path)) if np >= 2 else None
-            ),
-        )
-        outer.add_controller(gesture)
+        bottom.append(open_btn)
+        outer.append(bottom)
+
+        self._add_pdf_open_gesture(outer, img_path)
         tooltip = (
             tr("Scroll to change page, double-click to open PDF")
             if n_pages > 1
