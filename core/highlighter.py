@@ -27,6 +27,7 @@ from core.utils import (
     TABLE_ROW_RE,
     TABLE_SEP_RE,
     TAG_RE,
+    URL_RE,
     resolve_callout_type,
 )
 
@@ -111,6 +112,7 @@ class MarkdownHighlighter:
         self.re_links = re.compile(
             r"\[\[([^\]]+)\]\]|(!?)\[([^\]]+)\]\((" + MD_URL_BALANCED + r")\)"
         )
+        self.re_url = URL_RE
         self.re_autolink = re.compile(r"<([^>]+)>")
         self.re_html = re.compile(r"<[^>]+>")
         self.re_bold1 = re.compile(r"(\*\*)([^*]+)(\*\*)")
@@ -881,7 +883,7 @@ class MarkdownHighlighter:
     def _collect_link_ranges(
         self, line: str, line_start_offset: int
     ) -> set[tuple[int, int]]:
-        """Collect absolute buffer ranges for markdown links and images."""
+        """Collect absolute buffer ranges for markdown links, images, and URLs."""
         ranges: set[tuple[int, int]] = set()
         for m in self.re_links.finditer(line):
             ranges.add(
@@ -900,7 +902,23 @@ class MarkdownHighlighter:
                     line_start_offset + m.end(),
                 )
             )
+        for m in self.re_url.finditer(line):
+            ranges.add(
+                (
+                    line_start_offset + m.start(),
+                    line_start_offset + m.end(),
+                )
+            )
         return ranges
+
+    @staticmethod
+    def _overlaps_any(
+        start_offset: int, end_offset: int, ranges: set[tuple[int, int]]
+    ) -> bool:
+        return any(
+            start_offset < range_end and end_offset > range_start
+            for range_start, range_end in ranges
+        )
 
     def _apply_inline_tags(
         self, line: str, line_start_offset: int, line_end_offset: int, is_cursor: bool
@@ -1289,6 +1307,8 @@ class MarkdownHighlighter:
         if not any(ch in _MARKER_CHARS for ch in line):
             return
 
+        link_ranges = self._collect_link_ranges(line, line_start)
+
         # ATX heading markers
         for m in self.re_header.finditer(line):
             self.apply_tag(mt, line_start, line_start + len(m.group(1)))
@@ -1303,6 +1323,10 @@ class MarkdownHighlighter:
             (self.re_strikethrough, False),
         ):
             for m in pattern.finditer(line):
+                ms = line_start + m.start()
+                me = line_start + m.end()
+                if self._overlaps_any(ms, me, link_ranges):
+                    continue
                 if single:
                     self.apply_tag(
                         mt, line_start + m.start(), line_start + m.start() + 1

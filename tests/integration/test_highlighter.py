@@ -40,6 +40,39 @@ class TestHighlighterIntegration:
         bold_tag = buffer.get_tag_table().lookup("bold")
         assert bold_start.has_tag(bold_tag)
 
+    def test_bare_url_underscores_are_not_hidden_as_italic_markers(self):
+        from gi.repository import Gtk
+
+        text = "Visit https://linkedin.com/name=tan_pan_hello and _this_"
+        buffer = Gtk.TextBuffer()
+        highlighter = MarkdownHighlighter(buffer, _make_tm())
+        buffer.set_text(text)
+
+        highlighter.highlight()
+
+        invisible_tag = buffer.get_tag_table().lookup("invisible")
+        url_first_underscore = text.index("_")
+        url_second_underscore = text.index("_", url_first_underscore + 1)
+        italic_marker = text.rindex("_")
+
+        assert not buffer.get_iter_at_offset(url_first_underscore).has_tag(
+            invisible_tag
+        )
+        assert not buffer.get_iter_at_offset(url_second_underscore).has_tag(
+            invisible_tag
+        )
+        assert buffer.get_iter_at_offset(italic_marker).has_tag(invisible_tag)
+
+        highlighter._set_line_markers(0, is_cursor=False)
+
+        assert not buffer.get_iter_at_offset(url_first_underscore).has_tag(
+            invisible_tag
+        )
+        assert not buffer.get_iter_at_offset(url_second_underscore).has_tag(
+            invisible_tag
+        )
+        assert buffer.get_iter_at_offset(italic_marker).has_tag(invisible_tag)
+
     def test_invisible_tags_managed_by_selection(self, monkeypatch):
         from gi.repository import Gtk
         # We simulate the TokyoNotes environment enough to test the workaround logic.
