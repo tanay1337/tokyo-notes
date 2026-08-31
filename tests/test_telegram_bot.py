@@ -101,6 +101,15 @@ class TestApiCall:
 
 
 class TestHandleMessage:
+    def test_failed_note_append_is_reported_for_retry(self, bot):
+        msg = {
+            "from": {"id": 12345},
+            "chat": {"id": 123},
+            "text": "Retry me",
+        }
+        with patch.object(bot, "_append_to_inbox", return_value=False):
+            assert bot._handle_message(msg) is False
+
     def test_text_message(self, bot, mock_nm, notes_dir):
         msg = {
             "message_id": 1,

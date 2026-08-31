@@ -107,8 +107,13 @@ class TelegramBot:
                 updates = self._get_updates()
                 for update in updates:
                     msg = update.get("message")
+                    processed = True
                     if msg is not None:
-                        self._handle_message(msg)
+                        processed = self._handle_message(msg)
+                    if not processed:
+                        # Keep the same offset so a transient note or file
+                        # error is retried rather than acknowledged and lost.
+                        break
                     self._offset = update["update_id"] + 1
             except Exception:
                 logger.exception("Telegram poll error")
@@ -139,18 +144,18 @@ class TelegramBot:
 
     # ── message handling ──
 
-    def _handle_message(self, msg: dict[str, Any]) -> None:
+    def _handle_message(self, msg: dict[str, Any]) -> bool:
         chat_id = msg.get("chat", {}).get("id")
         if chat_id is None:
-            return
+            return True
 
         if not self.owner_id:
             logger.debug("No owner ID configured — rejecting message")
-            return
+            return True
         sender = msg.get("from", {}).get("id")
         if sender != self.owner_id:
             logger.debug("Ignoring message from non-owner user %s", sender)
-            return
+            return True
 
         photo = msg.get("photo")
         document = msg.get("document")
@@ -164,12 +169,10 @@ class TelegramBot:
             if self._download_file(file_id, dest):
                 caption_part = f"{caption} " if caption else ""
                 line = f"{caption_part}![](.images/telegram_{file_id}{ext})"
-                self._append_to_inbox(line)
-                return
+                return self._append_to_inbox(line)
             else:
                 line = caption or "(photo download failed)"
-                self._append_to_inbox(line)
-                return
+                return self._append_to_inbox(line)
 
         if document and document.get("mime_type") == "application/pdf":
             file_id = document["file_id"]
@@ -178,26 +181,23 @@ class TelegramBot:
             if self._download_file(file_id, dest):
                 caption_part = f"{caption} " if caption else ""
                 line = f"{caption_part}![](.documents/telegram_{file_id}.pdf)"
-                self._append_to_inbox(line)
-                return
+                return self._append_to_inbox(line)
             else:
                 line = caption or "(PDF download failed)"
-                self._append_to_inbox(line)
-                return
+                return self._append_to_inbox(line)
 
         if text:
             line = text
-            self._append_to_inbox(line)
-            return
+            return self._append_to_inbox(line)
 
         voice = msg.get("voice")
         if voice:
-            self._handle_voice(voice)
-            return
+            return self._handle_voice(voice)
 
         # Silently ignore stickers, GIFs, video, commands
+        return True
 
-    def _append_to_inbox(self, line: str) -> None:
+    def _append_to_inbox(self, line: str) -> bool:
         """Append a line to the target note, creating it if it doesn't exist."""
         note = self.target_note
         try:
@@ -211,24 +211,25 @@ class TelegramBot:
             logger.debug("Appended to %s: %s", note, line)
             if self._on_inbox_updated is not None:
                 self._on_inbox_updated()
+            return True
         except Exception:
             logger.exception("Failed to append to %s", note)
+            return False
 
-    def _handle_voice(self, voice: dict) -> None:
+    def _handle_voice(self, voice: dict) -> bool:
         """Download a voice note and append its transcription to Inbox."""
         file_id = voice["file_id"]
         dest = self.notes_dir / ".voice" / f"telegram_{file_id}.oga"
 
         if not self._download_file(file_id, dest):
-            self._append_to_inbox("(voice download failed)")
-            return
+            return self._append_to_inbox("(voice download failed)")
 
         text = self._transcribe_voice(dest)
         prefix = "🎤 " if self.voice_emoji else ""
         if text:
-            self._append_to_inbox(f"{prefix}{text}")
+            return self._append_to_inbox(f"{prefix}{text}")
         else:
-            self._append_to_inbox(
+            return self._append_to_inbox(
                 f"{prefix}[Voice message](.voice/telegram_{file_id}.oga)"
             )
 
