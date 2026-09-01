@@ -26,6 +26,7 @@ _GITIGNORE_CONTENT = """\
 # Tokyo Notes git versioning
 *.tmp
 ._*
+.tokyo-notes/assistant/
 """
 
 

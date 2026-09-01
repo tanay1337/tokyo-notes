@@ -76,6 +76,9 @@ yay -S tokyo-notes-git
 - **Flashcards**: Extract Q/A cards from flashcard codeblocks and flip through them to review. See format below.
 - **Diagrams**: Create, edit, and embed interactive node diagrams directly in your notes.
 - **Offline Dictation**: Optional speech-to-text dictation powered by faster-whisper that runs fully offline.
+- **AI Assistant**: Local-first chat, summaries, flashcards, cleanup, and
+  user-started document reviews with preview-before-apply edits (powered by your
+  local llama.cpp server).
 - **Telegram Bot**: Forward messages, photos, and PDFs from Telegram directly into any note via a configurable bot. Supports owner-only filtering.
 - **And Much More**: Themes, Archive System, Full-Text Search, Sakura Animations.
 
@@ -96,6 +99,21 @@ Question
 Answer
 ```
 ~~~
+
+## AI Assistant
+
+Enable the assistant in **Settings → AI Assistant**. For local use, start
+an existing [llama.cpp](https://llama.app/) server with a chat-capable GGUF model:
+
+```bash
+llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8080
+```
+
+Keep the default URL (`http://127.0.0.1:8080/v1`) and port (`8080`). An API key
+is optional and empty by default. Tokyo Notes discovers loaded models from
+`/v1/models`; all public notes are included as context by default, while private
+notes require explicit access. Model output never edits a note until you review
+and apply the proposal.
 
 ## License
 [MIT License](LICENSE)

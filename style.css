@@ -1014,3 +1014,66 @@ shortcuts-shortcut {
     border-color: @accent_color;
     background-color: alpha(@accent_color, 0.08);
 }
+
+/* ── Document assistant ── */
+
+.assistant-panel {
+    padding: 8px;
+    background-color: @bg_color;
+    border-left: 1px solid @border_color;
+}
+
+.assistant-panel button,
+.assistant-panel dropdown > button {
+    min-height: 28px;
+    padding: 3px 8px;
+    border-radius: 8px;
+}
+
+.assistant-panel button.circular {
+    min-width: 30px;
+    min-height: 30px;
+    padding: 0;
+    border-radius: 999px;
+}
+
+.assistant-panel .pill {
+    padding: 2px 7px;
+    border-radius: 999px;
+}
+
+.assistant-panel .assistant-model {
+    font-size: 0.85em;
+}
+
+.assistant-user,
+.assistant-reply {
+    padding: 9px 11px;
+    border-radius: 12px;
+}
+
+.assistant-user {
+    background-color: alpha(@accent_color, 0.14);
+}
+
+.assistant-reply {
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
+.assistant-generating {
+    color: alpha(@fg_color, 0.58);
+    font-style: italic;
+}
+
+.assistant-composer {
+    padding: 6px;
+    border: 1px solid alpha(@fg_color, 0.16);
+    border-radius: 14px;
+    background-color: alpha(@fg_color, 0.035);
+}
+
+.assistant-composer textview,
+.assistant-composer textview text {
+    background-color: transparent;
+}

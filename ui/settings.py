@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -13,6 +14,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from spellchecker import SpellChecker as PySpellChecker
 
+from core.ai import LlamaCppProvider, is_loopback_url
 from core.theme_manager import THEMES
 from core.translations import list_languages, tr
 from core.utils import clear_listbox, confirm_destructive_dialog
@@ -117,6 +119,10 @@ class SettingsView(Gtk.Box):
         self._versioning_group = self._build_versioning_group()
         self._content.append(self._versioning_group)
         self._settings_groups.append(self._versioning_group)
+
+        self._assistant_group = self._build_assistant_group()
+        self._content.append(self._assistant_group)
+        self._settings_groups.append(self._assistant_group)
 
         self._telegram_group = self._build_telegram_group()
         self._content.append(self._telegram_group)
@@ -580,6 +586,133 @@ class SettingsView(Gtk.Box):
             group.add(test_btn)
 
         return group
+
+    def _build_assistant_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(
+            title=tr("AI Assistant"),
+            description=tr(
+                "Local-first chat. Models can only propose changes; "
+                "you choose what to apply."
+            ),
+        )
+        group.add(
+            self._make_switch_row(
+                tr("Enable Assistant"),
+                tr("Show the assistant button in the note header"),
+                self._initial_values.get("assistant_enabled", False),
+                "assistant_enabled",
+            )
+        )
+
+        self._llama_url_entry = Gtk.Entry()
+        self._llama_url_entry.set_text(
+            self._initial_values.get("llama_cpp_url", "http://127.0.0.1:8080/v1")
+        )
+        self._llama_url_entry.set_width_chars(32)
+        self._llama_url_entry.connect(
+            "changed", lambda e: self.on_config_changed("llama_cpp_url", e.get_text())
+        )
+        url_row = Adw.ActionRow(
+            title=tr("llama.cpp Server"),
+            subtitle=tr("Existing local llama-server /v1 URL"),
+        )
+        url_row.add_suffix(self._llama_url_entry)
+        group.add(url_row)
+
+        self._llama_port_spin = Gtk.SpinButton.new_with_range(1, 65535, 1)
+        self._llama_port_spin.set_value(
+            self._initial_values.get("llama_cpp_port", 8080)
+        )
+        self._llama_port_spin.connect(
+            "value-changed",
+            lambda spin: self.on_config_changed(
+                "llama_cpp_port", int(spin.get_value())
+            ),
+        )
+        port_row = Adw.ActionRow(
+            title=tr("Port"),
+            subtitle=tr("llama.cpp listening port (default 8080)"),
+        )
+        port_row.add_suffix(self._llama_port_spin)
+        group.add(port_row)
+
+        self._llama_api_key_entry = Gtk.PasswordEntry()
+        self._llama_api_key_entry.set_show_peek_icon(True)
+        self._llama_api_key_entry.set_text(
+            self._initial_values.get("llama_cpp_api_key", "")
+        )
+        self._llama_api_key_entry.connect(
+            "changed",
+            lambda entry: self.on_config_changed("llama_cpp_api_key", entry.get_text()),
+        )
+        api_key_row = Adw.ActionRow(
+            title=tr("API key"),
+            subtitle=tr("Optional Bearer token; empty by default"),
+        )
+        api_key_row.add_suffix(self._llama_api_key_entry)
+        group.add(api_key_row)
+
+        self._llama_test_status = Gtk.Label()
+        self._llama_test_status.add_css_class("dim-label")
+        test_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+        test_btn.set_tooltip_text(tr("Refresh local models"))
+        test_btn.connect("clicked", self._test_llama_connection)
+        test_row = Adw.ActionRow(
+            title=tr("Connection"),
+            subtitle=tr("Discovers models without sending note content"),
+        )
+        test_row.add_suffix(self._llama_test_status)
+        test_row.add_suffix(test_btn)
+        group.add(test_row)
+        self._assistant_models_loaded = False
+        group.connect("map", self._on_assistant_group_mapped, test_btn)
+        return group
+
+    def _on_assistant_group_mapped(
+        self, _group: Adw.PreferencesGroup, button: Gtk.Button
+    ) -> None:
+        if self._assistant_models_loaded:
+            return
+        self._assistant_models_loaded = True
+        self._test_llama_connection(button)
+
+    def _test_llama_connection(self, button: Gtk.Button) -> None:
+        url = self._llama_url_entry.get_text()
+        if not is_loopback_url(url):
+            self._llama_test_status.set_label(tr("Use a localhost URL"))
+            return
+        button.set_sensitive(False)
+        self._llama_test_status.set_label(tr("Testing…"))
+
+        def worker() -> None:
+            try:
+                models = LlamaCppProvider(
+                    url,
+                    api_key=self._llama_api_key_entry.get_text(),
+                    port=int(self._llama_port_spin.get_value()),
+                ).list_models()
+                GLib.idle_add(self._finish_llama_test, button, models, "")
+            except Exception:
+                GLib.idle_add(
+                    self._finish_llama_test,
+                    button,
+                    [],
+                    tr("Could not connect"),
+                )
+
+        threading.Thread(target=worker, name="llama-test", daemon=True).start()
+
+    def _finish_llama_test(
+        self, button: Gtk.Button, models: list[str], error: str
+    ) -> bool:
+        button.set_sensitive(True)
+        if error:
+            self._llama_test_status.set_label(error)
+            return False
+        self._llama_test_status.set_label(
+            tr("Connected · {n} model(s)").format(n=len(models))
+        )
+        return False
 
     @staticmethod
     def _parse_owner_id(text: str) -> int:

@@ -43,6 +43,7 @@ from core.utils import (
     strip_anchors_for_save,
 )
 from core.window_manager import WindowManager
+from ui.assistant_panel import AssistantPanel
 from ui.click_dispatcher import ClickDispatcher
 from ui.deadline_picker import DeadlinePicker
 from ui.diagram_view import DiagramView
@@ -167,6 +168,8 @@ class TokyoNotes(Adw.Application):
         self._zero_session_password()
         if self.telegram_bot is not None:
             self.telegram_bot.stop()
+        if getattr(self, "assistant_panel", None) is not None:
+            self.assistant_panel.dispose_panel()
         self.cfg.flush_immediate()
         shutdown_pool()
         logger.info("Tokyo Notes shutting down")
@@ -499,6 +502,8 @@ class TokyoNotes(Adw.Application):
         """Lock private notes, zero the key and password, clear the buffer."""
         self._cancel_lock_timer()
         self._save_current_cursor()
+        if getattr(self, "assistant_panel", None) is not None:
+            self.assistant_panel.purge_private_context()
         if self.current_note and self.notes_manager.is_encrypted(self.current_note):
             try:
                 self._save_current_encrypted_note()
@@ -1295,6 +1300,11 @@ class TokyoNotes(Adw.Application):
         self.table_view = None
         self.diagram_manager = DiagramManager(notes_dir=new_folder)
 
+        if getattr(self, "assistant_panel", None) is not None:
+            self.assistant_panel.dispose_panel()
+            self.assistant_panel = AssistantPanel(self)
+            self.assistant_revealer.set_child(self.assistant_panel)
+
         self.current_note = None
         self._has_images = False
         self._set_buffer_text("")
@@ -1378,6 +1388,17 @@ class TokyoNotes(Adw.Application):
         self.toc_toggle.add_css_class("flat")
         self.toc_toggle.set_tooltip_text(tr("Table of Contents"))
         self.toc_toggle.set_active(self.cfg.get("show_toc"))
+
+        assistant_toggle_img = Gtk.Image.new_from_file(
+            str(self.base_dir / "assets" / "header" / "assistant.svg")
+        )
+        assistant_toggle_img.set_pixel_size(16)
+        self.assistant_toggle = Gtk.ToggleButton()
+        self.assistant_toggle.set_child(assistant_toggle_img)
+        self.assistant_toggle.add_css_class("header-btn")
+        self.assistant_toggle.add_css_class("flat")
+        self.assistant_toggle.set_tooltip_text(tr("AI Assistant"))
+        self.assistant_toggle.set_visible(self.cfg.get("assistant_enabled", False))
 
         self.content_header = self._build_content_header()
         self.split_view.set_show_sidebar(self.sidebar_toggle.get_active())
@@ -1484,6 +1505,7 @@ class TokyoNotes(Adw.Application):
         self.help_btn.add_css_class("header-btn")
         self.help_btn.connect("clicked", lambda _: self.show_shortcuts_dialog())
         header.pack_end(self.help_btn)
+        header.pack_end(self.assistant_toggle)
         header.pack_end(self.toc_toggle)
 
         # Back to Notes button — shown only when a secondary view is active.
@@ -1619,6 +1641,17 @@ class TokyoNotes(Adw.Application):
         self.toc_revealer.set_valign(Gtk.Align.FILL)
         self.toc_revealer.set_child(self.toc_sidebar)
 
+        self.assistant_panel = AssistantPanel(self)
+        self.assistant_revealer = Gtk.Revealer()
+        self.assistant_revealer.set_transition_type(
+            Gtk.RevealerTransitionType.SLIDE_LEFT
+        )
+        self.assistant_revealer.set_reveal_child(False)
+        self.assistant_revealer.set_halign(Gtk.Align.END)
+        self.assistant_revealer.set_valign(Gtk.Align.FILL)
+        self.assistant_revealer.set_child(self.assistant_panel)
+        self.assistant_toggle.connect("toggled", self._on_assistant_toggled)
+
         # Content box: content_stack + transparent spacer
         self.content_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.content_box.set_hexpand(True)
@@ -1635,6 +1668,7 @@ class TokyoNotes(Adw.Application):
         self.sakura_overlay = SakuraOverlay()
         self.overlay.set_child(self.content_box)
         self.overlay.add_overlay(self.toc_revealer)
+        self.overlay.add_overlay(self.assistant_revealer)
         self.overlay.add_overlay(self.sakura_overlay)
 
         self.backlinks_container = Gtk.Box()
@@ -1671,7 +1705,7 @@ class TokyoNotes(Adw.Application):
     # TOC sidebar
 
     def _update_toc_visibility(self) -> None:
-        """Show TOC sidebar when the editor is active and toggle is on.
+        """Show the selected end panel while keeping editor space usable.
 
         In non-collapsed mode the transparent spacer pushes content aside so the
         TOC sits side-by-side.  In collapsed mode no spacer is added so the TOC
@@ -1683,17 +1717,32 @@ class TokyoNotes(Adw.Application):
             "editor",
             "split_editor",
         )
-        on = self.toc_toggle.get_active()
+        toc_on = self.toc_toggle.get_active()
+        assistant_on = self.assistant_toggle.get_active()
         collapsed = self.split_view.get_collapsed()
 
-        self.toc_spacer.set_visible(not collapsed and in_editor and on)
-        self.toc_revealer.set_reveal_child(in_editor and on)
+        self.toc_spacer.set_size_request(300 if assistant_on else 220, -1)
+        any_on = toc_on or assistant_on
+        self.toc_spacer.set_visible(not collapsed and in_editor and any_on)
+        self.toc_revealer.set_reveal_child(in_editor and toc_on)
+        self.assistant_revealer.set_reveal_child(in_editor and assistant_on)
 
-        # Keep backlinks button to the left of the TOC area
+        # Hide the floating backlinks control while the assistant owns this edge.
+        if assistant_on:
+            self.backlinks_container.set_visible(False)
+            return
+
+        # Keep backlinks reachable and outside whichever end panel is open.
         backlinks_margin = 16
-        if not collapsed and in_editor and on:
+        if in_editor and assistant_on:
+            backlinks_margin += 300
+        elif not collapsed and in_editor and toc_on:
             backlinks_margin += 220
         self.backlinks_container.set_margin_end(backlinks_margin)
+        if in_editor:
+            self._update_backlinks()
+        else:
+            self.backlinks_container.set_visible(False)
 
     def _on_content_page_changed(self, stack: Gtk.Stack, _param) -> None:
         self._update_toc_visibility()
@@ -1706,14 +1755,27 @@ class TokyoNotes(Adw.Application):
 
     def _on_toc_toggled(self, _btn: Gtk.ToggleButton) -> None:
         """Session-wide toggle — does not persist to config."""
+        if self.toc_toggle.get_active() and self.assistant_toggle.get_active():
+            self.assistant_toggle.set_active(False)
+        self._update_toc_visibility()
+
+    def _on_assistant_toggled(self, _btn: Gtk.ToggleButton) -> None:
+        """Open the assistant explicitly and never over the TOC."""
+        if self.assistant_toggle.get_active() and self.toc_toggle.get_active():
+            self.toc_toggle.set_active(False)
+        if self.assistant_toggle.get_active():
+            self.assistant_panel.refresh_models()
         self._update_toc_visibility()
 
     def _on_content_clicked(
         self, _gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float
     ) -> None:
         """Dismiss the TOC overlay in collapsed mode by deactivating the toggle."""
-        if self.split_view.get_collapsed() and self.toc_toggle.get_active():
-            self.toc_toggle.set_active(False)
+        if self.split_view.get_collapsed():
+            if self.toc_toggle.get_active():
+                self.toc_toggle.set_active(False)
+            if self.assistant_toggle.get_active():
+                self.assistant_toggle.set_active(False)
 
     # Settings / theme
 
@@ -1737,6 +1799,10 @@ class TokyoNotes(Adw.Application):
         elif key == "show_toc":
             self.toc_toggle.set_active(value)
             self._update_toc_visibility()
+        elif key == "assistant_enabled":
+            self.assistant_toggle.set_visible(bool(value))
+            if not value:
+                self.assistant_toggle.set_active(False)
         elif key == "font_family":
             self._apply_font(value, self.cfg.get("font_size"))
         elif key == "font_size":
@@ -1852,6 +1918,9 @@ class TokyoNotes(Adw.Application):
 
     def _update_backlinks(self) -> None:
         """Update the backlinks button visibility and count."""
+        if hasattr(self, "assistant_toggle") and self.assistant_toggle.get_active():
+            self.backlinks_container.set_visible(False)
+            return
         if not self.current_note or not self.cfg.get("show_backlinks", True):
             self.backlinks_container.set_visible(False)
             return

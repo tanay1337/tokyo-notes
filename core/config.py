@@ -48,6 +48,11 @@ _DEFAULTS: dict[str, Any] = {
     "telegram_owner_id": 0,
     "widgets": [],
     "grid_cols": 4,
+    "assistant_enabled": False,
+    "llama_cpp_url": "http://127.0.0.1:8080/v1",
+    "llama_cpp_port": 8080,
+    "llama_cpp_api_key": "",
+    "llama_cpp_model": "",
 }
 
 # How long to wait after the last set() call before flushing to disk (ms).
@@ -86,6 +91,11 @@ class ConfigManager:
         self.pdf_state_path: Path = self.config_dir / "pdf_state.json"
 
         self.data: dict[str, Any] = self._load_json(self.config_path, dict(_DEFAULTS))
+        removed_cloud_keys = False
+        for obsolete_key in ("openai_api_key", "openai_model"):
+            if obsolete_key in self.data:
+                self.data.pop(obsolete_key)
+                removed_cloud_keys = True
         # Resolve the notes folder default here, not at module level.
         if not self.data.get("notes_folder"):
             self.data["notes_folder"] = _default_notes_folder()
@@ -102,6 +112,8 @@ class ConfigManager:
         # Debounce state — managed exclusively by set() and _flush().
         self._dirty: bool = False
         self._flush_timer: int = 0
+        if removed_cloud_keys:
+            self._save_json(self.config_path, self.data)
 
     # JSON helpers
 
@@ -128,8 +140,11 @@ class ConfigManager:
         save_data: Any = sorted(data) if isinstance(data, set) else data
         tmp = path.with_suffix(path.suffix + ".tmp")
         try:
+            tmp.touch(mode=0o600, exist_ok=True)
+            tmp.chmod(0o600)
             tmp.write_text(json.dumps(save_data, indent=2), encoding="utf-8")
             tmp.replace(path)
+            path.chmod(0o600)
         except OSError as e:
             logger.warning("Could not save %s: %s", path, e)
 

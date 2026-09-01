@@ -29,6 +29,8 @@ class TestConfigGet:
     def test_get_default(self, tmp_path):
         cfg = _cfg(tmp_path)
         assert cfg.get("theme") == "tokyo-night"
+        assert cfg.get("llama_cpp_port") == 8080
+        assert cfg.get("llama_cpp_api_key") == ""
 
     def test_get_custom_fallback(self, tmp_path):
         cfg = _cfg(tmp_path)
@@ -42,6 +44,23 @@ class TestConfigGet:
         cfg = _cfg(tmp_path)
         cfg.data["theme"] = "nord"
         assert cfg.get("theme") == "nord"
+
+    def test_legacy_cloud_credentials_are_removed(self, tmp_path):
+        config_dir = tmp_path / ".config" / "tokyo-notes"
+        config_dir.mkdir(parents=True)
+        config_path = config_dir / "tokyo-notes.json"
+        config_path.write_text(
+            '{"theme":"nord","openai_api_key":"secret","openai_model":"gpt"}',
+            encoding="utf-8",
+        )
+
+        cfg = _cfg(tmp_path)
+
+        assert "openai_api_key" not in cfg.data
+        assert "openai_model" not in cfg.data
+        saved = config_path.read_text(encoding="utf-8")
+        assert "secret" not in saved
+        assert "openai" not in saved
 
 
 class TestConfigSet:
@@ -92,6 +111,12 @@ class TestConfigFlush:
         cfg = _cfg(tmp_path)
         cfg.flush_immediate()  # nothing dirty — should not crash
         assert not cfg._dirty
+
+    def test_config_file_is_owner_only(self, tmp_path):
+        cfg = _cfg(tmp_path)
+        cfg.set("telegram_bot_token", "secret")
+        cfg.flush_immediate()
+        assert cfg.config_path.stat().st_mode & 0o777 == 0o600
 
 
 class TestConfigPdfState:
