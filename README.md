@@ -109,9 +109,9 @@ an existing [llama.cpp](https://llama.app/) server with a chat-capable GGUF mode
 llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8080
 ```
 
-Keep the default URL (`http://127.0.0.1:8080/v1`) and port (`8080`). An API key
-is optional and empty by default. Tokyo Notes discovers loaded models from
-`/v1/models`; all public notes are included as context by default, while private
+An API key is optional and
+empty by default. Tokyo Notes discovers loaded models from
+`/v1/models`. All public notes are included as context by default, while private
 notes require explicit access. Model output never edits a note until you review
 and apply the proposal.
 

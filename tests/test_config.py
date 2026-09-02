@@ -29,7 +29,6 @@ class TestConfigGet:
     def test_get_default(self, tmp_path):
         cfg = _cfg(tmp_path)
         assert cfg.get("theme") == "tokyo-night"
-        assert cfg.get("llama_cpp_port") == 8080
         assert cfg.get("llama_cpp_api_key") == ""
 
     def test_get_custom_fallback(self, tmp_path):

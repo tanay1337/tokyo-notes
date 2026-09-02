@@ -155,7 +155,6 @@ class NavigationController:
                     "telegram_owner_id": app.cfg.get("telegram_owner_id", 0),
                     "assistant_enabled": app.cfg.get("assistant_enabled", False),
                     "llama_cpp_url": app.cfg.get("llama_cpp_url"),
-                    "llama_cpp_port": app.cfg.get("llama_cpp_port", 8080),
                     "llama_cpp_api_key": app.cfg.get("llama_cpp_api_key", ""),
                     "all_notes": app.notes_manager.get_notes(),
                 },

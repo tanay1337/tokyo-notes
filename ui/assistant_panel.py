@@ -21,7 +21,6 @@ from core.ai import (
     GenerationCancelled,
     LlamaCppProvider,
     is_loopback_url,
-    with_port,
 )
 from core.assistant import (
     SYSTEM_INSTRUCTIONS,
@@ -253,7 +252,7 @@ class AssistantPanel(Gtk.Box):
         self.empty_state = Gtk.Label(
             label=tr(
                 "Ask anything about your notes. All public notes are included by "
-                "default.\nNothing changes without your approval."
+                "default."
             ),
             xalign=0,
         )
@@ -664,10 +663,7 @@ class AssistantPanel(Gtk.Box):
         ), model
 
     def _server_url(self) -> str:
-        return with_port(
-            self.app.cfg.get("llama_cpp_url", "http://127.0.0.1/v1"),
-            int(self.app.cfg.get("llama_cpp_port", 8080)),
-        )
+        return self.app.cfg.get("llama_cpp_url", "http://127.0.0.1:8080/v1")
 
     def _start_request(self, prompt: str, display_prompt: str | None = None) -> None:
         if not prompt or self.cancel_token is not None:

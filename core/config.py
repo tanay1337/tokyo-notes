@@ -50,7 +50,6 @@ _DEFAULTS: dict[str, Any] = {
     "grid_cols": 4,
     "assistant_enabled": False,
     "llama_cpp_url": "http://127.0.0.1:8080/v1",
-    "llama_cpp_port": 8080,
     "llama_cpp_api_key": "",
     "llama_cpp_model": "",
 }

@@ -588,13 +588,7 @@ class SettingsView(Gtk.Box):
         return group
 
     def _build_assistant_group(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(
-            title=tr("AI Assistant"),
-            description=tr(
-                "Local-first chat. Models can only propose changes; "
-                "you choose what to apply."
-            ),
-        )
+        group = Adw.PreferencesGroup(title=tr("AI Assistant"))
         group.add(
             self._make_switch_row(
                 tr("Enable Assistant"),
@@ -618,23 +612,6 @@ class SettingsView(Gtk.Box):
         )
         url_row.add_suffix(self._llama_url_entry)
         group.add(url_row)
-
-        self._llama_port_spin = Gtk.SpinButton.new_with_range(1, 65535, 1)
-        self._llama_port_spin.set_value(
-            self._initial_values.get("llama_cpp_port", 8080)
-        )
-        self._llama_port_spin.connect(
-            "value-changed",
-            lambda spin: self.on_config_changed(
-                "llama_cpp_port", int(spin.get_value())
-            ),
-        )
-        port_row = Adw.ActionRow(
-            title=tr("Port"),
-            subtitle=tr("llama.cpp listening port (default 8080)"),
-        )
-        port_row.add_suffix(self._llama_port_spin)
-        group.add(port_row)
 
         self._llama_api_key_entry = Gtk.PasswordEntry()
         self._llama_api_key_entry.set_show_peek_icon(True)
@@ -681,18 +658,16 @@ class SettingsView(Gtk.Box):
         if not is_loopback_url(url):
             self._llama_test_status.set_label(tr("Use a localhost URL"))
             return
+        api_key = self._llama_api_key_entry.get_text()
         button.set_sensitive(False)
         self._llama_test_status.set_label(tr("Testing…"))
 
         def worker() -> None:
             try:
-                models = LlamaCppProvider(
-                    url,
-                    api_key=self._llama_api_key_entry.get_text(),
-                    port=int(self._llama_port_spin.get_value()),
-                ).list_models()
+                models = LlamaCppProvider(url, api_key=api_key).list_models()
                 GLib.idle_add(self._finish_llama_test, button, models, "")
-            except Exception:
+            except Exception as exc:
+                logger.warning("Could not test llama.cpp connection: %s", exc)
                 GLib.idle_add(
                     self._finish_llama_test,
                     button,
