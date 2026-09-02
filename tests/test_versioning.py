@@ -6,10 +6,12 @@ import shutil
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
-from core.versioning import GitVersionController
+import core.versioning as versioning_module
+from core.versioning import AutoCommitScheduler, GitVersionController
 
 
 @pytest.fixture
@@ -35,6 +37,75 @@ class TestGitVersionController:
         installed = shutil.which("git") is not None
         assert GitVersionController.is_git_installed() == installed
 
+
+class TestAutoCommitScheduler:
+    def test_repeated_saves_create_one_thirty_second_batch(self, monkeypatch) -> None:
+        callbacks = []
+        removed = []
+        submitted = []
+        controller = MagicMock()
+        controller.is_available.return_value = True
+        monkeypatch.setattr(
+            versioning_module.GLib,
+            "timeout_add",
+            lambda delay, callback: (callbacks.append((delay, callback)), 41)[1],
+        )
+        monkeypatch.setattr(
+            versioning_module.GLib,
+            "source_remove",
+            lambda timer_id: removed.append(timer_id),
+        )
+        scheduler = AutoCommitScheduler(controller, submitted.append)
+
+        for _ in range(8):
+            scheduler.mark_dirty("Sample Note")
+
+        assert len(callbacks) == 1
+        assert callbacks[0][0] == 30_000
+        assert submitted == []
+
+        callbacks[0][1]()
+        assert len(submitted) == 1
+        submitted[0]()
+        controller.auto_commit.assert_called_once_with("Sample Note")
+        assert scheduler.pending_notes == set()
+        assert removed == []  # the active timeout already fired
+
+    def test_note_exit_flushes_immediately(self, monkeypatch) -> None:
+        submitted = []
+        removed = []
+        controller = MagicMock()
+        monkeypatch.setattr(versioning_module.GLib, "timeout_add", lambda *_: 7)
+        monkeypatch.setattr(
+            versioning_module.GLib,
+            "source_remove",
+            lambda timer_id: removed.append(timer_id),
+        )
+        scheduler = AutoCommitScheduler(controller, submitted.append)
+        scheduler.mark_dirty("Sample Note")
+
+        scheduler.flush_note("Sample Note")
+
+        assert len(submitted) == 1
+        assert removed == [7]
+
+    def test_rename_ancestry_is_preserved_across_batch(self, monkeypatch) -> None:
+        submitted = []
+        controller = MagicMock()
+        monkeypatch.setattr(versioning_module.GLib, "timeout_add", lambda *_: 8)
+        monkeypatch.setattr(versioning_module.GLib, "source_remove", lambda *_: None)
+        scheduler = AutoCommitScheduler(controller, submitted.append)
+        scheduler.mark_dirty("New", "Old")
+        scheduler.mark_dirty("Newest", "New")
+
+        scheduler.flush_all()
+        submitted[0]()
+
+        controller.rename_note.assert_called_once_with("Old", "Newest")
+        controller.auto_commit.assert_called_once_with("Newest")
+
+
+class TestGitRepositoryOperations:
     def test_init_repo_creates_git_dir(self, notes_dir: Path) -> None:
         gc = GitVersionController(str(notes_dir))
         assert not gc.is_repo()

@@ -47,6 +47,8 @@ def _make_app(**overrides: object) -> MagicMock:
     buffer.get_text.return_value = ""
     buffer.get_bounds.return_value = (MagicMock(), MagicMock())
     buffer.get_line_count.return_value = 0
+    buffer.get_char_count.return_value = 0
+    buffer.get_has_selection.return_value = False
     buffer.get_start_iter.return_value = MagicMock()
     buffer.get_iter_at_line.return_value = (MagicMock(), MagicMock())
 
@@ -55,6 +57,10 @@ def _make_app(**overrides: object) -> MagicMock:
 
     editor = MagicMock()
     editor._image_update_running = False
+    editor.consume_media_syntax_dirty.return_value = False
+    editor.consume_image_reference_dirty.return_value = False
+    editor.consume_edit_ranges.return_value = ((0, 0), (0, 0))
+    editor.get_source_text.return_value = "content"
     editor.status_bar.get_visible.return_value = False
 
     template_manager = MagicMock()
@@ -81,7 +87,11 @@ def _make_app(**overrides: object) -> MagicMock:
         "_buffer_mod_counter": 0,
         "_last_sidebar_update_counter": 0,
         "_has_images": False,
+        "_has_selection": False,
         "_pending_highlight_id": 0,
+        "_pending_highlight_range": None,
+        "_pending_highlight_neighbours": False,
+        "_pending_spell_range": None,
         "_full_pass_complete": False,
         "changed_handler_id": 123,
         "refresh_list": MagicMock(),
@@ -227,7 +237,25 @@ class TestHighlightChunk:
         lifecycle = NoteLifecycleManager(app)
 
         lifecycle._highlight_chunk("test-note", 0)
-        app.highlighter.highlight.assert_called_once_with(start_line=0, end_line=50)
+        app.highlighter.highlight.assert_called_once_with(start_line=0, end_line=10)
+
+    def test_small_note_completion_guarantees_progressive_spell_check(self) -> None:
+        app = _make_app()
+        app.current_note = "test-note"
+        app.buffer.get_line_count.return_value = 23
+        app.highlighter.spell_check_enabled = True
+        lifecycle = NoteLifecycleManager(app)
+
+        with patch("core.note_lifecycle.GLib.timeout_add") as timeout_add:
+            lifecycle._highlight_chunk("test-note", 23)
+
+        assert app._full_pass_complete is True
+        timeout_add.assert_called_once_with(
+            15,
+            lifecycle._spell_check_chunk,
+            "test-note",
+            0,
+        )
 
     def test_aborts_if_note_changed(self) -> None:
         app = _make_app()
@@ -304,6 +332,27 @@ class TestFinishSave:
             lifecycle._finish_save("same-title", "content")
             app._select_sidebar_row.assert_called_with("same-title")
 
+    def test_stale_rename_callback_does_not_replace_current_note(self) -> None:
+        app = _make_app()
+        app.current_note = "Currently Open"
+        app.notes_manager.is_encrypted.return_value = False
+
+        with patch(
+            "core.note_lifecycle.update_note_title",
+            return_value=("Renamed Background Note", True),
+        ):
+            NoteLifecycleManager(app)._finish_save(
+                "Background Note",
+                "# Renamed Background Note\ncontent",
+            )
+
+        assert app.current_note == "Currently Open"
+        app.nav.update_header_ui.assert_not_called()
+        app._select_sidebar_row.assert_not_called()
+        app.cfg.rename_note_in_config.assert_called_once_with(
+            "Background Note", "Renamed Background Note"
+        )
+
 
 class TestTextChanged:
     def test_ignores_during_loading(self) -> None:
@@ -326,11 +375,72 @@ class TestTextChanged:
         lifecycle = NoteLifecycleManager(app)
         buffer = MagicMock()
         buffer.get_text.return_value = "![image](test.png)"
+        app.editor.consume_media_syntax_dirty.return_value = True
+        app.editor.consume_image_reference_dirty.return_value = True
         lifecycle.on_text_changed(buffer)
-        assert app._reschedule.call_count == 5
-        expected_calls = [150, 100, 500, 2000, 1000]
+        assert app._reschedule.call_count == 4
+        expected_calls = [100, 750, 500, 1000]
         for call, delay in zip(app._reschedule.call_args_list, expected_calls):
             assert call[0][1] == delay
+        assert app._has_images is True
+
+    def test_pasted_multiline_image_reference_enables_rendering(self) -> None:
+        app = _make_app()
+        app.current_note = "Sample Note"
+        app.editor.consume_edit_ranges.return_value = ((3, 4), (3, 4))
+        app.editor.consume_media_syntax_dirty.return_value = True
+        app.editor.consume_image_reference_dirty.return_value = True
+        # A trailing newline leaves the cursor on a blank line after the image.
+        app.buffer.get_text.return_value = ""
+
+        NoteLifecycleManager(app).on_text_changed(app.buffer)
+
+        assert app._has_images is True
+        image_calls = [
+            call
+            for call in app._reschedule.call_args_list
+            if call.args[0] == "image_timeout_id"
+        ]
+        assert len(image_calls) == 1
+
+    def test_small_plain_note_does_not_schedule_media_refresh(self) -> None:
+        app = _make_app()
+        app.current_note = "Sample Note"
+        buffer = MagicMock()
+        buffer.get_text.return_value = (
+            "# Sample Note\n\n## Section A\n\n1. First task\n"
+            "2. Second task\n3. Third task\n\n## Section B\n"
+            "1. Fourth task\n2. Fifth task\n3. Sixth task\n"
+            "4. Seventh task\n\n### Later\n\nAnother task"
+        )
+
+        NoteLifecycleManager(app).on_text_changed(buffer)
+
+        delays = [call.args[1] for call in app._reschedule.call_args_list]
+        assert delays == [100, 750, 1000]
+
+    def test_lower_line_edit_skips_sidebar_and_highlights_exact_line(self) -> None:
+        app = _make_app()
+        app.current_note = "Sample Note"
+        app.editor.consume_edit_ranges.return_value = ((15, 15), None)
+
+        NoteLifecycleManager(app).on_text_changed(app.buffer)
+
+        delays = [call.args[1] for call in app._reschedule.call_args_list]
+        assert delays == [100, 750, 1000]
+        assert app._pending_highlight_range == (15, 15)
+        assert app._pending_highlight_neighbours is False
+        app.buffer.get_text.assert_not_called()
+
+    def test_markdown_edit_requests_neighbour_context(self) -> None:
+        app = _make_app()
+        app.current_note = "Sample Note"
+        app.editor.consume_edit_ranges.return_value = ((4, 4), (4, 4))
+
+        NoteLifecycleManager(app).on_text_changed(app.buffer)
+
+        assert app._pending_highlight_range == (4, 4)
+        assert app._pending_highlight_neighbours is True
 
     def test_increments_mod_counter(self) -> None:
         app = _make_app()
@@ -369,6 +479,90 @@ class TestUpdateSidebarAndStats:
         lifecycle = NoteLifecycleManager(app)
         lifecycle._update_sidebar_and_stats()
         app.editor.stats_label.set_label.assert_called_once()
+
+
+class TestIncrementalSpellCheck:
+    def test_checks_only_lines_edited_since_last_pass(self) -> None:
+        app = _make_app()
+        app.current_note = "Sample Note"
+        app.buffer.get_line_count.return_value = 23
+        app._pending_spell_range = (15, 15)
+        app.highlighter.spell_check_enabled = True
+        app.highlighter._code_block_line_set.return_value = {20}
+
+        NoteLifecycleManager(app).do_delayed_spell_check()
+
+        app.highlighter._spell_check_pass.assert_called_once_with(15, 16, {20})
+        assert app._pending_spell_range is None
+
+    def test_large_dirty_range_continues_one_line_per_idle(self) -> None:
+        app = _make_app()
+        app.current_note = "Sample Note"
+        app.buffer.get_line_count.return_value = 23
+        app._pending_spell_range = (10, 12)
+        app.highlighter.spell_check_enabled = True
+        app.highlighter._code_block_line_set.return_value = set()
+
+        with patch("core.note_lifecycle.GLib.timeout_add") as timeout_add:
+            NoteLifecycleManager(app).do_delayed_spell_check()
+
+        app.highlighter._spell_check_pass.assert_called_once_with(10, 11, set())
+        assert app._pending_spell_range == (11, 12)
+        timeout_add.assert_called_once()
+
+    def test_active_selection_defers_spell_tags(self) -> None:
+        app = _make_app()
+        app.current_note = "Sample Note"
+        app._pending_spell_range = (4, 4)
+        app._has_selection = True
+
+        NoteLifecycleManager(app).do_delayed_spell_check()
+
+        app.highlighter._spell_check_pass.assert_not_called()
+        assert app._pending_spell_range == (4, 4)
+
+    def test_range_beyond_document_stops_without_rescheduling(self) -> None:
+        app = _make_app()
+        app.current_note = "Sample Note"
+        app.buffer.get_line_count.return_value = 1
+        app._pending_spell_range = (1, 9)
+        app.highlighter.spell_check_enabled = True
+
+        with patch("core.note_lifecycle.GLib.timeout_add") as timeout_add:
+            NoteLifecycleManager(app).do_delayed_spell_check()
+
+        app.highlighter._spell_check_pass.assert_not_called()
+        assert app._pending_spell_range is None
+        timeout_add.assert_not_called()
+
+    def test_dirty_range_is_clamped_to_current_document(self) -> None:
+        app = _make_app()
+        app.current_note = "Sample Note"
+        app.buffer.get_line_count.return_value = 2
+        app._pending_spell_range = (0, 20)
+        app.highlighter.spell_check_enabled = True
+        app.highlighter._code_block_line_set.return_value = set()
+
+        with patch("core.note_lifecycle.GLib.timeout_add") as timeout_add:
+            NoteLifecycleManager(app).do_delayed_spell_check()
+
+        assert app._pending_spell_range == (1, 1)
+        timeout_add.assert_called_once()
+
+
+class TestDelayedSave:
+    def test_plain_note_uses_anchor_free_source_cache(self) -> None:
+        app = _make_app()
+        app.current_note = "Sample Note"
+        app.editor.get_source_text.return_value = "# Sample Note\n\nExample body"
+
+        with patch("core.services.save_note_content") as save_note:
+            NoteLifecycleManager(app).do_delayed_save()
+
+        assert save_note.call_args.kwargs["content"] == (
+            "# Sample Note\n\nExample body"
+        )
+        app.buffer.get_slice.assert_not_called()
 
 
 class TestOnNoteSelected:

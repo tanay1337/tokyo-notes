@@ -444,7 +444,7 @@ class SettingsView(Gtk.Box):
 
         self._git_auto_commit_row = self._make_switch_row(
             tr("Auto-commit on save"),
-            tr("Create a git commit every time a note is saved"),
+            tr("Group saved changes into 30-second history batches"),
             self._initial_values.get("git_auto_commit", True),
             "git_auto_commit",
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import gi
@@ -29,6 +30,7 @@ class _PaneState:
         "save_timer",
         "container",
         "name_label",
+        "has_images",
     )
 
     def __init__(self, side: str) -> None:
@@ -39,6 +41,7 @@ class _PaneState:
         self.save_timer: int = 0
         self.container: Gtk.Box | None = None
         self.name_label: Gtk.Label | None = None
+        self.has_images: bool = False
 
 
 class SplitEditor(Gtk.Box):
@@ -113,6 +116,12 @@ class SplitEditor(Gtk.Box):
             )
         info.highlighter = highlighter
         editor.highlighter = highlighter
+        editor.buffer.connect(
+            "mark-set",
+            lambda buffer, location, mark: self._on_pane_mark_set(
+                info, buffer, location, mark
+            ),
+        )
 
         gesture = Gtk.GestureClick.new()
         gesture.set_button(1)
@@ -141,16 +150,89 @@ class SplitEditor(Gtk.Box):
         if info.note_name is None:
             return
 
+        info.highlighter.invalidate_structure_cache()
+
+        edit_range, syntax_range = info.editor.consume_edit_ranges()
+        if edit_range is None:
+            cursor = info.editor.buffer.get_iter_at_mark(
+                info.editor.buffer.get_insert()
+            )
+            edit_range = (cursor.get_line(), cursor.get_line())
+
         app._buffer_mod_counter += 1
         app._reset_lock_timer_on_activity()
-        app._reschedule(
-            "sidebar_update_timeout_id", 150, app.lifecycle._update_sidebar_and_stats
-        )
-        app._reschedule("highlight_timeout_id", 100, app.do_delayed_highlight)
+        if side == self._active_side:
+            app._pending_highlight_range = app.lifecycle._merge_line_range(
+                app._pending_highlight_range,
+                edit_range,
+            )
+            if syntax_range is not None:
+                app._pending_highlight_neighbours = True
+            app._reschedule(
+                "highlight_timeout_id",
+                100,
+                app.do_delayed_highlight,
+            )
+
+            if info.highlighter.spell_check_enabled:
+                app._pending_spell_range = app.lifecycle._merge_line_range(
+                    app._pending_spell_range,
+                    edit_range,
+                )
+                app._reschedule(
+                    "spell_check_timeout_id",
+                    750,
+                    app.lifecycle.do_delayed_spell_check,
+                )
+
+            media_dirty = info.editor.consume_media_syntax_dirty()
+            image_reference_dirty = info.editor.consume_image_reference_dirty()
+            has_image_syntax = media_dirty and app.lifecycle._has_image_syntax(
+                info.editor.buffer
+            )
+            if has_image_syntax or image_reference_dirty:
+                info.has_images = True
+                app._has_images = True
+                info.editor._warm_image_cache(
+                    Path(app.notes_manager.notes_dir).resolve(),
+                    app_width=app.cfg.get("embed_width", 0),
+                )
+            if media_dirty:
+                info.editor._last_image_text_hash = ""
+            if (
+                media_dirty or image_reference_dirty
+            ) and not info.editor._image_update_running:
+                app._reschedule(
+                    "image_timeout_id",
+                    500,
+                    app.do_delayed_images,
+                )
+        else:
+            info.editor.consume_media_syntax_dirty()
+            info.editor.consume_image_reference_dirty()
 
         if info.save_timer:
             GLib.source_remove(info.save_timer)
-        info.save_timer = GLib.timeout_add(1000, self._do_save, side)
+        info.save_timer = GLib.timeout_add(
+            1000,
+            self._do_save,
+            side,
+        )
+
+    def _on_pane_mark_set(
+        self,
+        info: _PaneState,
+        buffer: Gtk.TextBuffer,
+        location: Gtk.TextIter,
+        mark: Gtk.TextMark,
+    ) -> None:
+        """Route selection events only through the pane that owns them."""
+        app = self._app
+        if info.editor.text_view.has_focus() and self._active_side != info.side:
+            self._on_focus(info.side)
+        if self._active_side != info.side or app.buffer is not buffer:
+            return
+        app._on_mark_set(buffer, location, mark)
 
     def _do_save(self, side: str) -> bool:
         info = self.left if side == "left" else self.right
@@ -162,7 +244,11 @@ class SplitEditor(Gtk.Box):
         app = self._app
         from core.services import save_note_content
 
-        content = strip_anchors_for_save(info.editor.buffer)
+        content = (
+            strip_anchors_for_save(info.editor.buffer)
+            if info.has_images
+            else info.editor.get_source_text()
+        )
         if not content.strip():
             return False
 
@@ -173,23 +259,29 @@ class SplitEditor(Gtk.Box):
             derive_encryption_key=app._derive_encryption_key,
             notes_manager=app.notes_manager,
             session_password_bytes=app._session_password_bytes,
+            on_done=lambda note_name=info.note_name: app.lifecycle._maybe_git_commit(
+                note_name
+            ),
         )
-        app.lifecycle._maybe_git_commit(info.note_name)
         return False
 
-    def flush_saves(self) -> None:
+    def flush_saves(self, *, commit_history: bool = True) -> None:
         for info in (self.left, self.right):
             if info.save_timer:
                 GLib.source_remove(info.save_timer)
                 info.save_timer = 0
             if info.note_name and not info.note_name.startswith(".template:"):
-                self._do_save_now(info)
+                self._do_save_now(info, commit_history=commit_history)
 
-    def _do_save_now(self, info: _PaneState) -> None:
+    def _do_save_now(self, info: _PaneState, *, commit_history: bool = True) -> None:
         app = self._app
         from core.services import save_note_content
 
-        content = strip_anchors_for_save(info.editor.buffer)
+        content = (
+            strip_anchors_for_save(info.editor.buffer)
+            if info.has_images
+            else info.editor.get_source_text()
+        )
         if not content.strip():
             return
 
@@ -201,11 +293,16 @@ class SplitEditor(Gtk.Box):
             notes_manager=app.notes_manager,
             session_password_bytes=app._session_password_bytes,
         )
-        app.lifecycle._maybe_git_commit(info.note_name)
+        if commit_history:
+            app.lifecycle._maybe_git_commit(info.note_name, immediate=True)
 
     def _on_focus(self, side: str) -> None:
         app = self._app
         app._save_current_cursor()
+
+        # Marker visibility is a TextTag property on the active pane's buffer;
+        # restore it before redirecting app.buffer to the other pane.
+        app._set_invisible_markers_suspended(False)
 
         other = self.right if side == "left" else self.left
         if other.editor and other.editor.find_bar.is_visible():
@@ -220,6 +317,16 @@ class SplitEditor(Gtk.Box):
         app.editor = info.editor
         app.changed_handler_id = info.editor.changed_handler_id
         app.highlighter = info.highlighter
+        app._has_selection = info.editor.buffer.get_has_selection()
+        if app._has_selection:
+            selection_bound = info.editor.buffer.get_iter_at_mark(
+                info.editor.buffer.get_selection_bound()
+            )
+            app._selection_marker_line = selection_bound.get_line()
+            app._set_invisible_markers_suspended(True)
+        app._has_images = info.has_images
+        if info.has_images and not info.editor._image_update_running:
+            app._reschedule("image_timeout_id", 100, app.do_delayed_images)
 
     def _close_pane(self, side: str) -> None:
         app = self._app
@@ -332,19 +439,35 @@ class SplitEditor(Gtk.Box):
         app.current_note = note_name
 
         if app.notes_manager.is_encrypted(note_name) and app._is_session_locked:
+            info.has_images = False
             info.editor.set_editable(False)
             return
 
         if app.notes_manager.is_encrypted(note_name):
+            buf = info.editor.buffer
+            loaded = True
             try:
-                app._load_encrypted_note_to_buffer(note_name, info.editor.buffer)
+                buf.handler_block(info.editor.changed_handler_id)
+                app._load_encrypted_note_to_buffer(note_name, buf)
             except Exception:
+                loaded = False
                 logger.exception("Failed to load encrypted note in split pane")
                 info.editor.set_editable(False)
+            finally:
+                buf.handler_unblock(info.editor.changed_handler_id)
+            if not loaded:
+                return
+            content = buf.get_text(*buf.get_bounds(), True)
+            info.has_images = "![" in content
+            info.editor.reset_source_text(content)
+            info.highlighter.invalidate_structure_cache()
+            info.highlighter.highlight()
+            info.editor.set_editable(True)
             self._restore_cursor_in_pane(info, note_name, app)
             return
 
         content = app.notes_manager.read_plain(note_name) or ""
+        info.has_images = "![" in content
         info.editor.close_pickers()
         info.editor.clear_images()
 
@@ -361,6 +484,8 @@ class SplitEditor(Gtk.Box):
             start, end = buf.get_bounds()
             buf.remove_all_tags(start, end)
             buf.set_text(content)
+            info.editor.reset_source_text(content)
+            info.highlighter.invalidate_structure_cache()
         finally:
             for b, h in reversed(handlers):
                 b.handler_unblock(h)

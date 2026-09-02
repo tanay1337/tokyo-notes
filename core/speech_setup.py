@@ -2,25 +2,55 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import subprocess
 import sys
 from typing import Callable
 
+from core.performance import slow_callback
+
 logger = logging.getLogger(__name__)
 
 
+def requirements_fingerprint() -> str:
+    """Return a stable fingerprint for the speech runtime contract."""
+    from core.speech_paths import REQUIRED_PACKAGES
+
+    python_version = f"python={sys.version_info.major}.{sys.version_info.minor}"
+    contract = "\n".join([python_version, *REQUIRED_PACKAGES])
+    return hashlib.sha256(contract.encode("utf-8")).hexdigest()
+
+
 def venv_valid() -> bool:
-    from core.speech_paths import SPEECH_PYTHON, SPEECH_PYVENV_CFG
+    from core.speech_paths import (
+        SPEECH_PYTHON,
+        SPEECH_PYVENV_CFG,
+        SPEECH_REQUIREMENTS_STAMP,
+    )
 
-    return SPEECH_PYTHON.is_file() and SPEECH_PYVENV_CFG.is_file()
+    if not SPEECH_PYTHON.is_file() or not SPEECH_PYVENV_CFG.is_file():
+        return False
+    try:
+        return (
+            SPEECH_REQUIREMENTS_STAMP.read_text(encoding="utf-8").strip()
+            == requirements_fingerprint()
+        )
+    except OSError:
+        return False
 
 
+@slow_callback("dictation-provision")
 def provision(
     on_stdout: Callable[[str], None] | None = None,
     on_stderr: Callable[[str], None] | None = None,
 ) -> None:
-    from core.speech_paths import REQUIRED_PACKAGES, SPEECH_PYTHON, SPEECH_VENV
+    from core.speech_paths import (
+        REQUIRED_PACKAGES,
+        SPEECH_PYTHON,
+        SPEECH_REQUIREMENTS_STAMP,
+        SPEECH_VENV,
+    )
 
     SPEECH_VENV.mkdir(parents=True, exist_ok=True)
 
@@ -37,6 +67,10 @@ def provision(
         [str(SPEECH_PYTHON), "-m", "pip", "install", "--quiet"] + REQUIRED_PACKAGES,
         on_stdout,
         on_stderr,
+    )
+    SPEECH_REQUIREMENTS_STAMP.write_text(
+        requirements_fingerprint() + "\n",
+        encoding="utf-8",
     )
 
 

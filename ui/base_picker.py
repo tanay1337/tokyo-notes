@@ -76,7 +76,14 @@ class SearchablePicker(Gtk.Popover):
             skip = getattr(self._text_view, "_skip_focus_restore", False)
             if not skip:
                 self._text_view.grab_focus()
-        self.unparent()
+        # Unparenting from inside the closed signal can race GTK's final
+        # popover snapshot and produce an unallocated GtkGizmo warning.
+        GLib.idle_add(self._deferred_unparent)
+
+    def _deferred_unparent(self) -> bool:
+        if self.get_parent() is not None:
+            self.unparent()
+        return False
 
     def _populate(self, items: list[Any]) -> None:
         if self._populate_idle_id:
@@ -144,9 +151,13 @@ class SearchablePicker(Gtk.Popover):
         selected = self.list_box.get_selected_row()
         if selected is not None:
             idx = selected.get_index() + direction
+            row = self.list_box.get_row_at_index(idx)
         else:
-            idx = 0 if direction > 0 else self.list_box.get_rows_count() - 1
-        row = self.list_box.get_row_at_index(idx)
+            row = (
+                self.list_box.get_row_at_index(0)
+                if direction > 0
+                else self.list_box.get_last_child()
+            )
         if row is not None:
             self.list_box.select_row(row)
 

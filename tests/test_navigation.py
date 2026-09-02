@@ -56,6 +56,28 @@ class TestComputeDefaultFilter:
         assert result == "all"
 
 
+class TestDashboardRefresh:
+    def test_preserves_active_task_filter_by_default(self) -> None:
+        app = MagicMock()
+        tasks = MagicMock()
+        tasks.active_filter = "week"
+        app.dashboard_view.get_widget.return_value = tasks
+
+        NavigationController(app).refresh_dashboard()
+
+        tasks._refresh.assert_called_once_with("week")
+
+    def test_explicit_filter_still_overrides_active_filter(self) -> None:
+        app = MagicMock()
+        tasks = MagicMock()
+        tasks.active_filter = "all"
+        app.dashboard_view.get_widget.return_value = tasks
+
+        NavigationController(app).refresh_dashboard("today")
+
+        tasks._refresh.assert_called_once_with("today")
+
+
 class TestPdfReaderNavigation:
     def test_opens_pdf_reader_view(self) -> None:
         app = MagicMock()

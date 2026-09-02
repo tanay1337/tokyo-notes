@@ -10,6 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk, Pango
 
+from core.performance import slow_callback
 from core.translations import tr
 
 _HEADING_RE = re.compile(r"^(#+)\s+(.+)$", re.MULTILINE)
@@ -56,8 +57,10 @@ class TocSidebar(Gtk.Box):
         self._update_idle_id: int = 0
         self._cursor_idle_id: int = 0
         self._active_row: TocHeadingRow | None = None
+        self._dirty: bool = True
 
         self._build_ui()
+        self.connect("map", self._on_map)
 
     def _build_ui(self) -> None:
         header_label = Gtk.Label(label=tr("Table of Contents"))
@@ -90,22 +93,35 @@ class TocSidebar(Gtk.Box):
         buffer = self._app.buffer
         buffer.connect("changed", self._on_buffer_changed)
         buffer.connect("notify::cursor-position", self._on_cursor_moved)
-        GLib.idle_add(self._rebuild)
+        self._dirty = True
+        if self.get_mapped():
+            self._update_idle_id = GLib.idle_add(self._rebuild)
+
+    def _on_map(self, _widget: Gtk.Widget) -> None:
+        if self._dirty and self._update_idle_id == 0:
+            self._update_idle_id = GLib.idle_add(self._rebuild)
 
     def _on_buffer_changed(self, _buffer: object) -> None:
+        self._dirty = True
+        if not self.get_mapped():
+            return
         if self._update_idle_id:
             GLib.source_remove(self._update_idle_id)
         self._update_idle_id = GLib.timeout_add(300, self._rebuild)
 
     def _on_cursor_moved(self, _buffer: object, _pspec: object) -> None:
+        if not self.get_mapped():
+            return
         if self._cursor_idle_id:
             GLib.source_remove(self._cursor_idle_id)
         self._cursor_idle_id = GLib.timeout_add(50, self._update_active)
 
+    @slow_callback("toc-rebuild")
     def _rebuild(self) -> bool:
         self._update_idle_id = 0
-        if not self._app:
+        if not self._app or not self.get_mapped():
             return False
+        self._dirty = False
 
         content = self._app.buffer.get_text(
             self._app.buffer.get_start_iter(),

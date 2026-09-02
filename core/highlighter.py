@@ -11,6 +11,7 @@ from gi.repository import Gdk, Gtk, Pango
 if TYPE_CHECKING:
     from core.spell_checker import SpellChecker
 
+from core.performance import slow_callback
 from core.utils import (
     _EMBED_SIZE_RE,
     BLOCKQUOTE_RE,
@@ -399,6 +400,14 @@ class MarkdownHighlighter:
         self._fm_stamp = stamp
         return result
 
+    def invalidate_structure_cache(self) -> None:
+        """Discard document-structure caches after any source-text change."""
+        self._code_block_stamp = -1
+        self._code_block_cache.clear()
+        self._fm_stamp = -1
+        self._fm_cached = None
+        self._callout_type_by_line.clear()
+
     # Main highlight pass
 
     def highlight(
@@ -418,7 +427,7 @@ class MarkdownHighlighter:
         self._in_fence = False
         self._current_callout_type: str | None = None
         if is_full_pass:
-            self._callout_type_by_line.clear()
+            self.invalidate_structure_cache()
 
         start_iter = self.get_iter_at_line(start_line)
         end_iter = (
@@ -607,9 +616,9 @@ class MarkdownHighlighter:
         # Spell check is intentionally NOT called here. Running a full
         # _spell_check_pass(0, total_lines) inside highlight() costs 200+ ms
         # on large documents and fires synchronously on every selection release.
-        # The 500 ms do_delayed_spell_check debounce handles all incremental
+        # The debounced do_delayed_spell_check callback handles incremental
         # spell checking during editing. On note open the chunked spell-check
-        # idle chain (Fix E below) handles the initial full pass progressively.
+        # timer chain handles the initial full pass progressively.
 
     # Helpers
 
@@ -812,6 +821,7 @@ class MarkdownHighlighter:
             "code_block": "code_block",
         }.get(md_line.kind)
 
+    @slow_callback("highlight-apply-line")
     def _apply_line_tags(
         self,
         line_start_offset,
@@ -1123,6 +1133,11 @@ class MarkdownHighlighter:
 
     # Incremental highlighter: only re-tag a single line range
 
+    @slow_callback("highlight-clear-line")
+    def _clear_line_tags(self, start: Gtk.TextIter, end: Gtk.TextIter) -> None:
+        self.buffer.remove_all_tags(start, end)
+
+    @slow_callback("highlight-line-range")
     def highlight_line_range(
         self, start_line: int, end_line: int, cursor_line: int | None = None
     ):
@@ -1147,7 +1162,7 @@ class MarkdownHighlighter:
             line_end = it_end.get_offset()
 
             # Clear existing tags on this line
-            self.buffer.remove_all_tags(it, it_end)
+            self._clear_line_tags(it, it_end)
 
             # Front matter block at document start (--- ... ---)
             fm = self._front_matter_range()
@@ -1215,8 +1230,9 @@ class MarkdownHighlighter:
     ) -> None:
         self.spell_checker = spell_checker
         self.spell_check_enabled = enabled if spell_checker else False
-        if self.enabled:
-            self.highlight()
+        if not self.spell_check_enabled:
+            start, end = self.buffer.get_bounds()
+            self.buffer.remove_tag_by_name("misspelled", start, end)
 
     _SPELL_WORD_RE = re.compile(r"[a-zA-Z\u00C0-\u024F]+(?:['\u2019][a-zA-Z]+)?")
     _INLINE_CODE_RE = re.compile(r"`[^`]*`")
@@ -1246,7 +1262,6 @@ class MarkdownHighlighter:
             # next remove_all_tags() in the highlight pass.
             self.buffer.remove_tag_by_name("misspelled", it, it_end)
             line = self.buffer.get_text(it, it_end, True)
-            line_start = it.get_offset()
 
             skip_ranges: set[tuple[int, int]] = set()
             for pattern in (
@@ -1278,11 +1293,23 @@ class MarkdownHighlighter:
                 if in_skip(m.start()):
                     continue
                 unique_words.add(word.lower())
-                word_spans.append((word, line_start + m.start(), line_start + m.end()))
+                word_spans.append((word, m.start(), m.end()))
             known = self.spell_checker.all_known_words(list(unique_words))
-            for word, ws, we in word_spans:
+            misspelled_tag = self.buffer.get_tag_table().lookup("misspelled")
+            if misspelled_tag is None:
+                continue
+            for word, relative_start, relative_end in word_spans:
                 if word.lower() not in known:
-                    self.apply_tag("misspelled", ws, we)
+                    # Build fresh, line-relative iters for every underline. This
+                    # avoids converting cached absolute offsets back through the
+                    # text btree after earlier tag mutations on the same line.
+                    word_start = self.get_iter_at_line(line_num)
+                    word_end = word_start.copy()
+                    if relative_start:
+                        word_start.forward_chars(relative_start)
+                    if relative_end:
+                        word_end.forward_chars(relative_end)
+                    self.buffer.apply_tag(misspelled_tag, word_start, word_end)
 
     def toggle_cursor_markers(self, prev_line: int, curr_line: int) -> None:
         """Toggle marker visibility tags when cursor moves between lines."""
@@ -1301,11 +1328,9 @@ class MarkdownHighlighter:
         line = self.buffer.get_text(it, it_end, True)
         line_start = it.get_offset()
 
-        # Remove existing dim/invisible tags from this line
-        dim_tag = self.buffer.get_tag_table().lookup("dim")
+        # Remove hidden markers from this line. Do not remove the shared dim
+        # tag: it also represents completed tasks, code fences, and front matter.
         inv_tag = self.buffer.get_tag_table().lookup("invisible")
-        if dim_tag:
-            self.buffer.remove_tag(dim_tag, it, it_end)
         if inv_tag:
             self.buffer.remove_tag(inv_tag, it, it_end)
 
@@ -1412,6 +1437,14 @@ class MarkdownHighlighter:
                 "invisible", line_start + m.start(), line_start + m.start() + 1
             )
             self.apply_tag("invisible", line_start + m.end() - 1, line_start + m.end())
+
+    def restore_marker_range(
+        self, start_line: int, end_line: int, cursor_line: int
+    ) -> None:
+        """Restore cursor-sensitive markdown markers without reparsing content."""
+        total = self.buffer.get_line_count()
+        for line_num in range(max(0, start_line), min(end_line, total)):
+            self._set_line_markers(line_num, is_cursor=line_num == cursor_line)
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled

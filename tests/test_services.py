@@ -13,6 +13,7 @@ from core.services import (
     derive_display_title,
     encrypt_note_on_disk,
     get_week_boundaries,
+    patch_sidebar_row,
     save_note_content,
 )
 
@@ -48,6 +49,22 @@ class TestDeriveDisplayTitle:
     def test_cleans_h1_title(self) -> None:
         content = "# Hello: World\n"
         assert derive_display_title(content, "x") == "Hello World"
+
+
+class TestPatchSidebarRow:
+    def test_does_not_invalidate_unchanged_labels(self) -> None:
+        row = MagicMock()
+        row.title_label.get_label.return_value = "Sample Note"
+        row.snippet_label.get_label.return_value = "Example body"
+
+        patch_sidebar_row(
+            row,
+            title="Sample Note",
+            snippet="Example body",
+        )
+
+        row.title_label.set_label.assert_not_called()
+        row.snippet_label.set_label.assert_not_called()
 
 
 class TestBuildStats:

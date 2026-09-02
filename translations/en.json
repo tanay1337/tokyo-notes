@@ -61,7 +61,7 @@
   "Could not save note '{note}'.\n\nReason: {reason}\n\nYour changes are still in memory.": "Could not save note '{note}'.\n\nReason: {reason}\n\nYour changes are still in memory.",
   "Create": "Create",
   "Create Notes from Links": "Create Notes from Links",
-  "Create a git commit every time a note is saved": "Create a git commit every time a note is saved",
+  "Group saved changes into 30-second history batches": "Group saved changes into 30-second history batches",
   "Created folder '{name}'": "Created folder '{name}'",
   "Created folder '{path}'": "Created folder '{path}'",
   "Current Templates": "Current Templates",

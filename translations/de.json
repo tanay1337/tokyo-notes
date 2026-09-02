@@ -61,7 +61,7 @@
   "Could not save note '{note}'.\n\nReason: {reason}\n\nYour changes are still in memory.": "Notiz '{note}' konnte nicht gespeichert werden.\n\nGrund: {reason}\n\nIhre Änderungen sind noch im Speicher.",
   "Create": "Erstellen",
   "Create Notes from Links": "Notizen aus Links erstellen",
-  "Create a git commit every time a note is saved": "Bei jedem Speichern einer Notiz einen Git-Commit erstellen",
+  "Group saved changes into 30-second history batches": "Gespeicherte Änderungen in 30-Sekunden-Verlaufsblöcken zusammenfassen",
   "Created folder '{name}'": "Ordner '{name}' erstellt",
   "Created folder '{path}'": "Ordner '{path}' erstellt",
   "Current Templates": "Aktuelle Vorlagen",

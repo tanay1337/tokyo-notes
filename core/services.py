@@ -84,9 +84,9 @@ def patch_sidebar_row(
     """In-place update of a sidebar row’s labels."""
     tl = getattr(row, "title_label", None)
     sl = getattr(row, "snippet_label", None)
-    if tl is not None:
+    if tl is not None and tl.get_label() != title:
         tl.set_label(title)
-    if sl is not None:
+    if sl is not None and sl.get_label() != snippet:
         sl.set_label(snippet)
 
 

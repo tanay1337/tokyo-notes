@@ -54,13 +54,13 @@ class NavigationController:
         app.sidebar.set_active_view("dashboard")
         app._set_backlinks_visible(False)
 
-    def refresh_dashboard(self, filter_type: str = "today") -> None:
-        """Refresh the tasks widget if present."""
+    def refresh_dashboard(self, filter_type: str | None = None) -> None:
+        """Refresh tasks, preserving its active view unless one is specified."""
         if self.app.dashboard_view is None:
             return
         tasks_w = self.app.dashboard_view.get_widget("tasks")
         if tasks_w is not None:
-            tasks_w._refresh(filter_type)
+            tasks_w._refresh(filter_type or tasks_w.active_filter)
 
     # Graph
 

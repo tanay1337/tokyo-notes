@@ -12,6 +12,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
+from core.performance import slow_callback
 from core.services import (
     build_stats,
     clean_title,
@@ -178,7 +179,10 @@ class NoteLifecycleManager:
             # finds already-decoded pixbufs and only has to attach widgets.
             if app._has_images:
                 notes_dir = Path(app.notes_manager.notes_dir).resolve()
-                app.editor._warm_image_cache(notes_dir)
+                app.editor._warm_image_cache(
+                    notes_dir,
+                    app_width=app.cfg.get("embed_width", 0),
+                )
 
             if not app._sidebar_search_text:
                 app._restore_cursor_for_note(app.current_note)
@@ -189,10 +193,12 @@ class NoteLifecycleManager:
             app._full_pass_complete = False
             app._safe_source_remove("_pending_highlight_id")
             if app.highlighter:
-                app._pending_highlight_id = GLib.idle_add(
+                initial_end = min(30, app.buffer.get_line_count())
+                app._pending_highlight_id = GLib.timeout_add(
+                    1,
                     self._highlight_chunk,
                     app.current_note,
-                    0,
+                    initial_end,
                 )
 
             app.last_cursor_line = -1
@@ -220,15 +226,19 @@ class NoteLifecycleManager:
             app._pending_highlight_id = 0
             return False
         total = app.buffer.get_line_count()
-        end_line = min(start_line + 50, total)
-        app.buffer.handler_block(app.changed_handler_id)
-        try:
-            app.highlighter.highlight(start_line=start_line, end_line=end_line)
-        finally:
-            app.buffer.handler_unblock(app.changed_handler_id)
+        end_line = min(start_line + 10, total)
+        if start_line < total:
+            app.buffer.handler_block(app.changed_handler_id)
+            try:
+                app.highlighter.highlight(start_line=start_line, end_line=end_line)
+            finally:
+                app.buffer.handler_unblock(app.changed_handler_id)
         if end_line < total:
-            app._pending_highlight_id = GLib.idle_add(
-                self._highlight_chunk, expected_note, end_line
+            app._pending_highlight_id = GLib.timeout_add(
+                5,
+                self._highlight_chunk,
+                expected_note,
+                end_line,
             )
         else:
             app._full_pass_complete = True
@@ -236,13 +246,19 @@ class NoteLifecycleManager:
             if app._sidebar_search_text:
                 app._apply_search_highlights()
             # Schedule progressive spell check now that the highlight is done.
-            # This runs 50 lines per idle tick so the note is immediately usable.
+            # This runs one line per timer tick to protect frame time.
             if app.highlighter and app.highlighter.spell_check_enabled:
-                GLib.idle_add(self._spell_check_chunk, expected_note, 0)
+                GLib.timeout_add(15, self._spell_check_chunk, expected_note, 0)
+            if app._pending_highlight_range is not None:
+                app._reschedule(
+                    "highlight_timeout_id",
+                    5,
+                    app.do_delayed_highlight,
+                )
         return False
 
     def _spell_check_chunk(self, expected_note: str, start_line: int) -> bool:
-        """Spell-check 50 lines per idle tick, chaining until the note is done.
+        """Spell-check one line per timer tick, chaining until the note is done.
 
         Returns GLib.SOURCE_REMOVE (False) always — the chain is continued by
         scheduling the next call explicitly, not by returning True.
@@ -256,12 +272,26 @@ class NoteLifecycleManager:
         if start_line >= total:
             return False
 
-        end_line = min(start_line + 50, total)
+        if app._has_selection or app.buffer.get_has_selection():
+            app._pending_spell_range = self._merge_line_range(
+                app._pending_spell_range,
+                (start_line, total - 1),
+            )
+            return False
+
+        # One line per timer tick keeps underline application within a
+        # frame even on GTK themes where TextTag layout invalidation is costly.
+        end_line = min(start_line + 1, total)
         code_block_lines = app.highlighter._code_block_line_set()
         app.highlighter._spell_check_pass(start_line, end_line, code_block_lines)
 
         if end_line < total:
-            GLib.idle_add(self._spell_check_chunk, expected_note, end_line)
+            GLib.timeout_add(
+                15,
+                self._spell_check_chunk,
+                expected_note,
+                end_line,
+            )
         return False
 
     # Navigate
@@ -406,6 +436,7 @@ class NoteLifecycleManager:
 
     # Live sidebar update (150 ms debounce)
 
+    @slow_callback("sidebar-and-stats")
     def _update_sidebar_and_stats(self) -> bool:
         """Debounce callback: update sidebar row and status bar in-place."""
         app = self.app
@@ -418,14 +449,14 @@ class NoteLifecycleManager:
             return False
 
         app._last_sidebar_update_counter = app._buffer_mod_counter
-        start, end = app.buffer.get_bounds()
-        content = app.buffer.get_text(start, end, True)
-
-        if not app._has_images and "![" in content:
-            app._has_images = True
-
-        lines = content.split("\n")
-        head = "\n".join(lines[:10])
+        start = app.buffer.get_start_iter()
+        total_lines = app.buffer.get_line_count()
+        if total_lines > 10:
+            result = app.buffer.get_iter_at_line(10)
+            head_end = result[1] if isinstance(result, tuple) else result
+        else:
+            head_end = app.buffer.get_end_iter()
+        head = app.buffer.get_text(start, head_end, True)
         display_title = derive_display_title(head, current)
         snippet = get_snippet(head)
 
@@ -441,25 +472,31 @@ class NoteLifecycleManager:
             if row_found:
                 break
 
-        if not row_found and content.strip():
+        if not row_found and app.buffer.get_char_count() > 0:
             app.refresh_list(app.sidebar.search_entry.get_text())
             if current in app.notes_manager.get_notes():
                 app._select_sidebar_row(current)
 
         if app.editor.status_bar.get_visible():
+            content = app.buffer.get_text(*app.buffer.get_bounds(), True)
             app.editor.stats_label.set_label(build_stats(content))
 
         return False
 
     # Save / rename (1 000 ms debounce)
 
+    @slow_callback("autosave-prepare")
     def do_delayed_save(self) -> bool:
         app = self.app
         app.rename_timeout_id = 0
         if not app.current_note:
             return False
 
-        content = strip_anchors_for_save(app.buffer)
+        content = (
+            strip_anchors_for_save(app.buffer)
+            if app._has_images
+            else app.editor.get_source_text()
+        )
 
         if not content.strip():
             return False
@@ -536,11 +573,17 @@ class NoteLifecycleManager:
             content=content,
             notes_manager=app.notes_manager,
         )
+        # The user may have opened another note while this disk write was in
+        # flight.  Rename/config bookkeeping still belongs to ``old_name``, but
+        # only the note that is currently represented by the editor may update
+        # global navigation state.
+        is_current = app.current_note in (old_name, new_name)
 
         if did_rename:
             app.cfg.rename_note_in_config(old_name, new_name)
-            app.current_note = new_name
-            app.nav.update_header_ui(new_name, is_editor=True)
+            if is_current:
+                app.current_note = new_name
+                app.nav.update_header_ui(new_name, is_editor=True)
             if app.notes_manager.is_encrypted(new_name):
                 app.cfg.encrypted.discard(old_name)
                 app.cfg.encrypted.add(new_name)
@@ -548,14 +591,13 @@ class NoteLifecycleManager:
             # Structure changed (name changed) — full rebuild needed so the
             # row appears under the correct sorted position and filename.
             app.refresh_list(app.sidebar.search_entry.get_text())
-            app._select_sidebar_row(app.current_note)
+            if is_current:
+                app._select_sidebar_row(new_name)
         else:
             # Title or snippet may have changed but the note was not renamed,
             # so its position in the list and its folder are unchanged.
             # Update the existing row in-place instead of rebuilding every row.
-            start, end = app.buffer.get_bounds()
-            _head_content = app.buffer.get_text(start, end, True)
-            _head = "\n".join(_head_content.split("\n")[:10])
+            _head = "\n".join(content.split("\n", 10)[:10])
             app.sidebar.update_row(
                 new_name,
                 derive_display_title(_head, new_name),
@@ -566,55 +608,129 @@ class NoteLifecycleManager:
 
         self._maybe_git_commit(new_name, old_name if did_rename else None)
 
-    def _maybe_git_commit(self, note_name: str, old_name: str | None = None) -> None:
-        """Auto-commit to git if versioning is enabled."""
+    def _maybe_git_commit(
+        self,
+        note_name: str,
+        old_name: str | None = None,
+        *,
+        immediate: bool = False,
+    ) -> None:
+        """Queue a batched history commit, or flush it on a note boundary."""
         app = self.app
         if not app.cfg.get("git_enabled") or not app.cfg.get("git_auto_commit"):
             return
-        gc = app.git_controller
-        if not gc.is_available():
+        if not app.git_controller.is_available():
             return
+        scheduler = app.auto_commit_scheduler
+        scheduler.mark_dirty(note_name, old_name)
+        if immediate:
+            scheduler.flush_note(note_name)
 
-        def _do_git():
-            if old_name and old_name != note_name:
-                gc.rename_note(old_name, note_name)
-            gc.auto_commit(note_name)
-
-        app._run_on_io_thread(_do_git)
-
+    @slow_callback("spell-check")
     def do_delayed_spell_check(self) -> bool:
-        """Re-check spelling for lines around the cursor (500 ms debounce)."""
+        """Re-check spelling only for lines changed since the last pass."""
         app = self.app
         app.spell_check_timeout_id = 0
         if not app.highlighter or not app.highlighter.spell_check_enabled:
             return False
-        cursor_iter = app.buffer.get_iter_at_mark(app.buffer.get_insert())
-        cursor_line = cursor_iter.get_line()
+        if app._has_selection or app.buffer.get_has_selection():
+            return False
+        dirty_range = app._pending_spell_range
+        app._pending_spell_range = None
+        if dirty_range is None:
+            return False
         total = app.buffer.get_line_count()
-        start = max(0, cursor_line - 5)
-        end = min(total, cursor_line + 6)
+        range_end = min(dirty_range[1], total - 1)
+        start = max(0, dirty_range[0])
+        if start > range_end:
+            return False
+        end = min(total, start + 1)
         code_block_lines = app.highlighter._code_block_line_set()
         app.highlighter._spell_check_pass(start, end, code_block_lines)
+        if end <= range_end:
+            app._pending_spell_range = (end, range_end)
+            GLib.timeout_add(
+                15,
+                self.do_delayed_spell_check,
+            )
         return False
 
     # Text-changed coordination
 
+    @slow_callback("text-changed")
     def on_text_changed(self, buffer: Gtk.TextBuffer) -> None:
         app = self.app
         if app.is_loading or not app.current_note:
+            app.editor.consume_edit_ranges()
             return
+        edit_range, syntax_range = app.editor.consume_edit_ranges()
+        if app.highlighter:
+            app.highlighter.invalidate_structure_cache()
+        if edit_range is None:
+            cursor_line = buffer.get_iter_at_mark(buffer.get_insert()).get_line()
+            edit_range = (cursor_line, cursor_line)
+        app._pending_spell_range = self._merge_line_range(
+            app._pending_spell_range, edit_range
+        )
+        app._pending_highlight_range = self._merge_line_range(
+            app._pending_highlight_range, edit_range
+        )
+        if syntax_range is not None:
+            app._pending_highlight_neighbours = True
         app._buffer_mod_counter += 1
         app._reset_lock_timer_on_activity()
+        # Sidebar title/snippet changes are applied after the one-second save.
+        # Only live statistics need an additional foreground refresh while typing.
+        if app.editor.status_bar.get_visible():
+            app._reschedule(
+                "sidebar_update_timeout_id",
+                500,
+                self._update_sidebar_and_stats,
+            )
         app._reschedule(
-            "sidebar_update_timeout_id", 150, self._update_sidebar_and_stats
+            "highlight_timeout_id",
+            100,
+            app.do_delayed_highlight,
         )
-        app._reschedule("highlight_timeout_id", 100, app.do_delayed_highlight)
-        app._reschedule("spell_check_timeout_id", 500, self.do_delayed_spell_check)
+        if app.highlighter and app.highlighter.spell_check_enabled:
+            app._reschedule(
+                "spell_check_timeout_id",
+                750,
+                self.do_delayed_spell_check,
+            )
+        media_dirty = app.editor.consume_media_syntax_dirty()
+        image_reference_dirty = app.editor.consume_image_reference_dirty()
+        has_image_syntax = media_dirty and self._has_image_syntax(buffer)
+        if has_image_syntax or image_reference_dirty:
+            app._has_images = True
+            app.editor._warm_image_cache(
+                Path(app.notes_manager.notes_dir).resolve(),
+                app_width=app.cfg.get("embed_width", 0),
+            )
+        if media_dirty:
+            app.editor._last_image_text_hash = ""
         if not app.editor._image_update_running and (
-            app._has_images or self._has_image_syntax(buffer)
+            has_image_syntax or media_dirty or image_reference_dirty
         ):
-            app._reschedule("image_timeout_id", 2000, app.do_delayed_images)
-        app._reschedule("rename_timeout_id", 1000, self.do_delayed_save)
+            app._reschedule(
+                "image_timeout_id",
+                500,
+                app.do_delayed_images,
+            )
+        app._reschedule(
+            "rename_timeout_id",
+            1000,
+            self.do_delayed_save,
+        )
+
+    @staticmethod
+    def _merge_line_range(
+        current: tuple[int, int] | None,
+        added: tuple[int, int],
+    ) -> tuple[int, int]:
+        if current is None:
+            return added
+        return min(current[0], added[0]), max(current[1], added[1])
 
     @staticmethod
     def _has_image_syntax(buffer: Gtk.TextBuffer) -> bool:

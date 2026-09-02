@@ -33,6 +33,7 @@ class WorldTimeWidget(WidgetBase):
         self._fetched = False
         self._build_ui()
         self.connect("map", lambda *a: self._on_map())
+        self.connect("unmap", lambda *a: self.stop_periodic())
 
     def _build_ui(self) -> None:
         self._content.set_spacing(0)
@@ -104,13 +105,15 @@ class WorldTimeWidget(WidgetBase):
         self.settings["timezones"] = zones
         self.settings["use_24h"] = self._cfg_24h.get_active()
         self._update_times()
-        self._start_timer()
+        if self.get_mapped():
+            self._start_timer()
+        else:
+            self.stop_periodic()
 
     def _on_map(self) -> None:
-        if not self._fetched:
-            self._fetched = True
-            self._update_times()
-            self._start_timer()
+        self._fetched = True
+        self._update_times()
+        self._start_timer()
 
     def stop_periodic(self) -> None:
         if self._timer_id is not None:
@@ -118,6 +121,9 @@ class WorldTimeWidget(WidgetBase):
             self._timer_id = None
 
     def _start_timer(self) -> None:
+        if not self.get_mapped():
+            self.stop_periodic()
+            return
         if self._timer_id is not None:
             GLib.source_remove(self._timer_id)
         self._timer_id = GLib.timeout_add(_UPDATE_MS, self._update_times)

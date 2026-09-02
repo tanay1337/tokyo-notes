@@ -1,5 +1,5 @@
 import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -319,10 +319,16 @@ class TestUIFlows:
         assert tasks_w is not None
         assert tasks_w._quick_add_popover.get_visible() is True
 
+        # Preserve the dashboard view that was active before submission.
+        tasks_w.on_filter_clicked(None, "all")
+
         # Fill Quick Add
         tasks_w._quick_add_entry.set_text("Quick Task")
         # Submit
-        tasks_w._on_quick_add_submit()
+        with patch.object(tasks_w, "_refresh", wraps=tasks_w._refresh) as refresh:
+            tasks_w._on_quick_add_submit()
+
+        refresh.assert_called_once_with("all")
 
         # Verify disk
         inbox_path = tmp_path / "Inbox.md"

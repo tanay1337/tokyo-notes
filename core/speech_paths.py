@@ -18,6 +18,7 @@ SPEECH_VENV = _BASE / "speech-venv"
 SPEECH_PYTHON = SPEECH_VENV / "bin" / "python3"
 SPEECH_PIP = SPEECH_VENV / "bin" / "pip"
 SPEECH_PYVENV_CFG = SPEECH_VENV / "pyvenv.cfg"
+SPEECH_REQUIREMENTS_STAMP = SPEECH_VENV / ".tokyo-notes-requirements"
 
 REQUIRED_PACKAGES = [
     "faster-whisper>=1.0.0",

@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -68,6 +69,24 @@ class TestAppIntegration:
         note_path = Path(app.notes_folder) / "Untitled.md"
         assert note_path.exists()
         assert "# My New Title" in note_path.read_text()
+
+    def test_remove_selected_strikethrough_keeps_marker_tag_stable(self, app):
+        app._set_buffer_text("~~finished~~")
+        app.highlighter.highlight(cursor_line=1)
+        invisible = app.buffer.get_tag_table().lookup("invisible")
+        app.buffer.select_range(app.buffer.get_start_iter(), app.buffer.get_end_iter())
+
+        assert invisible.get_property("invisible") is False
+        app.apply_format(
+            SimpleNamespace(_tag_name="strikethrough"),
+            "~~",
+            "~~",
+        )
+
+        assert app.buffer.get_text(*app.buffer.get_bounds(), True) == "finished"
+        assert app.buffer.get_has_selection() is False
+        assert app._has_selection is False
+        assert invisible.get_property("invisible") is True
 
     def test_note_switching(self, app, tmp_path):
         (tmp_path / "A.md").write_text("Content A")

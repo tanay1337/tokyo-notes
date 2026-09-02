@@ -16,11 +16,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import git
+from gi.repository import GLib
+
+from core.performance import slow_callback
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
+
+_AUTO_COMMIT_DELAY_MS = 30_000
 
 _GITIGNORE_CONTENT = """\
 # Tokyo Notes git versioning
@@ -36,6 +41,88 @@ class CommitInfo:
     message: str
     timestamp: datetime.datetime
     summary: str = ""
+
+
+class AutoCommitScheduler:
+    """Coalesce frequent note saves into bounded Git history batches.
+
+    The scheduler is owned by the GTK thread. Git work is submitted to the
+    application's serial I/O executor, preserving ordering with async saves.
+    """
+
+    def __init__(
+        self,
+        controller: GitVersionController,
+        submit: Callable[[Callable], None],
+        delay_ms: int = _AUTO_COMMIT_DELAY_MS,
+    ) -> None:
+        self.controller = controller
+        self._submit = submit
+        self._delay_ms = delay_ms
+        self._pending: dict[str, str | None] = {}
+        self._timer_id = 0
+
+    @property
+    def pending_notes(self) -> set[str]:
+        return set(self._pending)
+
+    def mark_dirty(self, note_name: str, old_name: str | None = None) -> None:
+        """Mark *note_name* for the next batch, preserving rename ancestry."""
+        if not note_name:
+            return
+        original_name = old_name
+        if old_name and old_name in self._pending:
+            original_name = self._pending.pop(old_name) or old_name
+        existing = self._pending.get(note_name)
+        self._pending[note_name] = existing or original_name
+        if self._timer_id == 0:
+            self._timer_id = GLib.timeout_add(self._delay_ms, self._on_timeout)
+
+    def flush_note(self, note_name: str) -> None:
+        """Submit one pending note immediately, normally on note exit."""
+        if note_name not in self._pending:
+            return
+        old_name = self._pending.pop(note_name)
+        self._submit_commit(note_name, old_name)
+        if not self._pending:
+            self._cancel_timer()
+
+    def flush_all(self) -> None:
+        """Submit every pending note as one history batch."""
+        pending = list(self._pending.items())
+        self._pending.clear()
+        self._cancel_timer()
+        for note_name, old_name in pending:
+            self._submit_commit(note_name, old_name)
+
+    def clear(self) -> None:
+        """Forget pending entries after a manual snapshot committed them."""
+        self._pending.clear()
+        self._cancel_timer()
+
+    def request_maintenance(self) -> None:
+        """Queue safe automatic repository maintenance after pending commits."""
+        if self.controller.is_available():
+            self._submit(self.controller.optimize_repository)
+
+    def _on_timeout(self) -> bool:
+        self._timer_id = 0
+        self.flush_all()
+        return False
+
+    def _submit_commit(self, note_name: str, old_name: str | None) -> None:
+        def commit() -> None:
+            if old_name and old_name != note_name:
+                self.controller.rename_note(old_name, note_name)
+            self.controller.auto_commit(note_name)
+
+        self._submit(commit)
+
+    def _cancel_timer(self) -> None:
+        if self._timer_id > 0:
+            timer_id = self._timer_id
+            self._timer_id = 0
+            GLib.source_remove(timer_id)
 
 
 class GitVersionController:
@@ -153,6 +240,7 @@ class GitVersionController:
             logger.warning("git command timed out (%ds): %s", timeout, args)
             raise git.GitCommandError(list(args), 128, stderr=str(exc)) from exc
 
+    @slow_callback("git-auto-commit")
     def auto_commit(self, note_name: str) -> bool:
         """Stage and commit a single note file.
 
@@ -186,6 +274,16 @@ class GitVersionController:
         except (git.GitCommandError, OSError, ValueError) as e:
             logger.error("Auto-commit failed for '%s': %s", note_name, e)
             return False
+
+    @slow_callback("git-maintenance")
+    def optimize_repository(self) -> None:
+        """Pack loose objects when Git decides maintenance is warranted."""
+        if not self.is_available():
+            return
+        try:
+            self._git_execute("gc", "--auto", "--quiet", timeout=60)
+        except git.GitCommandError as exc:
+            logger.warning("Automatic Git maintenance failed: %s", exc)
 
     def commit_deletion(self, note_name: str, enc: bool = False) -> bool:
         """Commit the deletion of a note file."""

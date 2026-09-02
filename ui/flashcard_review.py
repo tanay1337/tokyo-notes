@@ -126,7 +126,7 @@ class FlashcardReview(Gtk.Box):
 
         self._front_label = Gtk.Label(
             xalign=0.5,
-            yalign=Gtk.Align.CENTER,
+            yalign=0.5,
             wrap=True,
             wrap_mode=Pango.WrapMode.WORD_CHAR,
         )
@@ -138,7 +138,7 @@ class FlashcardReview(Gtk.Box):
 
         self._back_label = Gtk.Label(
             xalign=0.5,
-            yalign=Gtk.Align.CENTER,
+            yalign=0.5,
             wrap=True,
             wrap_mode=Pango.WrapMode.WORD_CHAR,
         )
@@ -150,7 +150,7 @@ class FlashcardReview(Gtk.Box):
 
         self._done_label = Gtk.Label(
             xalign=0.5,
-            yalign=Gtk.Align.CENTER,
+            yalign=0.5,
             wrap=True,
             wrap_mode=Pango.WrapMode.WORD_CHAR,
         )

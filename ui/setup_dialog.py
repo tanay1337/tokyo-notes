@@ -169,7 +169,6 @@ class SetupDialog(ErrorLabelMixin, Adw.Window):
         self.app._set_buffer_text(content)
         if self.app.highlighter:
             self.app.highlighter.highlight()
-        self.app.buffer.handler_unblock(self.app.changed_handler_id)
 
         if hasattr(self.app, "settings_view") and self.app.settings_view:
             self.app.settings_view._has_encrypted_notes = True

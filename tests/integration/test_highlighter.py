@@ -92,6 +92,78 @@ class TestHighlighterIntegration:
         assert buffer.get_iter_at_offset(text.index("[x]")).has_tag(checked_tag)
         assert not buffer.get_iter_at_offset(unchecked_text_offset).has_tag(dim_tag)
 
+    def test_spell_setup_does_not_force_markdown_retag(self):
+        from gi.repository import Gtk
+
+        buffer = Gtk.TextBuffer()
+        highlighter = MarkdownHighlighter(buffer, _make_tm())
+        highlighter.highlight = MagicMock()
+        spell_checker = MagicMock()
+
+        highlighter.set_spell_checker(spell_checker, enabled=True)
+
+        highlighter.highlight.assert_not_called()
+
+    def test_spell_tags_use_safe_line_relative_unicode_iters(self):
+        from gi.repository import Gtk
+
+        text = "# Sample Note\nMispelled naïve wordt"
+        buffer = Gtk.TextBuffer()
+        highlighter = MarkdownHighlighter(buffer, _make_tm())
+        spell_checker = MagicMock()
+        spell_checker.all_known_words.return_value = set()
+        highlighter.set_spell_checker(spell_checker, enabled=True)
+        buffer.set_text(text)
+        highlighter.highlight()
+
+        buffer.select_range(buffer.get_start_iter(), buffer.get_end_iter())
+        highlighter._spell_check_pass(1, 2, set())
+
+        misspelled = buffer.get_tag_table().lookup("misspelled")
+        naive_offset = text.index("naïve")
+        assert buffer.get_iter_at_offset(naive_offset).has_tag(misspelled)
+        assert buffer.get_iter_at_offset(naive_offset + 4).has_tag(misspelled)
+
+    def test_incremental_highlight_applies_new_strikethrough(self):
+        from gi.repository import Gtk
+
+        text = "A newly ~~crossed out~~ phrase"
+        buffer = Gtk.TextBuffer()
+        highlighter = MarkdownHighlighter(buffer, _make_tm())
+        buffer.set_text(text)
+
+        highlighter.highlight_line_range(0, 0, cursor_line=0)
+
+        tag = buffer.get_tag_table().lookup("strikethrough")
+        content_offset = text.index("crossed")
+        assert buffer.get_iter_at_offset(content_offset).has_tag(tag)
+
+    def test_full_highlight_invalidates_same_line_count_structure_cache(self):
+        from gi.repository import Gtk
+
+        buffer = Gtk.TextBuffer()
+        highlighter = MarkdownHighlighter(buffer, _make_tm())
+        buffer.set_text("```\ninside\n```")
+        assert highlighter._code_block_line_set() == {1}
+
+        buffer.set_text("plain\ninside\nplain")
+        highlighter.highlight()
+
+        assert highlighter._code_block_line_set() == set()
+
+    def test_cache_invalidation_clears_front_matter_with_same_line_count(self):
+        from gi.repository import Gtk
+
+        buffer = Gtk.TextBuffer()
+        highlighter = MarkdownHighlighter(buffer, _make_tm())
+        buffer.set_text("---\nkey: value\n---")
+        assert highlighter._front_matter_range() == (0, 2)
+
+        buffer.set_text("text\nkey: value\ntext")
+        highlighter.invalidate_structure_cache()
+
+        assert highlighter._front_matter_range() is None
+
     def test_invisible_tags_managed_by_selection(self, monkeypatch):
         from gi.repository import Gtk
         # We simulate the TokyoNotes environment enough to test the workaround logic.
@@ -107,7 +179,12 @@ class TestHighlighterIntegration:
                 self.highlighter = highlighter
                 self._has_selection = False
                 self._has_invisible_tags = False
+                self._invisible_markers_suspended = False
+                self._selection_marker_line = -1
+                self._pending_highlight_range = None
+                self._pending_spell_range = None
                 self.highlight_called = False
+                self.marker_restore_called = False
                 self.content_stack = MagicMock()
                 self.content_stack.get_visible_child_name.return_value = "editor"
                 self.is_loading = False
@@ -117,13 +194,19 @@ class TestHighlighterIntegration:
                 self.highlighter.highlight()
                 return False
 
-            def _deferred_remove_invisible(self, buffer):
-                highlighter = self.highlighter
-                if not highlighter:
-                    return False
-                start, end = buffer.get_bounds()
-                highlighter.buffer.remove_tag_by_name("invisible", start, end)
-                return False
+            def _schedule_marker_restore(self):
+                self.marker_restore_called = True
+                cursor_line = self.buffer.get_iter_at_mark(
+                    self.buffer.get_insert()
+                ).get_line()
+                self.highlighter.restore_marker_range(
+                    0,
+                    self.buffer.get_line_count(),
+                    cursor_line,
+                )
+
+            def _set_invisible_markers_suspended(self, suspended):
+                TokyoNotes._set_invisible_markers_suspended(self, suspended)
 
         app = MockApp()
 
@@ -154,17 +237,21 @@ class TestHighlighterIntegration:
         while ctx.iteration(False):
             pass
 
-        # 3. Verify 'invisible' tag is REMOVED to prevent Pango crash
-        assert not start.has_tag(invisible_tag)
+        # 3. The range stays attached, but its invisibility is suspended.
+        assert start.has_tag(invisible_tag)
+        assert invisible_tag.get_property("invisible") is False
         assert app._has_selection is True
 
         # 4. Clear selection
         buffer.place_cursor(buffer.get_start_iter())
-        # Flush deferred idle callbacks (_do_highlight)
+        # Flush any deferred marker callbacks.
         while ctx.iteration(False):
             pass
 
-        # 5. Verify tag is RESTORED via _do_highlight call
-        assert app.highlight_called is True
-        assert start.has_tag(invisible_tag)
+        # 5. Verify markers are restored without a full-document highlight.
+        assert app.marker_restore_called is True
+        assert app.highlight_called is False
+        dim_tag = buffer.get_tag_table().lookup("dim")
+        assert start.has_tag(dim_tag)
+        assert invisible_tag.get_property("invisible") is True
         assert app._has_selection is False

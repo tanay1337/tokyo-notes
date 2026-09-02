@@ -24,6 +24,7 @@ from core.logging_setup import set_note_names
 from core.media_index import find_media_reference_line
 from core.navigation import NavigationController
 from core.note_lifecycle import NoteLifecycleManager
+from core.performance import slow_callback
 from core.search import SearchController
 from core.shortcuts import setup_shortcuts
 from core.speech import model_cached
@@ -69,11 +70,15 @@ class TokyoNotes(Adw.Application):
         set_note_names(self.notes_manager.get_notes())
 
         # Git versioning
-        from core.versioning import GitVersionController
+        from core.versioning import AutoCommitScheduler, GitVersionController
 
         self.git_controller = GitVersionController(
             notes_dir=self.notes_folder,
             executor=self._run_on_io_thread,
+        )
+        self.auto_commit_scheduler = AutoCommitScheduler(
+            self.git_controller,
+            self._run_on_io_thread,
         )
 
         # Subsystem managers — order matters for startup
@@ -119,7 +124,13 @@ class TokyoNotes(Adw.Application):
         self._cursor_marker_source_id: int = 0
         self._toolbar_active_tags: set[str] = set()
         self._pending_highlight_id: int = 0
+        self._pending_highlight_range: tuple[int, int] | None = None
+        self._pending_highlight_neighbours: bool = False
+        self._pending_spell_range: tuple[int, int] | None = None
+        self._pending_marker_restore_id: int = 0
         self._has_selection: bool = False
+        self._invisible_markers_suspended: bool = False
+        self._selection_marker_line: int = -1
         self._has_invisible_tags: bool = (
             False  # set True when highlighter applies "invisible" tag
         )
@@ -158,6 +169,8 @@ class TokyoNotes(Adw.Application):
 
         self._cancel_lock_timer()
         self._flush_pending_save()
+        self.auto_commit_scheduler.flush_all()
+        self.auto_commit_scheduler.request_maintenance()
         if (
             self.current_note
             and not self.current_note.startswith(".template:")
@@ -236,6 +249,9 @@ class TokyoNotes(Adw.Application):
         if not self.git_controller.is_available():
             self._show_toast(tr("Git versioning is not enabled"))
             return
+
+        self._flush_pending_save(commit_history=False)
+        self.auto_commit_scheduler.clear()
 
         def _do_snapshot():
             ok = self.git_controller.snapshot()
@@ -707,11 +723,19 @@ class TokyoNotes(Adw.Application):
             obj.handler_block(hid)
 
         try:
+            # A note switch can occur while a selection is active and the
+            # mark-set handler is blocked. Never carry suspended marker
+            # visibility into the next buffer contents.
+            self._set_invisible_markers_suspended(False)
             self._has_selection = False
+            self._selection_marker_line = -1
             # Remove all tags to avoid Pango/btree sync issues during replacement.
             start, end = self.buffer.get_bounds()
             self.buffer.remove_all_tags(start, end)
             self.buffer.set_text(content)
+            self.editor.reset_source_text(content)
+            if self.highlighter:
+                self.highlighter.invalidate_structure_cache()
         finally:
             for obj, hid in reversed(handlers_to_block):
                 obj.handler_unblock(hid)
@@ -779,8 +803,9 @@ class TokyoNotes(Adw.Application):
         self._safe_source_remove("_pending_highlight_id")
         current = self.current_note
         if self.highlighter and current:
-            self._pending_highlight_id = GLib.idle_add(
-                self.lifecycle._highlight_chunk, current, 0
+            self.highlighter.invalidate_structure_cache()
+            self._pending_highlight_id = GLib.timeout_add(
+                1, self.lifecycle._highlight_chunk, current, 0
             )
 
     def _focus_text_view(self) -> None:
@@ -1263,11 +1288,15 @@ class TokyoNotes(Adw.Application):
         self.cfg.set("notes_folder", new_folder)
         self.notes_manager = NotesManager(notes_dir=new_folder)
         self.notes_manager.sort_order = self.cfg.get("sort_order", "last_modified")
-        from core.versioning import GitVersionController
+        from core.versioning import AutoCommitScheduler, GitVersionController
 
         self.git_controller = GitVersionController(
             notes_dir=new_folder,
             executor=self._run_on_io_thread,
+        )
+        self.auto_commit_scheduler = AutoCommitScheduler(
+            self.git_controller,
+            self._run_on_io_thread,
         )
         if self.git_controller.is_repo():
             self.cfg.set("git_enabled", True)
@@ -1808,12 +1837,18 @@ class TokyoNotes(Adw.Application):
         elif key == "font_size":
             self._apply_font(self.cfg.get("font_family"), value)
         elif key == "git_enabled":
+            if not value:
+                self.auto_commit_scheduler.clear()
             self._update_toolbar_versioning_buttons()
+        elif key == "git_auto_commit" and not value:
+            self.auto_commit_scheduler.clear()
         elif key == "language":
             self._show_language_restart_dialog()
         elif key == "spell_check_enabled":
             if self.highlighter and self.spell_checker:
                 self.highlighter.set_spell_checker(self.spell_checker, enabled=value)
+                if value and self.current_note:
+                    self._queue_full_spell_check()
             self.editor.invalidate_spell_cache()
         elif key == "spell_check_language":
             if self.spell_checker:
@@ -1823,6 +1858,8 @@ class TokyoNotes(Adw.Application):
                     self.spell_checker,
                     enabled=self.cfg.get("spell_check_enabled", True),
                 )
+                if self.current_note and self.highlighter.spell_check_enabled:
+                    self._queue_full_spell_check()
             self.editor.invalidate_spell_cache()
         elif key == "always_show_markdown":
             if self.highlighter:
@@ -2034,7 +2071,7 @@ class TokyoNotes(Adw.Application):
 
             if tag is not None and self._cursor_has_format_tag(cursor, tag):
                 self._unwrap_format(cursor, tag, prefix, suffix)
-                self._focus_text_view()
+                self._finish_format_action()
                 return
 
             word = self._get_word_at_cursor(cursor)
@@ -2043,12 +2080,12 @@ class TokyoNotes(Adw.Application):
                 text = self.buffer.get_text(word_start, word_end, True)
                 self.buffer.delete(word_start, word_end)
                 self.buffer.insert(word_start, f"{prefix}{text}{suffix}")
-                self._focus_text_view()
+                self._finish_format_action()
                 return
 
         if is_heading_toggleable and not self.buffer.get_has_selection():
             self._toggle_heading(prefix)
-            self._focus_text_view()
+            self._finish_format_action()
             return
 
         if self.buffer.get_has_selection():
@@ -2064,7 +2101,7 @@ class TokyoNotes(Adw.Application):
                     text[len(prefix) : -len(suffix)] if suffix else text[len(prefix) :]
                 )
                 self.buffer.insert(start, unwrapped)
-                self._focus_text_view()
+                self._finish_format_action()
                 return
             self.buffer.delete(start, end)
             is_block = not suffix and prefix.rstrip() != prefix
@@ -2079,6 +2116,12 @@ class TokyoNotes(Adw.Application):
                 cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
                 cursor_iter.backward_chars(len(suffix))
                 self.buffer.place_cursor(cursor_iter)
+        self._finish_format_action()
+
+    def _finish_format_action(self) -> None:
+        """Reconcile GTK's final selection state after buffer replacements."""
+        if self.buffer.get_has_selection() != self._has_selection:
+            self._on_mark_set(self.buffer, None, self.buffer.get_insert())
         self._focus_text_view()
 
     def _unwrap_format(
@@ -3387,21 +3430,26 @@ class TokyoNotes(Adw.Application):
             setattr(self, attr, 0)
             GLib.source_remove(tid)
 
-    def _flush_pending_save(self) -> None:
+    def _flush_pending_save(self, commit_history: bool = True) -> None:
         """Write buffered changes to disk and cancel all pending timeouts."""
         for attr in (
             "rename_timeout_id",
             "sidebar_update_timeout_id",
             "highlight_timeout_id",
             "image_timeout_id",
+            "spell_check_timeout_id",
             "search_timeout_id",
             "_pending_highlight_id",
+            "_pending_marker_restore_id",
         ):
             self._safe_source_remove(attr)
+        self._pending_highlight_range = None
+        self._pending_highlight_neighbours = False
+        self._pending_spell_range = None
 
         se = getattr(self, "split_editor", None)
         if se is not None:
-            se.flush_saves()
+            se.flush_saves(commit_history=commit_history)
             return
 
         if self.current_note and self.current_note.startswith(".template:"):
@@ -3428,7 +3476,11 @@ class TokyoNotes(Adw.Application):
         if self.current_note:
             from core.services import save_note_content
 
-            content = strip_anchors_for_save(self.buffer)
+            content = (
+                strip_anchors_for_save(self.buffer)
+                if self._has_images
+                else self.editor.get_source_text()
+            )
             if content:
                 try:
                     save_note_content(
@@ -3439,6 +3491,11 @@ class TokyoNotes(Adw.Application):
                         notes_manager=self.notes_manager,
                         session_password_bytes=self._session_password_bytes,
                     )
+                    if commit_history:
+                        self.lifecycle._maybe_git_commit(
+                            self.current_note,
+                            immediate=True,
+                        )
                 except OSError as e:
                     logger.error("Critical save failure: %s", e)
                     self.show_export_dialog(
@@ -3454,10 +3511,35 @@ class TokyoNotes(Adw.Application):
                         is_error=True,
                     )
 
-    def _reschedule(self, timeout_attr: str, delay_ms: int, callback: Callable) -> None:
+    def _reschedule(
+        self,
+        timeout_attr: str,
+        delay_ms: int,
+        callback: Callable,
+        *,
+        priority: int = GLib.PRIORITY_DEFAULT,
+    ) -> None:
         """Cancel any pending GLib timeout and schedule a fresh one."""
         self._safe_source_remove(timeout_attr)
-        setattr(self, timeout_attr, GLib.timeout_add(delay_ms, callback))
+        setattr(
+            self,
+            timeout_attr,
+            GLib.timeout_add(delay_ms, callback, priority=priority),
+        )
+
+    def _queue_full_spell_check(self) -> None:
+        """Queue a safe full spell pass without forcing a Markdown retag."""
+        if not self.highlighter or not self.highlighter.spell_check_enabled:
+            return
+        total = self.buffer.get_line_count()
+        if total <= 0:
+            return
+        self._pending_spell_range = (0, total - 1)
+        self._reschedule(
+            "spell_check_timeout_id",
+            100,
+            self.lifecycle.do_delayed_spell_check,
+        )
 
     def _restart_telegram_bot(self) -> bool:
         """Debounced restart of the Telegram bot after token change."""
@@ -3750,9 +3832,9 @@ class TokyoNotes(Adw.Application):
 
         GTK crashes with 'byte index off the end of the line' when invisible-tagged
         text is present during mouse selection, because the Pango layout byte indices
-        diverge from the TextBuffer byte indices for invisible spans. We work around
-        this by stripping the invisible tag for the duration of any active selection
-        and restoring it (via a full highlight pass) the moment the selection clears.
+        diverge from the TextBuffer byte indices for invisible spans. Keep the tag
+        ranges intact but temporarily disable their invisible property while a
+        selection is active. This avoids rebuilding every marker when it clears.
         """
         if not self.highlighter or self.is_loading:
             return
@@ -3768,25 +3850,103 @@ class TokyoNotes(Adw.Application):
         self._has_selection = has_sel
 
         if has_sel:
-            # Selection just started: remove invisible tags so Pango and the
-            # btree stay in sync while the user drags. Skip entirely when no
-            # invisible tags are present (plain-text lines — the common case).
+            # selection_bound is the stationary end of the selection and thus
+            # the line whose markers were visible before the drag began.
+            selection_bound = buffer.get_iter_at_mark(buffer.get_selection_bound())
+            self._selection_marker_line = selection_bound.get_line()
             if self._has_invisible_tags:
-                self._has_invisible_tags = False
-                GLib.idle_add(self._deferred_remove_invisible, buffer)
+                self._set_invisible_markers_suspended(True)
         else:
-            # Selection cleared: restore the full render (invisible markers back).
-            # _has_invisible_tags will be set again by the highlight pass if needed.
-            GLib.idle_add(self._do_highlight)
+            self._set_invisible_markers_suspended(False)
+            # Only the old and new cursor lines need marker-state adjustments;
+            # all other invisible tag ranges remained attached to the buffer.
+            self._schedule_marker_restore()
+            if self._pending_highlight_range is not None:
+                self._reschedule(
+                    "highlight_timeout_id",
+                    5,
+                    self.do_delayed_highlight,
+                )
+            if self._pending_spell_range is not None:
+                self._reschedule(
+                    "spell_check_timeout_id",
+                    100,
+                    self.lifecycle.do_delayed_spell_check,
+                )
 
-    def _deferred_remove_invisible(self, buffer: Gtk.TextBuffer) -> bool:
-        if not self.highlighter:
+    @slow_callback("marker-visibility")
+    def _set_invisible_markers_suspended(self, suspended: bool) -> None:
+        if self._invisible_markers_suspended == suspended:
+            return
+        tag = self.buffer.get_tag_table().lookup("invisible")
+        if tag is not None:
+            tag.set_property("invisible", not suspended)
+        self._invisible_markers_suspended = suspended
+
+    @slow_callback("marker-restore-visible")
+    def _schedule_marker_restore(self) -> None:
+        if not self.highlighter or not self.current_note:
+            return
+        self._safe_source_remove("_pending_marker_restore_id")
+        cursor_line = self.buffer.get_iter_at_mark(self.buffer.get_insert()).get_line()
+        total = self.buffer.get_line_count()
+        if total <= 0:
+            return
+        lines: list[int] = []
+        previous_line = self._selection_marker_line
+        self._selection_marker_line = -1
+        if 0 <= previous_line < total and previous_line != cursor_line:
+            lines.append(previous_line)
+        if 0 <= cursor_line < total:
+            lines.append(cursor_line)
+        if lines:
+            self._pending_marker_restore_id = GLib.timeout_add(
+                5,
+                self._restore_marker_lines,
+                self.current_note,
+                tuple(lines),
+                cursor_line,
+            )
+
+    @slow_callback("marker-restore-line")
+    def _restore_marker_lines(
+        self,
+        expected_note: str,
+        lines: tuple[int, ...],
+        cursor_line: int,
+    ) -> bool:
+        self._pending_marker_restore_id = 0
+        if not self.highlighter or self.current_note != expected_note or not lines:
             return False
-        try:
-            start, end = buffer.get_bounds()
-            buffer.remove_tag_by_name("invisible", start, end)
-        except Exception:
-            logger.exception("_deferred_remove_invisible failed")
+        total = self.buffer.get_line_count()
+        line = lines[0]
+
+        # The formatting edit's changed signal can arrive after selection
+        # collapse. If this line is pending a full incremental retag, let that
+        # pass own it rather than performing the same layout work twice.
+        skip_line = False
+        if self._pending_highlight_range is not None:
+            padding = 1 if self._pending_highlight_neighbours else 0
+            skip_start = max(0, self._pending_highlight_range[0] - padding)
+            skip_end = min(total - 1, self._pending_highlight_range[1] + padding)
+            skip_line = skip_start <= line <= skip_end
+
+        if 0 <= line < total and not skip_line:
+            self.buffer.handler_block(self.changed_handler_id)
+            try:
+                self.highlighter.restore_marker_range(line, line + 1, cursor_line)
+            finally:
+                self.buffer.handler_unblock(self.changed_handler_id)
+
+        remaining = lines[1:]
+        if remaining:
+            self._pending_marker_restore_id = GLib.timeout_add(
+                5,
+                self._restore_marker_lines,
+                expected_note,
+                remaining,
+                cursor_line,
+            )
         return False
 
     def on_click_pressed(
@@ -3812,19 +3972,26 @@ class TokyoNotes(Adw.Application):
         else:
             GLib.idle_add(self._do_highlight)
 
+    @slow_callback("highlight-full")
     def _do_highlight(self) -> bool:
         if not self.highlighter or self.content_stack.get_visible_child_name() not in (
             "editor",
             "split_editor",
         ):
             return False
+        if self._has_selection or self.buffer.get_has_selection():
+            return False
         cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
         cursor_line = cursor_iter.get_line()
         self.highlighter.highlight(cursor_line=cursor_line)
+        self._pending_highlight_range = None
+        self._pending_highlight_neighbours = False
         self.last_cursor_line = cursor_line
-        self._apply_search_highlights(full_reset=False)
+        if self._sidebar_search_text:
+            self._apply_search_highlights(full_reset=False)
         return False
 
+    @slow_callback("highlight-incremental")
     def do_delayed_highlight(self) -> bool:
         """Re-highlight only the current line and neighbours (incremental)."""
         self.highlight_timeout_id = 0
@@ -3837,12 +4004,28 @@ class TokyoNotes(Adw.Application):
             return False
         if self.editor._image_update_running:
             return False
+        if self._has_selection or self.buffer.get_has_selection():
+            return False
+        dirty_range = self._pending_highlight_range
+        self._pending_highlight_range = None
+        include_neighbours = self._pending_highlight_neighbours
+        self._pending_highlight_neighbours = False
+        if dirty_range is None:
+            return False
         cursor_iter = self.buffer.get_iter_at_mark(self.buffer.get_insert())
         cursor_line = cursor_iter.get_line()
-        # Re-highlight current line ±1 to catch setext / list continuation effects.
+        # Only Markdown punctuation can affect an adjacent structural line.
         total = self.buffer.get_line_count()
-        start_line = max(0, cursor_line - 1)
-        end_line = min(total - 1, cursor_line + 1)
+        padding = 1 if include_neighbours else 0
+        start_line = max(0, dirty_range[0] - padding)
+        range_end = min(total - 1, dirty_range[1] + padding)
+        if start_line > range_end:
+            return False
+
+        # Apply one line at a time. GTK text-tag changes can invalidate layout,
+        # so even a small multi-line range can otherwise monopolise the main
+        # thread for well over a frame.
+        end_line = start_line
         self.buffer.handler_block(self.changed_handler_id)
         try:
             self.highlighter.highlight_line_range(
@@ -3851,7 +4034,21 @@ class TokyoNotes(Adw.Application):
         finally:
             self.buffer.handler_unblock(self.changed_handler_id)
         self.last_cursor_line = cursor_line
-        self._apply_search_highlights(full_reset=False)
+
+        if end_line < range_end:
+            self._pending_highlight_range = self.lifecycle._merge_line_range(
+                self._pending_highlight_range,
+                (end_line + 1, range_end),
+            )
+            self._reschedule(
+                "highlight_timeout_id",
+                5,
+                self.do_delayed_highlight,
+            )
+            return False
+
+        if self._sidebar_search_text:
+            self._apply_search_highlights(full_reset=False)
         fb = self.editor.find_bar
         if fb._visible and fb._find_results:
             fb._apply_highlights()
@@ -4017,7 +4214,7 @@ class TokyoNotes(Adw.Application):
             self._full_pass_complete = False
 
         if self.dashboard_view is not None:
-            self.nav.refresh_dashboard("today")
+            self.nav.refresh_dashboard()
 
         self._show_toast(tr("Task added to {note_name}").format(note_name=note_name))
 
@@ -4130,16 +4327,9 @@ class TokyoNotes(Adw.Application):
             )
             Thread(target=do_provision, daemon=True).start()
         else:
-            # Venv exists but may need updated packages. provision() is
-            # idempotent — pip install is a no-op when already satisfied.
-            def do_reprov():
-                try:
-                    provision()
-                except Exception as e:
-                    logger.error("Venv update failed: %s", e)
-                GLib.idle_add(self._download_speech_model)
-
-            Thread(target=do_reprov, daemon=True).start()
+            # A matching environment fingerprint means package provisioning
+            # has already succeeded for this app/Python dependency contract.
+            self._download_speech_model()
 
     def _on_venv_provisioned(self, dialog: Adw.MessageDialog) -> None:
         dialog.close()
@@ -4292,6 +4482,13 @@ def main() -> int:
     """Run the Tokyo Notes application and return a process exit code."""
     from core.logging_setup import configure_logging
 
+    app_argv = list(sys.argv)
+    if "--debug-performance" in app_argv:
+        from core.performance import enable_performance_logging
+
+        enable_performance_logging()
+        app_argv.remove("--debug-performance")
+
     configure_logging()
 
     lock = InstanceLock()
@@ -4308,7 +4505,7 @@ def main() -> int:
 
     try:
         app = TokyoNotes()
-        exit_code = app.run(sys.argv)
+        exit_code = app.run(app_argv)
     except KeyboardInterrupt:
         print("\nTokyo Notes: interrupted by user.", file=sys.stderr)
         exit_code = 130

@@ -26,6 +26,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 
+from core.performance import slow_callback
 from core.translations import tr
 from core.utils import (
     _FM_EMBED_KEY_RE,
@@ -260,9 +261,15 @@ class Editor(Gtk.Box):
         self._spell_updating: bool = False
         self._menu_update_pending: int = 0
         self._suggest_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._media_syntax_dirty: bool = False
+        self._image_reference_dirty: bool = False
+        self._source_text: str = ""
+        self._edit_line_range: tuple[int, int] | None = None
+        self._syntax_line_range: tuple[int, int] | None = None
 
         self.buffer: Gtk.TextBuffer = self.text_view.get_buffer()
         self.buffer.connect("insert-text", self.on_insert_text)
+        self.buffer.connect("delete-range", self._on_delete_range_for_media)
         self.changed_handler_id = self.buffer.connect("changed", on_text_changed)
         self.cursor_handler_id = self.buffer.connect(
             "notify::cursor-position", on_cursor_moved
@@ -305,6 +312,7 @@ class Editor(Gtk.Box):
             OrderedDict()
         )
         self._image_cache_lock = threading.RLock()
+        self._image_cache_inflight: set[str] = set()
         self._image_cache_max_bytes: int = 256 * 1024 * 1024  # 256 MB default budget
         self._image_cache_bytes: int = 0  # running decoded-pixel total
         self._last_image_text_hash: str = ""
@@ -458,8 +466,6 @@ class Editor(Gtk.Box):
         self.buffer.delete(start, end)
         self.buffer.insert(self.buffer.get_iter_at_offset(self._spell_offset), sug, -1)
         self.buffer.end_user_action()
-        if self.highlighter:
-            self.highlighter.highlight()
         self._on_spell_cursor_moved(self.buffer, None)
 
     def _on_spell_add_dict(
@@ -467,7 +473,7 @@ class Editor(Gtk.Box):
     ) -> None:
         if self.highlighter and self.highlighter.spell_checker:
             self.highlighter.spell_checker.add_to_user_dict(self._spell_word)
-            self.highlighter.highlight()
+            GLib.idle_add(self._refresh_current_spell_line)
         self._on_spell_cursor_moved(self.buffer, None)
 
     def _on_spell_ignore(
@@ -475,8 +481,18 @@ class Editor(Gtk.Box):
     ) -> None:
         if self.highlighter and self.highlighter.spell_checker:
             self.highlighter.spell_checker.ignore_word(self._spell_word)
-            self.highlighter.highlight()
+            GLib.idle_add(self._refresh_current_spell_line)
         self._on_spell_cursor_moved(self.buffer, None)
+
+    def _refresh_current_spell_line(self) -> bool:
+        """Refresh one line after a dictionary action without a full retag."""
+        if not self.highlighter or not self.highlighter.spell_check_enabled:
+            return GLib.SOURCE_REMOVE
+        cursor = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+        line = cursor.get_line()
+        code_lines = self.highlighter._code_block_line_set()
+        self.highlighter._spell_check_pass(line, line + 1, code_lines)
+        return GLib.SOURCE_REMOVE
 
     def clear_images(self) -> None:
         """Properly remove all image widgets and clear anchor/widget lists."""
@@ -1130,6 +1146,36 @@ class Editor(Gtk.Box):
         length: int,
     ) -> None:
         """Trigger pickers on '@', '[[' , '{{', '/'."""
+        start_line = location.get_line()
+        end_line = start_line + text.count("\n")
+        self._edit_line_range = self._merge_line_range(
+            self._edit_line_range, (start_line, end_line)
+        )
+        if any(ch in "#*_`~[!<>=|\\-+.:() \t\r\n" for ch in text):
+            self._syntax_line_range = self._merge_line_range(
+                self._syntax_line_range, (start_line, end_line)
+            )
+
+        offset = location.get_offset()
+        self._source_text = (
+            self._source_text[:offset] + text + self._source_text[offset:]
+        )
+
+        line_start = location.copy()
+        line_start.set_line_offset(0)
+        line_end = location.copy()
+        if not line_end.ends_line():
+            line_end.forward_to_line_end()
+        line_text = buffer.get_text(line_start, line_end, False)
+        line_offset = location.get_line_offset()
+        inserted_line = line_text[:line_offset] + text + line_text[line_offset:]
+        if "![" in text or "![" in inserted_line:
+            self._image_reference_dirty = True
+        if "![" in line_text or any(ch in text for ch in "![]()"):
+            self._media_syntax_dirty = True
+        elif location.get_line() < 10 and self.image_anchors:
+            self._media_syntax_dirty = True
+
         if self._picker_open:
             return
 
@@ -1170,6 +1216,76 @@ class Editor(Gtk.Box):
                 if prev_char and prev_char[0] in (" ", "\t", "\n", ""):
                     self._picker_open = True
                     GLib.idle_add(self.show_slash_picker)
+
+    def _on_delete_range_for_media(
+        self,
+        buffer: Gtk.TextBuffer,
+        start: Gtk.TextIter,
+        end: Gtk.TextIter,
+    ) -> None:
+        start_line_num = start.get_line()
+        affected = (start_line_num, start_line_num)
+        self._edit_line_range = self._merge_line_range(self._edit_line_range, affected)
+        # Any deletion can expose a Markdown marker that was previously split.
+        self._syntax_line_range = self._merge_line_range(
+            self._syntax_line_range, affected
+        )
+        start_offset = start.get_offset()
+        end_offset = end.get_offset()
+        self._source_text = (
+            self._source_text[:start_offset] + self._source_text[end_offset:]
+        )
+
+        line_start = start.copy()
+        line_start.set_line_offset(0)
+        line_end = end.copy()
+        if not line_end.ends_line():
+            line_end.forward_to_line_end()
+        deleted_lines = buffer.get_text(line_start, line_end, False)
+        if "![" in deleted_lines or (start.get_line() < 10 and self.image_anchors):
+            self._media_syntax_dirty = True
+
+    def consume_media_syntax_dirty(self) -> bool:
+        dirty = self._media_syntax_dirty
+        self._media_syntax_dirty = False
+        return dirty
+
+    def consume_image_reference_dirty(self) -> bool:
+        """Return whether an edit inserted a possible Markdown image reference."""
+        dirty = self._image_reference_dirty
+        self._image_reference_dirty = False
+        return dirty
+
+    @staticmethod
+    def _merge_line_range(
+        current: tuple[int, int] | None,
+        added: tuple[int, int],
+    ) -> tuple[int, int]:
+        if current is None:
+            return added
+        return min(current[0], added[0]), max(current[1], added[1])
+
+    def consume_edit_ranges(
+        self,
+    ) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
+        """Return and clear text/syntax ranges collected by edit signals."""
+        edit_range = self._edit_line_range
+        syntax_range = self._syntax_line_range
+        self._edit_line_range = None
+        self._syntax_line_range = None
+        return edit_range, syntax_range
+
+    def reset_source_text(self, content: str) -> None:
+        """Reset the anchor-free source cache after replacing the buffer."""
+        self._source_text = content
+        self._edit_line_range = None
+        self._syntax_line_range = None
+        self._media_syntax_dirty = False
+        self._image_reference_dirty = False
+
+    def get_source_text(self) -> str:
+        """Return cached Markdown source for notes without rendered anchors."""
+        return self._source_text
 
     # Picker helpers
 
@@ -1968,8 +2084,8 @@ class Editor(Gtk.Box):
         The budget is self._image_cache_max_bytes (default 256 MB).  Each
         entry's byte cost is width × height × 4 (RGBA).
         """
-        self._image_cache_bytes += new_bytes
         with self._image_cache_lock:
+            self._image_cache_bytes += new_bytes
             while (
                 self._image_cache_bytes > self._image_cache_max_bytes
                 and self._image_pixbuf_cache
@@ -1978,25 +2094,31 @@ class Editor(Gtk.Box):
                 evicted = _pb.get_width() * _pb.get_height() * 4
                 self._image_cache_bytes = max(0, self._image_cache_bytes - evicted)
 
-    def _warm_image_cache(self, notes_dir: Path) -> None:
+    def _warm_image_cache(self, notes_dir: Path, app_width: int = 0) -> None:
         """Pre-decode images referenced in the current buffer in a daemon thread.
 
         Scans the buffer for ``![...](...)`` references, identifies which paths
-        are not yet in the pixbuf cache, and schedules them for decode on the
-        main thread. By the time ``update_images()`` fires (2-second debounce),
-        the cache is warm and the main-thread render costs only widget
-        attachment, not decode.
+        are not yet in the pixbuf cache, and decodes them away from GTK's main
+        thread. By the time ``update_images()`` fires, the main-thread render
+        normally only has to attach widgets.
         """
         start, end = self.buffer.get_bounds()
         text = self.buffer.get_text(start, end, True)
-        from core.utils import MD_URL_BALANCED
-
         image_re = re.compile(r"!\[([^\]]*)\]\((" + MD_URL_BALANCED + r")\)")
-        paths_to_warm: list[Path] = []
+        paths_to_warm: list[tuple[Path, int, str]] = []
         editor_width = self.text_view.get_allocated_width() or 800
-        load_res = min(int(editor_width * 0.47), 700) * 2
+
+        fmt = _FM_EMBED_KEY_RE.search(text)
+        doc_hint = fmt.group(1) if fmt else None
+        doc_width: int | None = None
+        if doc_hint is not None:
+            try:
+                doc_width = int(doc_hint)
+            except ValueError:
+                doc_width = {"small": 300, "medium": 600}.get(doc_hint)
 
         for match in image_re.finditer(text):
+            _clean_alt, width_hint, _height_hint = parse_embed_hint(match.group(1))
             img_path = match.group(2)
             if img_path.startswith(("http://", "https://")):
                 continue
@@ -2004,21 +2126,36 @@ class Editor(Gtk.Box):
             if clean.lower().endswith(".pdf"):
                 continue
             full_path = resolve_image_path(notes_dir, img_path)
-            if full_path is None or not full_path.exists():
+            if full_path is None or not full_path.is_file():
                 continue
+            embed_width = resolve_embed_width(
+                width_hint,
+                doc_width,
+                app_width,
+                editor_width,
+            )
+            load_res = embed_width * 2
             key = f"{full_path.resolve()}:{load_res}x{load_res}"
             with self._image_cache_lock:
-                if key not in self._image_pixbuf_cache:
-                    paths_to_warm.append(full_path)
+                if (
+                    key not in self._image_pixbuf_cache
+                    and key not in self._image_cache_inflight
+                ):
+                    self._image_cache_inflight.add(key)
+                    paths_to_warm.append((full_path, load_res, key))
 
         if not paths_to_warm:
             return
 
-        def _schedule() -> None:
-            for path in paths_to_warm:
-                GLib.idle_add(self._load_image_pixbuf, path, load_res, load_res)
+        def _decode() -> None:
+            for path, load_res, key in paths_to_warm:
+                try:
+                    self._load_image_pixbuf(path, load_res, load_res)
+                finally:
+                    with self._image_cache_lock:
+                        self._image_cache_inflight.discard(key)
 
-        threading.Thread(target=_schedule, daemon=True).start()
+        threading.Thread(target=_decode, daemon=True).start()
 
     def _load_image_pixbuf(
         self, full_path: Path, max_w: int = 800, max_h: int = 800
@@ -2091,6 +2228,7 @@ class Editor(Gtk.Box):
         self._finish_image_update()
         return False
 
+    @slow_callback("media-refresh")
     def update_images(
         self,
         notes_dir: Path,
@@ -2208,7 +2346,7 @@ class Editor(Gtk.Box):
                             self._download_remote_image(img_path, cache_path)
                     else:
                         full_path = resolve_image_path(notes_dir, img_path)
-                        if full_path is not None and full_path.exists():
+                        if full_path is not None and full_path.is_file():
                             pixbuf = self._load_image_pixbuf(
                                 full_path, load_res, load_res
                             )
@@ -2247,13 +2385,16 @@ class Editor(Gtk.Box):
                     self.buffer.handler_unblock(self.cursor_handler_id)
                 self.buffer.handler_unblock(self.changed_handler_id)
 
-            GLib.idle_add(self._finish_image_update)
+            GLib.timeout_add(1, self._finish_image_update)
         except Exception:
             logger.exception("update_images: unhandled error")
             self._image_update_running = False
 
     def _finish_image_update(self) -> bool:
         self._image_update_running = False
+        # Ignore edit signals generated by inserting/removing render anchors.
+        self._media_syntax_dirty = False
+        self._image_reference_dirty = False
         cb = self._image_update_done_callback
         self._image_update_done_callback = None
         if cb:
